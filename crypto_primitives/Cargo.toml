@@ -1,0 +1,10 @@
+[package]
+name = "crypto_primitives"
+version = "0.1.0"
+authors = ["Nirvan Tyagi <nirvan.tyagi@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives"}
