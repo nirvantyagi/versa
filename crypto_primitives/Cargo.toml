@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives"}
+algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ] }
+rand = { version = "0.7" }
