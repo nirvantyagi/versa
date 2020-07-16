@@ -9,4 +9,6 @@ edition = "2018"
 [dependencies]
 zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives"}
 algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ] }
+r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core" }
+r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std" }
 rand = { version = "0.7" }

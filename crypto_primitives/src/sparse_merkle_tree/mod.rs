@@ -11,6 +11,8 @@ use std::{
     marker::PhantomData,
 };
 
+pub mod constraints;
+
 
 // Tips on optimizing implementation: https://ethresear.ch/t/optimizing-sparse-merkle-trees/3751/5
 
@@ -19,7 +21,7 @@ pub type MerkleIndex = u64;
 pub const MAX_DEPTH: u8 = 64;
 
 // TODO: Add const hash parameters
-pub trait SparseMerkleTreeParameters {
+pub trait MerkleTreeParameters {
     const DEPTH: MerkleDepth;
 
     fn is_valid(&self) -> Result<bool, Error> {
@@ -30,20 +32,20 @@ pub trait SparseMerkleTreeParameters {
     }
 }
 
-pub struct SparseMerkleHashTree<H: FixedLengthCRH, P: SparseMerkleTreeParameters> {
+pub struct SparseMerkleHashTree<H: FixedLengthCRH, P: MerkleTreeParameters> {
     tree: HashMap<(MerkleDepth, MerkleIndex), H::Output>,
     pub root: H::Output,
     sparse_initial_hashes: Vec<H::Output>,
     hash_parameters: H::Parameters,
-    phantom: PhantomData<P>,
+    _parameters: PhantomData<P>,
 }
 
-pub struct MerkleHashTreePath<H: FixedLengthCRH, P: SparseMerkleTreeParameters> {
+pub struct MerkleHashTreePath<H: FixedLengthCRH, P: MerkleTreeParameters> {
     path: Vec<H::Output>,
-    phantom: PhantomData<P>,
+    _parameters: PhantomData<P>,
 }
 
-impl<H: FixedLengthCRH, P: SparseMerkleTreeParameters> SparseMerkleHashTree<H, P> {
+impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleHashTree<H, P> {
 
     pub fn new(
         initial_leaf_value: &[u8],
@@ -64,7 +66,7 @@ impl<H: FixedLengthCRH, P: SparseMerkleTreeParameters> SparseMerkleHashTree<H, P
                 root: sparse_initial_hashes[0].clone(),
                 sparse_initial_hashes: sparse_initial_hashes,
                 hash_parameters: hash_parameters,
-                phantom: PhantomData,
+                _parameters: PhantomData,
             }
         )
     }
@@ -95,7 +97,6 @@ impl<H: FixedLengthCRH, P: SparseMerkleTreeParameters> SparseMerkleHashTree<H, P
         Ok(self)
     }
 
-    // TODO: Don't need to return on-path hashes as part of proof since they can be calculated
     pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleHashTreePath<H, P>, Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
@@ -111,12 +112,12 @@ impl<H: FixedLengthCRH, P: SparseMerkleTreeParameters> SparseMerkleHashTree<H, P
             path.push(sibling_hash);
             i >>= 1;
         }
-        Ok(MerkleHashTreePath{ path, phantom: PhantomData })
+        Ok(MerkleHashTreePath{ path, _parameters: PhantomData })
     }
 }
 
 
-impl<H: FixedLengthCRH, P: SparseMerkleTreeParameters> MerkleHashTreePath<H, P> {
+impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleHashTreePath<H, P> {
 
     pub fn verify(
         &self,
@@ -210,13 +211,13 @@ mod tests {
     #[derive(Clone)]
     pub struct JubJubHeight8;
 
-    impl SparseMerkleTreeParameters for JubJubHeight8 {
+    impl MerkleTreeParameters for JubJubHeight8 {
         const DEPTH: MerkleDepth = 8;
     }
 
     pub struct JubJubHeight1;
 
-    impl SparseMerkleTreeParameters for JubJubHeight1 {
+    impl MerkleTreeParameters for JubJubHeight1 {
         const DEPTH: MerkleDepth = 1;
     }
 
