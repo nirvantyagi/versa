@@ -11,6 +11,8 @@ use std::{
     marker::PhantomData,
 };
 
+use crate::Error;
+
 pub mod constraints;
 
 
@@ -24,7 +26,7 @@ pub const MAX_DEPTH: u8 = 64;
 pub trait MerkleTreeParameters {
     const DEPTH: MerkleDepth;
 
-    fn is_valid(&self) -> Result<bool, Error> {
+    fn is_valid() -> Result<bool, Error> {
         if Self::DEPTH < 1 || Self::DEPTH > MAX_DEPTH {
             return Err(Box::new(MerkleTreeError::TreeDepth(Self::DEPTH)));
         }
@@ -120,18 +122,17 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
 
 impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleTreePath<H, P> {
 
-    pub fn verify(
+    pub fn compute_root(
         &self,
-        root: &H::Output,
         leaf: &[u8],
         index: MerkleIndex,
         hash_parameters: &H::Parameters,
-    ) -> Result<bool, Error> {
+    ) -> Result<H::Output, Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
         if self.path.len() != P::DEPTH as usize {
-            return Ok(false)
+            return Err(Box::new(MerkleTreeError::TreeDepth(self.path.len() as u8)));
         }
 
         let mut i = index;
@@ -144,7 +145,17 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleTreePath<H, P> {
             };
             i >>= 1;
         }
-        Ok(current_hash == *root)
+        Ok(current_hash)
+    }
+
+    pub fn verify(
+        &self,
+        root: &H::Output,
+        leaf: &[u8],
+        index: MerkleIndex,
+        hash_parameters: &H::Parameters,
+    ) -> Result<bool, Error> {
+        Ok(self.compute_root(leaf, index, hash_parameters)? == *root)
     }
 
 }
@@ -167,8 +178,6 @@ pub fn hash_inner_node<H: FixedLengthCRH>(
     right.write(&mut writer)?;
     H::evaluate(&parameters, &buffer[..(H::INPUT_SIZE_BITS / 8)])
 }
-
-pub type Error = Box<dyn ErrorTrait>;
 
 #[derive(Debug)]
 pub enum MerkleTreeError {
