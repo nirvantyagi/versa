@@ -249,7 +249,7 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
         }
 
         let mut current_digest = prev_digest.clone();
-        for upd_i in 0..proof.paths.len() {
+        let update_paths_valid = (0..proof.paths.len()).map(|upd_i| {
             let prev_k = if proof.versions[upd_i] == 0 { Default::default() } else { proof.keys[upd_i] };
             let preupdate_path_valid =  proof.paths[upd_i].verify(
                 &current_digest,
@@ -262,10 +262,10 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
                 proof.indices[upd_i],
                 pp,
             )?;
-            if !preupdate_path_valid { return Ok(false) }
-        }
+            Ok(preupdate_path_valid)
+        }).collect::<Result<Vec<bool>, Error>>()?.iter().all(|b| *b);
 
-        Ok(current_digest == *new_digest)
+        Ok(current_digest == *new_digest && update_paths_valid)
     }
 }
 
