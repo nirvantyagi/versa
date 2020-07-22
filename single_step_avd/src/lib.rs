@@ -2,7 +2,6 @@ use algebra::bytes::ToBytes;
 use rand::Rng;
 use std::error::Error as ErrorTrait;
 
-pub mod history_tree;
 pub mod merkle_tree_avd;
 
 pub type Error = Box<dyn ErrorTrait>;
@@ -19,11 +18,21 @@ pub trait SingleStepAVD: Sized {
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 
-    fn lookup(&self, key: &[u8; 32]) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
+    fn lookup(
+        &self,
+        key: &[u8; 32],
+    ) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 
-    fn update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::UpdateProof), Error>;
+    fn update(
+        &mut self,
+        key: &[u8; 32],
+        value: &[u8; 32],
+    ) -> Result<(Self::Digest, Self::UpdateProof), Error>;
 
-    fn batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::UpdateProof), Error>;
+    fn batch_update(
+        &mut self,
+        kvs: &Vec<([u8; 32], [u8; 32])>,
+    ) -> Result<(Self::Digest, Self::UpdateProof), Error>;
 
     fn verify_update(
         pp: &Self::PublicParameters,

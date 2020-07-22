@@ -1,26 +1,12 @@
-use zexe_cp::crh::FixedLengthCRH;
 use rand::Rng;
-use sha3::{
-    Sha3_256,
-    digest::Digest,
-};
+use sha3::{digest::Digest, Sha3_256};
+use zexe_cp::crh::FixedLengthCRH;
 
-use std::{
-    collections::HashMap,
-    error::Error as ErrorTrait,
-    fmt,
-};
+use std::{collections::HashMap, error::Error as ErrorTrait, fmt};
 
+use crate::{Error, SingleStepAVD};
 use crypto_primitives::sparse_merkle_tree::{
-    SparseMerkleTree,
-    MerkleTreeParameters,
-    MerkleTreePath,
-    MerkleIndex,
-    MerkleDepth,
-};
-use crate::{
-    Error,
-    SingleStepAVD,
+    MerkleDepth, MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
 };
 
 pub trait MerkleTreeAVDParameters {
@@ -33,7 +19,6 @@ pub trait MerkleTreeAVDParameters {
         Self::MerkleTreeParameters::is_valid()
     }
 }
-
 
 pub struct MerkleTreeAVD<H: FixedLengthCRH, P: MerkleTreeAVDParameters> {
     tree: SparseMerkleTree<H, P::MerkleTreeParameters>,
@@ -94,35 +79,37 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
 
     fn new<R: Rng>(_rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        Ok(
-            MerkleTreeAVD {
-                tree: SparseMerkleTree::new(&initial_leaf, pp.clone())?,
-                key_d: HashMap::new(),
-                index_d: HashMap::new(),
-            }
-        )
+        Ok(MerkleTreeAVD {
+            tree: SparseMerkleTree::new(&initial_leaf, pp.clone())?,
+            key_d: HashMap::new(),
+            index_d: HashMap::new(),
+        })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
         Ok(self.tree.root.clone())
     }
 
-    fn lookup(&self, key: &[u8; 32]) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
+    fn lookup(
+        &self,
+        key: &[u8; 32],
+    ) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (probe, lookup_value) = match self.key_d.get(key) {
-            Some((probe, version, val)) => {
-                (*probe, Some((*version, val.clone())))
-            }
+            Some((probe, version, val)) => (*probe, Some((*version, val.clone()))),
             None => {
                 // Find the first unpopulated index in probe sequence
-                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(
-                    |i| self.index_d.get(&hash_to_index(key, *i, P::MerkleTreeParameters::DEPTH)) == None
-                ) {
+                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
+                    self.index_d
+                        .get(&hash_to_index(key, *i, P::MerkleTreeParameters::DEPTH))
+                        == None
+                }) {
                     Some(unpopulated_probe) => (unpopulated_probe, None),
                     None => return Err(Box::new(MerkleTreeAVDError::OpenAddressingOverflow(*key))),
                 }
             }
         };
-        let (mut paths, mut keys, mut versions, mut values) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut paths, mut keys, mut versions, mut values) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for p in 0..probe {
             let i = hash_to_index(key, p, P::MerkleTreeParameters::DEPTH);
             let k = self.index_d.get(&i).unwrap().clone();
@@ -133,38 +120,56 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
             versions.push(version);
             values.push(val);
         }
-        paths.push(self.tree.lookup(hash_to_index(key, probe, P::MerkleTreeParameters::DEPTH))?);
+        paths.push(
+            self.tree
+                .lookup(hash_to_index(key, probe, P::MerkleTreeParameters::DEPTH))?,
+        );
         Ok((
             lookup_value,
             self.tree.root.clone(),
-            LookupProof { paths, keys, versions, values }
+            LookupProof {
+                paths,
+                keys,
+                versions,
+                values,
+            },
         ))
     }
 
-    fn update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::UpdateProof), Error> {
+    fn update(
+        &mut self,
+        key: &[u8; 32],
+        value: &[u8; 32],
+    ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
         let (probe, version, prev_value) = match self.key_d.get(key) {
-            Some((probe, version, val)) => {
-                (*probe, *version, val.clone())
-            }
+            Some((probe, version, val)) => (*probe, *version, val.clone()),
             None => {
                 // Find the first unpopulated index in probe sequence
-                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(
-                    |i| self.index_d.get(&hash_to_index(key, *i, P::MerkleTreeParameters::DEPTH)) == None
-                ) {
+                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
+                    self.index_d
+                        .get(&hash_to_index(key, *i, P::MerkleTreeParameters::DEPTH))
+                        == None
+                }) {
                     Some(unpopulated_probe) => (unpopulated_probe, 0, Default::default()),
                     None => return Err(Box::new(MerkleTreeAVDError::OpenAddressingOverflow(*key))),
                 }
             }
         };
         let i = hash_to_index(key, probe, P::MerkleTreeParameters::DEPTH);
-        self.tree.update(i, &concat_leaf_data(key, version + 1, value))?;
-        self.key_d.insert(key.clone(), (probe, version + 1, value.clone()));
+        self.tree
+            .update(i, &concat_leaf_data(key, version + 1, value))?;
+        self.key_d
+            .insert(key.clone(), (probe, version + 1, value.clone()));
         self.index_d.entry(i).or_insert_with(|| key.clone());
 
         Ok((
             self.tree.root.clone(),
             UpdateProof {
-                paths: vec![self.tree.lookup(hash_to_index(key, probe, P::MerkleTreeParameters::DEPTH))?],
+                paths: vec![self.tree.lookup(hash_to_index(
+                    key,
+                    probe,
+                    P::MerkleTreeParameters::DEPTH,
+                ))?],
                 indices: vec![i],
                 keys: vec![key.clone()],
                 versions: vec![version],
@@ -174,10 +179,15 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
         ))
     }
 
-    fn batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::UpdateProof), Error> {
-        let update_proof = kvs.iter()
+    fn batch_update(
+        &mut self,
+        kvs: &Vec<([u8; 32], [u8; 32])>,
+    ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
+        let update_proof = kvs
+            .iter()
             .map(|(k, v)| self.update(k, v))
-            .collect::<Result<Vec<(Self::Digest, Self::UpdateProof)>, Error>>()?.iter()
+            .collect::<Result<Vec<(Self::Digest, Self::UpdateProof)>, Error>>()?
+            .iter()
             .fold(
                 UpdateProof {
                     paths: Vec::new(),
@@ -192,15 +202,25 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
                     acc_proof.indices.push(single_proof.1.indices[0]);
                     acc_proof.keys.push(single_proof.1.keys[0].clone());
                     acc_proof.versions.push(single_proof.1.versions[0]);
-                    acc_proof.prev_values.push(single_proof.1.prev_values[0].clone());
-                    acc_proof.new_values.push(single_proof.1.new_values[0].clone());
+                    acc_proof
+                        .prev_values
+                        .push(single_proof.1.prev_values[0].clone());
+                    acc_proof
+                        .new_values
+                        .push(single_proof.1.new_values[0].clone());
                     acc_proof
                 },
             );
         Ok((self.tree.root.clone(), update_proof))
     }
 
-    fn verify_lookup(pp: &Self::PublicParameters, key: &[u8; 32], value: &Option<(u32, [u8; 32])>, digest: &Self::Digest, proof: &Self::LookupProof) -> Result<bool, Error> {
+    fn verify_lookup(
+        pp: &Self::PublicParameters,
+        key: &[u8; 32],
+        value: &Option<(u32, [u8; 32])>,
+        digest: &Self::Digest,
+        proof: &Self::LookupProof,
+    ) -> Result<bool, Error> {
         if proof.paths.len() == 0
             || proof.keys.len() != proof.paths.len() - 1
             || proof.versions.len() != proof.paths.len() - 1
@@ -209,35 +229,54 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
             return Err(Box::new(MerkleTreeAVDError::ProofFormat));
         }
 
-        let skipped_probes_valid = (0..proof.paths.len() - 1).map(|probe| {
-            Ok(
-                (proof.versions[probe] > 0)
-                && proof.paths[probe].verify(
-                    digest,
-                    &concat_leaf_data(&proof.keys[probe], proof.versions[probe], &proof.values[probe]),
-                    hash_to_index(key, probe as u32, P::MerkleTreeParameters::DEPTH),
-                    pp,
-                )?
-            )
-        }).collect::<Result<Vec<bool>, Error>>()?.iter().all(|b| *b);
+        let skipped_probes_valid = (0..proof.paths.len() - 1)
+            .map(|probe| {
+                Ok((proof.versions[probe] > 0)
+                    && proof.paths[probe].verify(
+                        digest,
+                        &concat_leaf_data(
+                            &proof.keys[probe],
+                            proof.versions[probe],
+                            &proof.values[probe],
+                        ),
+                        hash_to_index(key, probe as u32, P::MerkleTreeParameters::DEPTH),
+                        pp,
+                    )?)
+            })
+            .collect::<Result<Vec<bool>, Error>>()?
+            .iter()
+            .all(|b| *b);
         let last_probe_valid = match value {
             Some((version, val)) => proof.paths.last().unwrap().verify(
                 digest,
                 &concat_leaf_data(key, *version, val),
-                hash_to_index(key, (proof.paths.len() - 1) as u32, P::MerkleTreeParameters::DEPTH),
+                hash_to_index(
+                    key,
+                    (proof.paths.len() - 1) as u32,
+                    P::MerkleTreeParameters::DEPTH,
+                ),
                 pp,
             )?,
             None => proof.paths.last().unwrap().verify(
                 digest,
                 &concat_leaf_data(&Default::default(), 0, &Default::default()),
-                hash_to_index(key, (proof.paths.len() - 1) as u32, P::MerkleTreeParameters::DEPTH),
+                hash_to_index(
+                    key,
+                    (proof.paths.len() - 1) as u32,
+                    P::MerkleTreeParameters::DEPTH,
+                ),
                 pp,
             )?,
         };
         Ok(skipped_probes_valid && last_probe_valid)
     }
 
-    fn verify_update(pp: &Self::PublicParameters, prev_digest: &Self::Digest, new_digest: &Self::Digest, proof: &Self::UpdateProof) -> Result<bool, Error> {
+    fn verify_update(
+        pp: &Self::PublicParameters,
+        prev_digest: &Self::Digest,
+        new_digest: &Self::Digest,
+        proof: &Self::UpdateProof,
+    ) -> Result<bool, Error> {
         if proof.paths.len() == 0
             || proof.indices.len() != proof.paths.len()
             || proof.keys.len() != proof.paths.len()
@@ -249,33 +288,55 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTree
         }
 
         let mut current_digest = prev_digest.clone();
-        let update_paths_valid = (0..proof.paths.len()).map(|upd_i| {
-            let prev_k = if proof.versions[upd_i] == 0 { Default::default() } else { proof.keys[upd_i] };
-            let preupdate_path_valid =  proof.paths[upd_i].verify(
-                &current_digest,
-                &concat_leaf_data(&prev_k, proof.versions[upd_i], &proof.prev_values[upd_i]),
-                proof.indices[upd_i],
-                pp,
-            )?;
-            current_digest = proof.paths[upd_i].compute_root(
-                &concat_leaf_data(&proof.keys[upd_i], proof.versions[upd_i] + 1, &proof.new_values[upd_i]),
-                proof.indices[upd_i],
-                pp,
-            )?;
-            Ok(preupdate_path_valid)
-        }).collect::<Result<Vec<bool>, Error>>()?.iter().all(|b| *b);
+        let update_paths_valid = (0..proof.paths.len())
+            .map(|upd_i| {
+                let prev_k = if proof.versions[upd_i] == 0 {
+                    Default::default()
+                } else {
+                    proof.keys[upd_i]
+                };
+                let preupdate_path_valid = proof.paths[upd_i].verify(
+                    &current_digest,
+                    &concat_leaf_data(&prev_k, proof.versions[upd_i], &proof.prev_values[upd_i]),
+                    proof.indices[upd_i],
+                    pp,
+                )?;
+                current_digest = proof.paths[upd_i].compute_root(
+                    &concat_leaf_data(
+                        &proof.keys[upd_i],
+                        proof.versions[upd_i] + 1,
+                        &proof.new_values[upd_i],
+                    ),
+                    proof.indices[upd_i],
+                    pp,
+                )?;
+                Ok(preupdate_path_valid)
+            })
+            .collect::<Result<Vec<bool>, Error>>()?
+            .iter()
+            .all(|b| *b);
 
         Ok(current_digest == *new_digest && update_paths_valid)
     }
 }
 
 fn concat_leaf_data(key: &[u8; 32], version: u32, value: &[u8; 32]) -> Vec<u8> {
-    key.iter().chain(&version.to_be_bytes()).chain(value).cloned().collect()
+    key.iter()
+        .chain(&version.to_be_bytes())
+        .chain(value)
+        .cloned()
+        .collect()
 }
 
 fn hash_to_index(key: &[u8; 32], probe: u32, depth: MerkleDepth) -> u64 {
     let mut y: [u8; 8] = Default::default();
-    y.copy_from_slice(&Sha3_256::new().chain(key).chain(&probe.to_be_bytes()).finalize().as_slice()[0..8]);
+    y.copy_from_slice(
+        &Sha3_256::new()
+            .chain(key)
+            .chain(&probe.to_be_bytes())
+            .finalize()
+            .as_slice()[0..8],
+    );
     u64::from_be_bytes(y) % (1_u64 << (depth as u64))
 }
 
@@ -287,13 +348,17 @@ pub enum MerkleTreeAVDError {
 }
 
 impl ErrorTrait for MerkleTreeAVDError {
-    fn source(self: &Self) -> Option<&(dyn ErrorTrait + 'static)> { None }
+    fn source(self: &Self) -> Option<&(dyn ErrorTrait + 'static)> {
+        None
+    }
 }
 
 impl fmt::Display for MerkleTreeAVDError {
     fn fmt(self: &Self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
-            MerkleTreeAVDError::OpenAddressingOverflow(k) => format!("all open addressing probes populated for key: {:?}", k),
+            MerkleTreeAVDError::OpenAddressingOverflow(k) => {
+                format!("all open addressing probes populated for key: {:?}", k)
+            }
             MerkleTreeAVDError::UpdateBatchSize(s) => format!("surpassed max batch size: {}", s),
             MerkleTreeAVDError::ProofFormat => "invalid proof format".to_string(),
         };
@@ -301,19 +366,15 @@ impl fmt::Display for MerkleTreeAVDError {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use zexe_cp::{
-        crh::{
-            pedersen::{PedersenCRH, PedersenWindow},
-            FixedLengthCRH,
-        },
+    use algebra::ed_on_bls12_381::EdwardsAffine as JubJub;
+    use rand::{rngs::StdRng, SeedableRng};
+    use zexe_cp::crh::{
+        pedersen::{PedersenCRH, PedersenWindow},
+        FixedLengthCRH,
     };
-    use algebra::ed_on_bls12_381::{EdwardsAffine as JubJub};
-    use rand::{SeedableRng, rngs::StdRng};
-
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -350,12 +411,10 @@ mod test {
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
-        assert!(TestMerkleTreeAVD::verify_update(
-            &crh_parameters,
-            &digest_0,
-            &digest_1,
-            &proof,
-        ).unwrap());
+        assert!(
+            TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_0, &digest_1, &proof,)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -365,12 +424,10 @@ mod test {
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
-        assert!(!TestMerkleTreeAVD::verify_update(
-            &crh_parameters,
-            &digest_1,
-            &digest_1,
-            &proof,
-        ).unwrap());
+        assert!(
+            !TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_1, &digest_1, &proof,)
+                .unwrap()
+        );
         let mut proof_maul_key = proof.clone();
         proof_maul_key.keys[0] = [10_u8; 32];
         assert!(!TestMerkleTreeAVD::verify_update(
@@ -378,31 +435,35 @@ mod test {
             &digest_0,
             &digest_1,
             &proof_maul_key,
-        ).unwrap());
-        let mut proof_maul_index= proof.clone();
+        )
+        .unwrap());
+        let mut proof_maul_index = proof.clone();
         proof_maul_index.indices[0] = 12;
         assert!(!TestMerkleTreeAVD::verify_update(
             &crh_parameters,
             &digest_0,
             &digest_1,
             &proof_maul_index,
-        ).unwrap());
-        let mut proof_maul_version= proof.clone();
+        )
+        .unwrap());
+        let mut proof_maul_version = proof.clone();
         proof_maul_version.versions[0] = 1;
         assert!(!TestMerkleTreeAVD::verify_update(
             &crh_parameters,
             &digest_0,
             &digest_1,
             &proof_maul_version,
-        ).unwrap());
-        let mut proof_maul_value= proof.clone();
+        )
+        .unwrap());
+        let mut proof_maul_value = proof.clone();
         proof_maul_value.new_values[0] = [0_u8; 32];
         assert!(!TestMerkleTreeAVD::verify_update(
             &crh_parameters,
             &digest_0,
             &digest_1,
             &proof_maul_value,
-        ).unwrap());
+        )
+        .unwrap());
     }
 
     #[test]
@@ -410,15 +471,17 @@ mod test {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
-        let updates = vec![([1_u8; 32], [2_u8; 32]), ([1_u8; 32], [3_u8; 32]), ([10_u8; 32], [11_u8; 32])];
+        let updates = vec![
+            ([1_u8; 32], [2_u8; 32]),
+            ([1_u8; 32], [3_u8; 32]),
+            ([10_u8; 32], [11_u8; 32]),
+        ];
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.batch_update(&updates).unwrap();
-        assert!(TestMerkleTreeAVD::verify_update(
-            &crh_parameters,
-            &digest_0,
-            &digest_1,
-            &proof,
-        ).unwrap());
+        assert!(
+            TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_0, &digest_1, &proof,)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -434,7 +497,8 @@ mod test {
             &value,
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value.unwrap(), (1, [2_u8; 32]));
     }
 
@@ -451,7 +515,8 @@ mod test {
             &value,
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
         assert!(value.is_none());
     }
 
@@ -468,7 +533,8 @@ mod test {
             &value_1,
             &digest_1,
             &proof_1,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value_1.unwrap(), (1, [2_u8; 32]));
         assert!(avd.update(&[1_u8; 32], &[3_u8; 32]).is_ok());
         let (value_2, digest_2, proof_2) = avd.lookup(&[1_u8; 32]).unwrap();
@@ -478,7 +544,8 @@ mod test {
             &value_2,
             &digest_2,
             &proof_2,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value_2.unwrap(), (2, [3_u8; 32]));
     }
 
@@ -495,7 +562,8 @@ mod test {
             &value,
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value.unwrap(), (1, [2_u8; 32]));
         assert!(!TestMerkleTreeAVD::verify_lookup(
             &crh_parameters,
@@ -503,21 +571,24 @@ mod test {
             &None,
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
         assert!(!TestMerkleTreeAVD::verify_lookup(
             &crh_parameters,
             &[1_u8; 32],
             &Some((2, [2_u8; 32])),
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
         assert!(!TestMerkleTreeAVD::verify_lookup(
             &crh_parameters,
             &[1_u8; 32],
             &Some((1, [12_u8; 32])),
             &digest_1,
             &proof,
-        ).unwrap());
+        )
+        .unwrap());
     }
 
     #[test]
@@ -543,7 +614,8 @@ mod test {
             &value_1,
             &digest_1,
             &proof_1,
-        ).unwrap());
+        )
+        .unwrap());
         assert!(value_1.is_none());
 
         // Membership open addressing
@@ -557,7 +629,8 @@ mod test {
             &value_2,
             &digest_2,
             &proof_2,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value_2.unwrap(), (1, [52_u8; 32]));
 
         // Adding (11, 1) does not overflow
@@ -571,10 +644,10 @@ mod test {
             &value_3,
             &digest_3,
             &proof_3,
-        ).unwrap());
+        )
+        .unwrap());
         assert_eq!(value_3.unwrap(), (1, [12_u8; 32]));
     }
-
 
     #[test]
     fn open_addressing_overflow_test() {
@@ -598,5 +671,4 @@ mod test {
         let update_overflow_result = avd.update(&[51_u8; 32], &[52_u8; 32]);
         assert!(update_overflow_result.is_err());
     }
-
 }
