@@ -42,10 +42,18 @@ pub struct SparseMerkleTree<H: FixedLengthCRH, P: MerkleTreeParameters> {
     _parameters: PhantomData<P>,
 }
 
-#[derive(Clone)]
 pub struct MerkleTreePath<H: FixedLengthCRH, P: MerkleTreeParameters> {
     path: Vec<H::Output>,
     _parameters: PhantomData<P>,
+}
+
+impl<H: FixedLengthCRH, P: MerkleTreeParameters> Clone for MerkleTreePath<H, P> {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            _parameters: PhantomData,
+        }
+    }
 }
 
 impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
@@ -74,7 +82,7 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
         )
     }
 
-    pub fn update(mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<Self, Error> {
+    pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<bool, Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
@@ -97,7 +105,7 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
             self.tree.insert((d, i), hash_inner_node::<H>(&self.hash_parameters, &lc_hash, &rc_hash)?);
         }
         self.root = self.tree.get(&(0, 0)).expect("root lookup failed").clone();
-        Ok(self)
+        Ok(true)
     }
 
     pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<H, P>, Error> {
@@ -249,7 +257,7 @@ mod tests {
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         let proof_0 = tree.lookup(0).unwrap();
         let proof_177 = tree.lookup(177).unwrap();
         let proof_255 = tree.lookup(255).unwrap();
@@ -258,12 +266,12 @@ mod tests {
         assert!(proof_177.verify(&tree.root, &[0u8; 16], 177, &crh_parameters).unwrap());
         assert!(proof_255.verify(&tree.root, &[0u8; 16], 255, &crh_parameters).unwrap());
         assert!(proof_256.is_err());
-        let updated_tree = tree.update(177, &[1_u8; 16]).unwrap();
-        assert!(proof_177.verify(&updated_tree.root, &[1u8; 16], 177, &crh_parameters).unwrap());
-        assert!(!proof_177.verify(&updated_tree.root, &[0u8; 16], 177, &crh_parameters).unwrap());
-        assert!(!proof_177.verify(&updated_tree.root, &[1u8; 16], 0, &crh_parameters).unwrap());
-        assert!(!proof_0.verify(&updated_tree.root, &[0u8; 16], 0, &crh_parameters).unwrap());
-        let updated_proof_0 = updated_tree.lookup(0).unwrap();
-        assert!(updated_proof_0.verify(&updated_tree.root, &[0u8; 16], 0, &crh_parameters).unwrap());
+        assert!(tree.update(177, &[1_u8; 16]).is_ok());
+        assert!(proof_177.verify(&tree.root, &[1u8; 16], 177, &crh_parameters).unwrap());
+        assert!(!proof_177.verify(&tree.root, &[0u8; 16], 177, &crh_parameters).unwrap());
+        assert!(!proof_177.verify(&tree.root, &[1u8; 16], 0, &crh_parameters).unwrap());
+        assert!(!proof_0.verify(&tree.root, &[0u8; 16], 0, &crh_parameters).unwrap());
+        let updated_proof_0 = tree.lookup(0).unwrap();
+        assert!(updated_proof_0.verify(&tree.root, &[0u8; 16], 0, &crh_parameters).unwrap());
     }
 }

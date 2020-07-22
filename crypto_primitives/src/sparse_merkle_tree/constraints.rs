@@ -201,8 +201,8 @@ mod test {
     fn valid_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap()
-            .update(177, &[1_u8; 16]).unwrap();
+        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
         let mut cs = TestConstraintSystem::<Fq>::new();
@@ -252,8 +252,8 @@ mod test {
     fn invalid_root_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap()
-            .update(177, &[1_u8; 16]).unwrap();
+        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
         let mut cs = TestConstraintSystem::<Fq>::new();
@@ -303,8 +303,8 @@ mod test {
     fn invalid_leaf_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap()
-            .update(177, &[1_u8; 16]).unwrap();
+        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
         let mut cs = TestConstraintSystem::<Fq>::new();
@@ -354,8 +354,8 @@ mod test {
     fn invalid_index_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap()
-            .update(177, &[1_u8; 16]).unwrap();
+        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
         let mut cs = TestConstraintSystem::<Fq>::new();
