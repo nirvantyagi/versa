@@ -20,22 +20,22 @@ pub trait MerkleTreeAVDParameters {
     }
 }
 
-pub struct MerkleTreeAVD<H: FixedLengthCRH, P: MerkleTreeAVDParameters> {
-    tree: SparseMerkleTree<H, P::MerkleTreeParameters>,
+pub struct MerkleTreeAVD<P: MerkleTreeAVDParameters> {
+    tree: SparseMerkleTree<P::MerkleTreeParameters>,
     key_d: HashMap<[u8; 32], (u32, u32, [u8; 32])>,
     // key -> probe, version, value
     index_d: HashMap<MerkleIndex, [u8; 32]>,
 }
 
-pub struct LookupProof<H: FixedLengthCRH, P: MerkleTreeAVDParameters> {
-    paths: Vec<MerkleTreePath<H, P::MerkleTreeParameters>>,
+pub struct LookupProof<P: MerkleTreeAVDParameters> {
+    paths: Vec<MerkleTreePath<P::MerkleTreeParameters>>,
     keys: Vec<[u8; 32]>,
     versions: Vec<u32>,
     values: Vec<[u8; 32]>,
 }
 
-pub struct UpdateProof<H: FixedLengthCRH, P: MerkleTreeAVDParameters> {
-    paths: Vec<MerkleTreePath<H, P::MerkleTreeParameters>>,
+pub struct UpdateProof<P: MerkleTreeAVDParameters> {
+    paths: Vec<MerkleTreePath<P::MerkleTreeParameters>>,
     indices: Vec<MerkleIndex>,
     keys: Vec<[u8; 32]>,
     versions: Vec<u32>,
@@ -43,7 +43,7 @@ pub struct UpdateProof<H: FixedLengthCRH, P: MerkleTreeAVDParameters> {
     new_values: Vec<[u8; 32]>,
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> Clone for LookupProof<H, P> {
+impl<P: MerkleTreeAVDParameters> Clone for LookupProof<P> {
     fn clone(&self) -> Self {
         Self {
             paths: self.paths.clone(),
@@ -54,7 +54,7 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> Clone for LookupProof<H, P> 
     }
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> Clone for UpdateProof<H, P> {
+impl<P: MerkleTreeAVDParameters> Clone for UpdateProof<P> {
     fn clone(&self) -> Self {
         Self {
             paths: self.paths.clone(),
@@ -67,14 +67,14 @@ impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> Clone for UpdateProof<H, P> 
     }
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<H, P> {
-    type Digest = H::Output;
-    type PublicParameters = H::Parameters;
-    type LookupProof = LookupProof<H, P>;
-    type UpdateProof = UpdateProof<H, P>;
+impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
+    type Digest = <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
+    type PublicParameters = <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
+    type LookupProof = LookupProof<P>;
+    type UpdateProof = UpdateProof<P>;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
-        Ok(H::setup(rng)?)
+        Ok(<<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
     }
 
     fn new<R: Rng>(_rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
@@ -391,6 +391,7 @@ mod test {
 
     impl MerkleTreeParameters for MerkleTreeTestParameters {
         const DEPTH: MerkleDepth = 4;
+        type H = H;
     }
 
     #[derive(Clone)]
@@ -402,7 +403,7 @@ mod test {
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
 
-    type TestMerkleTreeAVD = MerkleTreeAVD<H, MerkleTreeAVDTestParameters>;
+    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
 
     #[test]
     fn update_and_verify_test() {

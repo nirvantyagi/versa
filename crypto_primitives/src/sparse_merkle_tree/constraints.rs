@@ -11,22 +11,20 @@ use crate::sparse_merkle_tree::{MerkleTreeParameters, MerkleTreePath};
 use std::{borrow::Borrow, marker::PhantomData};
 
 #[derive(Clone)]
-pub struct MerkleTreePathGadget<H, P, HGadget, ConstraintF>
+pub struct MerkleTreePathGadget<P, HGadget, ConstraintF>
 where
-    H: FixedLengthCRH,
     P: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<H, ConstraintF>,
+    HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
     path: Vec<HGadget::OutputGadget>,
     _parameters: PhantomData<P>,
 }
 
-impl<H, P, HGadget, ConstraintF> MerkleTreePathGadget<H, P, HGadget, ConstraintF>
+impl<P, HGadget, ConstraintF> MerkleTreePathGadget<P, HGadget, ConstraintF>
 where
-    H: FixedLengthCRH,
     P: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<H, ConstraintF>,
+    HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
     pub fn check_path<CS: ConstraintSystem<ConstraintF>>(
@@ -37,7 +35,7 @@ where
         index: &UInt64,
         hash_parameters: &HGadget::ParametersGadget,
     ) -> Result<(), SynthesisError> {
-        let mut current_hash = hash_leaf_gadget::<H, HGadget, ConstraintF, _>(
+        let mut current_hash = hash_leaf_gadget::<P::H, HGadget, ConstraintF, _>(
             &mut cs.ns(|| "hash_leaf"),
             hash_parameters,
             leaf,
@@ -60,7 +58,7 @@ where
                 &current_hash,
                 &self.path[i],
             )?;
-            current_hash = hash_inner_node_gadget::<H, HGadget, ConstraintF, _>(
+            current_hash = hash_inner_node_gadget::<P::H, HGadget, ConstraintF, _>(
                 &mut cs.ns(|| format!("hash_inner_node_{}", P::DEPTH as usize - i)),
                 hash_parameters,
                 &lc,
@@ -106,17 +104,16 @@ where
     HGadget::check_evaluation_gadget(cs, parameters, &buffer)
 }
 
-impl<H, P, HGadget, ConstraintF> AllocGadget<MerkleTreePath<H, P>, ConstraintF>
-    for MerkleTreePathGadget<H, P, HGadget, ConstraintF>
+impl<P, HGadget, ConstraintF> AllocGadget<MerkleTreePath<P>, ConstraintF>
+    for MerkleTreePathGadget<P, HGadget, ConstraintF>
 where
-    H: FixedLengthCRH,
     P: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<H, ConstraintF>,
+    HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
     fn alloc_constant<T, CS>(cs: CS, val: T) -> Result<Self, SynthesisError>
     where
-        T: Borrow<MerkleTreePath<H, P>>,
+        T: Borrow<MerkleTreePath<P>>,
         CS: ConstraintSystem<ConstraintF>,
     {
         let path = Vec::<HGadget::OutputGadget>::alloc_constant(cs, &val.borrow().path[..])?;
@@ -129,7 +126,7 @@ where
     fn alloc<F, T, CS>(cs: CS, f: F) -> Result<Self, SynthesisError>
     where
         F: FnOnce() -> Result<T, SynthesisError>,
-        T: Borrow<MerkleTreePath<H, P>>,
+        T: Borrow<MerkleTreePath<P>>,
         CS: ConstraintSystem<ConstraintF>,
     {
         let f_out = f()?;
@@ -143,7 +140,7 @@ where
     fn alloc_input<F, T, CS>(cs: CS, f: F) -> Result<Self, SynthesisError>
     where
         F: FnOnce() -> Result<T, SynthesisError>,
-        T: Borrow<MerkleTreePath<H, P>>,
+        T: Borrow<MerkleTreePath<P>>,
         CS: ConstraintSystem<ConstraintF>,
     {
         let f_out = f()?;
@@ -180,19 +177,20 @@ mod tests {
     type HG = PedersenCRHGadget<JubJub, Fq, EdwardsGadget>;
 
     #[derive(Clone)]
-    pub struct JubJubHeight8;
+    pub struct MerkleTreeTestParameters;
 
-    impl MerkleTreeParameters for JubJubHeight8 {
+    impl MerkleTreeParameters for MerkleTreeTestParameters {
         const DEPTH: MerkleDepth = 8;
+        type H = H;
     }
 
-    type JubJubMerkleTree = SparseMerkleTree<H, JubJubHeight8>;
+    type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters>;
 
     #[test]
     fn valid_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
@@ -220,7 +218,7 @@ mod tests {
 
         // Allocate path
         let path_var =
-            MerkleTreePathGadget::<H, JubJubHeight8, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
+            MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
                 Ok(path)
             })
             .unwrap();
@@ -242,7 +240,7 @@ mod tests {
     fn invalid_root_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
@@ -270,7 +268,7 @@ mod tests {
 
         // Allocate path
         let path_var =
-            MerkleTreePathGadget::<H, JubJubHeight8, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
+            MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
                 Ok(path)
             })
             .unwrap();
@@ -292,7 +290,7 @@ mod tests {
     fn invalid_leaf_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
@@ -320,7 +318,7 @@ mod tests {
 
         // Allocate path
         let path_var =
-            MerkleTreePathGadget::<H, JubJubHeight8, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
+            MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
                 Ok(path)
             })
             .unwrap();
@@ -342,7 +340,7 @@ mod tests {
     fn invalid_index_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
@@ -370,7 +368,7 @@ mod tests {
 
         // Allocate path
         let path_var =
-            MerkleTreePathGadget::<H, JubJubHeight8, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
+            MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(&mut cs.ns(|| "path"), || {
                 Ok(path)
             })
             .unwrap();

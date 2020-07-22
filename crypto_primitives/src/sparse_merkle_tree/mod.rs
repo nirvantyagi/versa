@@ -16,6 +16,7 @@ pub const MAX_DEPTH: u8 = 64;
 // TODO: Add const hash parameters
 pub trait MerkleTreeParameters {
     const DEPTH: MerkleDepth;
+    type H: FixedLengthCRH;
 
     fn is_valid() -> Result<bool, Error> {
         if Self::DEPTH < 1 || Self::DEPTH > MAX_DEPTH {
@@ -25,20 +26,20 @@ pub trait MerkleTreeParameters {
     }
 }
 
-pub struct SparseMerkleTree<H: FixedLengthCRH, P: MerkleTreeParameters> {
-    tree: HashMap<(MerkleDepth, MerkleIndex), H::Output>,
-    pub root: H::Output,
-    sparse_initial_hashes: Vec<H::Output>,
-    hash_parameters: H::Parameters,
+pub struct SparseMerkleTree<P: MerkleTreeParameters> {
+    tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
+    pub root: <P::H as FixedLengthCRH>::Output,
+    sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
+    hash_parameters: <P::H as FixedLengthCRH>::Parameters,
     _parameters: PhantomData<P>,
 }
 
-pub struct MerkleTreePath<H: FixedLengthCRH, P: MerkleTreeParameters> {
-    path: Vec<H::Output>,
+pub struct MerkleTreePath<P: MerkleTreeParameters> {
+    path: Vec<<P::H as FixedLengthCRH>::Output>,
     _parameters: PhantomData<P>,
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeParameters> Clone for MerkleTreePath<H, P> {
+impl<P: MerkleTreeParameters> Clone for MerkleTreePath<P> {
     fn clone(&self) -> Self {
         Self {
             path: self.path.clone(),
@@ -47,13 +48,13 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> Clone for MerkleTreePath<H, P> 
     }
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
-    pub fn new(initial_leaf_value: &[u8], hash_parameters: H::Parameters) -> Result<Self, Error> {
+impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
+    pub fn new(initial_leaf_value: &[u8], hash_parameters: <P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> {
         // Compute initial hashes for each depth of tree
-        let mut sparse_initial_hashes = vec![hash_leaf::<H>(&hash_parameters, initial_leaf_value)?];
+        let mut sparse_initial_hashes = vec![hash_leaf::<P::H>(&hash_parameters, initial_leaf_value)?];
         for i in 1..=(P::DEPTH as usize) {
             let child_hash = sparse_initial_hashes[i - 1].clone();
-            sparse_initial_hashes.push(hash_inner_node::<H>(
+            sparse_initial_hashes.push(hash_inner_node::<P::H>(
                 &hash_parameters,
                 &child_hash,
                 &child_hash,
@@ -78,7 +79,7 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
         let mut i = index;
         self.tree.insert(
             (P::DEPTH, i),
-            hash_leaf::<H>(&self.hash_parameters, leaf_value)?,
+            hash_leaf::<P::H>(&self.hash_parameters, leaf_value)?,
         );
 
         for d in (0..P::DEPTH).rev() {
@@ -95,14 +96,14 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
             };
             self.tree.insert(
                 (d, i),
-                hash_inner_node::<H>(&self.hash_parameters, &lc_hash, &rc_hash)?,
+                hash_inner_node::<P::H>(&self.hash_parameters, &lc_hash, &rc_hash)?,
             );
         }
         self.root = self.tree.get(&(0, 0)).expect("root lookup failed").clone();
         Ok(true)
     }
 
-    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<H, P>, Error> {
+    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
@@ -124,13 +125,13 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> SparseMerkleTree<H, P> {
     }
 }
 
-impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleTreePath<H, P> {
+impl<P: MerkleTreeParameters> MerkleTreePath<P> {
     pub fn compute_root(
         &self,
         leaf: &[u8],
         index: MerkleIndex,
-        hash_parameters: &H::Parameters,
-    ) -> Result<H::Output, Error> {
+        hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
+    ) -> Result<<P::H as FixedLengthCRH>::Output, Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
@@ -139,11 +140,11 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleTreePath<H, P> {
         }
 
         let mut i = index;
-        let mut current_hash = hash_leaf::<H>(hash_parameters, leaf)?;
+        let mut current_hash = hash_leaf::<P::H>(hash_parameters, leaf)?;
         for sibling_hash in self.path.iter() {
             current_hash = match i % 2 {
-                0 => hash_inner_node::<H>(hash_parameters, &current_hash, sibling_hash)?,
-                1 => hash_inner_node::<H>(hash_parameters, sibling_hash, &current_hash)?,
+                0 => hash_inner_node::<P::H>(hash_parameters, &current_hash, sibling_hash)?,
+                1 => hash_inner_node::<P::H>(hash_parameters, sibling_hash, &current_hash)?,
                 _ => unreachable!(),
             };
             i >>= 1;
@@ -153,10 +154,10 @@ impl<H: FixedLengthCRH, P: MerkleTreeParameters> MerkleTreePath<H, P> {
 
     pub fn verify(
         &self,
-        root: &H::Output,
+        root: &<P::H as FixedLengthCRH>::Output,
         leaf: &[u8],
         index: MerkleIndex,
-        hash_parameters: &H::Parameters,
+        hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
     ) -> Result<bool, Error> {
         Ok(self.compute_root(leaf, index, hash_parameters)? == *root)
     }
@@ -227,26 +228,29 @@ mod tests {
     type H = PedersenCRH<JubJub, Window4x256>;
 
     #[derive(Clone)]
-    pub struct JubJubHeight8;
+    pub struct MerkleTreeTestParameters;
 
-    impl MerkleTreeParameters for JubJubHeight8 {
+    impl MerkleTreeParameters for MerkleTreeTestParameters {
         const DEPTH: MerkleDepth = 8;
+        type H = H;
     }
 
-    pub struct JubJubHeight1;
+    pub struct MerkleTreeTinyTestParameters;
 
-    impl MerkleTreeParameters for JubJubHeight1 {
+    impl MerkleTreeParameters for MerkleTreeTinyTestParameters {
         const DEPTH: MerkleDepth = 1;
+        type H = H;
     }
 
-    type JubJubMerkleTree = SparseMerkleTree<H, JubJubHeight8>;
+    type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters>;
+    type TinyTestMerkleTree = SparseMerkleTree<MerkleTreeTinyTestParameters>;
 
     #[test]
     fn initialize_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let tree =
-            SparseMerkleTree::<H, JubJubHeight1>::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+            TinyTestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         let leaf_hash = hash_leaf::<H>(&crh_parameters, &[0u8; 16]).unwrap();
         let root_hash = hash_inner_node::<H>(&crh_parameters, &leaf_hash, &leaf_hash).unwrap();
         assert_eq!(tree.root, root_hash);
@@ -256,7 +260,7 @@ mod tests {
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = JubJubMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
         let proof_0 = tree.lookup(0).unwrap();
         let proof_177 = tree.lookup(177).unwrap();
         let proof_255 = tree.lookup(255).unwrap();
