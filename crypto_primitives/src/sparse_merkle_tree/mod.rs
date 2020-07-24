@@ -49,13 +49,17 @@ impl<P: MerkleTreeParameters> Clone for MerkleTreePath<P> {
 }
 
 impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
-    pub fn new(initial_leaf_value: &[u8], hash_parameters: <P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> {
+    pub fn new(
+        initial_leaf_value: &[u8],
+        hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
+    ) -> Result<Self, Error> {
         // Compute initial hashes for each depth of tree
-        let mut sparse_initial_hashes = vec![hash_leaf::<P::H>(&hash_parameters, initial_leaf_value)?];
+        let mut sparse_initial_hashes =
+            vec![hash_leaf::<P::H>(&hash_parameters, initial_leaf_value)?];
         for i in 1..=(P::DEPTH as usize) {
             let child_hash = sparse_initial_hashes[i - 1].clone();
             sparse_initial_hashes.push(hash_inner_node::<P::H>(
-                &hash_parameters,
+                hash_parameters,
                 &child_hash,
                 &child_hash,
             )?);
@@ -66,12 +70,12 @@ impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
             tree: HashMap::new(),
             root: sparse_initial_hashes[0].clone(),
             sparse_initial_hashes: sparse_initial_hashes,
-            hash_parameters: hash_parameters,
+            hash_parameters: hash_parameters.clone(),
             _parameters: PhantomData,
         })
     }
 
-    pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<bool, Error> {
+    pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
@@ -100,7 +104,7 @@ impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
             );
         }
         self.root = self.tree.get(&(0, 0)).expect("root lookup failed").clone();
-        Ok(true)
+        Ok(())
     }
 
     pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
@@ -249,8 +253,7 @@ mod tests {
     fn initialize_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let tree =
-            TinyTestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let tree = TinyTestMerkleTree::new(&[0u8; 16], &crh_parameters).unwrap();
         let leaf_hash = hash_leaf::<H>(&crh_parameters, &[0u8; 16]).unwrap();
         let root_hash = hash_inner_node::<H>(&crh_parameters, &leaf_hash, &leaf_hash).unwrap();
         assert_eq!(tree.root, root_hash);
@@ -260,7 +263,7 @@ mod tests {
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut tree = TestMerkleTree::new(&[0u8; 16], crh_parameters.clone()).unwrap();
+        let mut tree = TestMerkleTree::new(&[0u8; 16], &crh_parameters).unwrap();
         let proof_0 = tree.lookup(0).unwrap();
         let proof_177 = tree.lookup(177).unwrap();
         let proof_255 = tree.lookup(255).unwrap();

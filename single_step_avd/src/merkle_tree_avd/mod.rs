@@ -9,9 +9,11 @@ use crypto_primitives::sparse_merkle_tree::{
     MerkleDepth, MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
 };
 
+pub mod constraints;
+
 pub trait MerkleTreeAVDParameters {
     const MAX_UPDATE_BATCH_SIZE: u64;
-    const MAX_OPEN_ADDRESSING_PROBES: u32;
+    const MAX_OPEN_ADDRESSING_PROBES: u8;
 
     type MerkleTreeParameters: MerkleTreeParameters;
 
@@ -22,7 +24,7 @@ pub trait MerkleTreeAVDParameters {
 
 pub struct MerkleTreeAVD<P: MerkleTreeAVDParameters> {
     tree: SparseMerkleTree<P::MerkleTreeParameters>,
-    key_d: HashMap<[u8; 32], (u32, u32, [u8; 32])>,
+    key_d: HashMap<[u8; 32], (u8, u64, [u8; 32])>,
     // key -> probe, version, value
     index_d: HashMap<MerkleIndex, [u8; 32]>,
 }
@@ -30,7 +32,7 @@ pub struct MerkleTreeAVD<P: MerkleTreeAVDParameters> {
 pub struct LookupProof<P: MerkleTreeAVDParameters> {
     paths: Vec<MerkleTreePath<P::MerkleTreeParameters>>,
     keys: Vec<[u8; 32]>,
-    versions: Vec<u32>,
+    versions: Vec<u64>,
     values: Vec<[u8; 32]>,
 }
 
@@ -38,7 +40,7 @@ pub struct UpdateProof<P: MerkleTreeAVDParameters> {
     paths: Vec<MerkleTreePath<P::MerkleTreeParameters>>,
     indices: Vec<MerkleIndex>,
     keys: Vec<[u8; 32]>,
-    versions: Vec<u32>,
+    versions: Vec<u64>,
     prev_values: Vec<[u8; 32]>,
     new_values: Vec<[u8; 32]>,
 }
@@ -69,7 +71,8 @@ impl<P: MerkleTreeAVDParameters> Clone for UpdateProof<P> {
 
 impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     type Digest = <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
-    type PublicParameters = <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
+    type PublicParameters =
+        <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
     type LookupProof = LookupProof<P>;
     type UpdateProof = UpdateProof<P>;
 
@@ -80,7 +83,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     fn new<R: Rng>(_rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
         Ok(MerkleTreeAVD {
-            tree: SparseMerkleTree::new(&initial_leaf, pp.clone())?,
+            tree: SparseMerkleTree::new(&initial_leaf, pp)?,
             key_d: HashMap::new(),
             index_d: HashMap::new(),
         })
@@ -93,7 +96,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     fn lookup(
         &self,
         key: &[u8; 32],
-    ) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
+    ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (probe, lookup_value) = match self.key_d.get(key) {
             Some((probe, version, val)) => (*probe, Some((*version, val.clone()))),
             None => {
@@ -217,7 +220,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     fn verify_lookup(
         pp: &Self::PublicParameters,
         key: &[u8; 32],
-        value: &Option<(u32, [u8; 32])>,
+        value: &Option<(u64, [u8; 32])>,
         digest: &Self::Digest,
         proof: &Self::LookupProof,
     ) -> Result<bool, Error> {
@@ -239,7 +242,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                             proof.versions[probe],
                             &proof.values[probe],
                         ),
-                        hash_to_index(key, probe as u32, P::MerkleTreeParameters::DEPTH),
+                        hash_to_index(key, probe as u8, P::MerkleTreeParameters::DEPTH),
                         pp,
                     )?)
             })
@@ -252,7 +255,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                 &concat_leaf_data(key, *version, val),
                 hash_to_index(
                     key,
-                    (proof.paths.len() - 1) as u32,
+                    (proof.paths.len() - 1) as u8,
                     P::MerkleTreeParameters::DEPTH,
                 ),
                 pp,
@@ -262,7 +265,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                 &concat_leaf_data(&Default::default(), 0, &Default::default()),
                 hash_to_index(
                     key,
-                    (proof.paths.len() - 1) as u32,
+                    (proof.paths.len() - 1) as u8,
                     P::MerkleTreeParameters::DEPTH,
                 ),
                 pp,
@@ -320,20 +323,21 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     }
 }
 
-fn concat_leaf_data(key: &[u8; 32], version: u32, value: &[u8; 32]) -> Vec<u8> {
+fn concat_leaf_data(key: &[u8; 32], version: u64, value: &[u8; 32]) -> Vec<u8> {
     key.iter()
-        .chain(&version.to_be_bytes())
+        .chain(&version.to_le_bytes())
         .chain(value)
         .cloned()
         .collect()
 }
 
-fn hash_to_index(key: &[u8; 32], probe: u32, depth: MerkleDepth) -> u64 {
+fn hash_to_index(key: &[u8; 32], probe: u8, depth: MerkleDepth) -> u64 {
     let mut y: [u8; 8] = Default::default();
     y.copy_from_slice(
         &Sha3_256::new()
             .chain(key)
-            .chain(&probe.to_be_bytes())
+            // Note: cast to u32 to preserve collision in open addressing test
+            .chain(&(probe as u32).to_be_bytes())
             .finalize()
             .as_slice()[0..8],
     );
@@ -399,7 +403,7 @@ mod test {
 
     impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
         const MAX_UPDATE_BATCH_SIZE: u64 = 8;
-        const MAX_OPEN_ADDRESSING_PROBES: u32 = 2;
+        const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
 
