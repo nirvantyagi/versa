@@ -1,7 +1,7 @@
 use algebra::{Field, PrimeField};
 use r1cs_core::{ConstraintSystem, SynthesisError};
 use r1cs_std::{
-    alloc::AllocGadget, bits::ToBytesGadget, boolean::Boolean, eq::EqGadget,
+    alloc::AllocGadget, bits::ToBytesGadget, boolean::Boolean, eq::{ConditionalEqGadget},
     select::CondSelectGadget, uint64::UInt64, uint8::UInt8,
 };
 use zexe_cp::crh::FixedLengthCRHGadget;
@@ -172,15 +172,34 @@ where
     type UpdateProofGadget = UpdateProofGadget<P, HGadget, ConstraintF>;
 
     fn check_update_proof<CS: ConstraintSystem<ConstraintF>>(
-        mut cs: CS,
+        cs: CS,
         pp: &Self::PublicParametersGadget,
         prev_digest: &Self::DigestGadget,
         new_digest: &Self::DigestGadget,
         proof: &Self::UpdateProofGadget,
     ) -> Result<(), SynthesisError> {
+        Self::conditional_check_update_proof(
+            cs,
+            pp,
+            prev_digest,
+            new_digest,
+            proof,
+            &Boolean::constant(true),
+        )
+    }
+
+    fn conditional_check_update_proof<CS: ConstraintSystem<ConstraintF>>(
+        mut cs: CS,
+        pp: &Self::PublicParametersGadget,
+        prev_digest: &Self::DigestGadget,
+        new_digest: &Self::DigestGadget,
+        proof: &Self::UpdateProofGadget,
+        condition: &Boolean,
+    ) -> Result<(), SynthesisError> {
         let mut current_digest = prev_digest.clone();
         for upd_i in 0..proof.paths.len() {
             // Check path with respect to previous leaf
+            //TODO: kary_or allocates bits -- need to input as witness
             let is_prev_version_ne_0 = Boolean::kary_or(
                 &mut cs.ns(|| format!("version_zero_{}", upd_i)),
                 &proof.versions[upd_i].to_bits_le(),
@@ -197,12 +216,13 @@ where
                 &proof.versions[upd_i],
                 &proof.prev_values[upd_i],
             )?;
-            proof.paths[upd_i].check_path(
+            proof.paths[upd_i].conditional_check_path(
                 &mut cs.ns(|| format!("verify_prev_update_path_{}", upd_i)),
                 &current_digest,
                 &prev_leaf,
                 &proof.indices[upd_i],
                 pp,
+                condition,
             )?;
 
             // Calculate new digest with respect to new leaf
@@ -223,7 +243,7 @@ where
                 pp,
             )?;
         }
-        new_digest.enforce_equal(&mut cs.ns(|| "last_digest_equal"), &current_digest)?;
+        new_digest.conditional_enforce_equal(&mut cs.ns(|| "last_digest_equal"), &current_digest, condition)?;
         Ok(())
     }
 }

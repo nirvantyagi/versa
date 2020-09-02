@@ -30,7 +30,7 @@ pub struct SparseMerkleTree<P: MerkleTreeParameters> {
     tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
     pub root: <P::H as FixedLengthCRH>::Output,
     sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
-    hash_parameters: <P::H as FixedLengthCRH>::Parameters,
+    pub hash_parameters: <P::H as FixedLengthCRH>::Parameters,
     _parameters: PhantomData<P>,
 }
 

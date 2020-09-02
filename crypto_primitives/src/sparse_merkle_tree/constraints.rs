@@ -1,8 +1,12 @@
 use algebra::Field;
 use r1cs_core::{ConstraintSystem, SynthesisError};
 use r1cs_std::{
-    alloc::AllocGadget, bits::ToBytesGadget, eq::EqGadget, select::CondSelectGadget,
+    alloc::AllocGadget,
+    bits::ToBytesGadget,
+    eq::{EqGadget, ConditionalEqGadget},
+    select::CondSelectGadget,
     uint64::UInt64, uint8::UInt8,
+    boolean::Boolean,
 };
 use zexe_cp::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 
@@ -84,6 +88,26 @@ where
         root.enforce_equal(&mut cs.ns(|| "root_equal"), &calc_root)?;
         Ok(())
     }
+
+    pub fn conditional_check_path<CS: ConstraintSystem<ConstraintF>>(
+        &self,
+        mut cs: CS,
+        root: &HGadget::OutputGadget,
+        leaf: &Vec<UInt8>,
+        index: &UInt64,
+        hash_parameters: &HGadget::ParametersGadget,
+        condition: &Boolean,
+    ) -> Result<(), SynthesisError> {
+        let calc_root = self.check_calc_root(
+            &mut cs.ns(|| "calculate_root_from_path"),
+            leaf,
+            index,
+            hash_parameters,
+        )?;
+        root.conditional_enforce_equal(&mut cs.ns(|| "root_equal"), &calc_root, condition)?;
+        Ok(())
+    }
+
 }
 
 pub fn hash_leaf_gadget<H, HGadget, ConstraintF, CS>(

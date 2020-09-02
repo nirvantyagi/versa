@@ -6,6 +6,7 @@ use r1cs_std::{
     bits::ToBytesGadget,
     eq::{ConditionalEqGadget, EqGadget},
     select::CondSelectGadget,
+    boolean::Boolean,
 };
 use std::fmt::Debug;
 
@@ -29,5 +30,14 @@ pub trait SingleStepAVDGadget<AVD: SingleStepAVD, ConstraintF: Field>: Sized {
         prev_digest: &Self::DigestGadget,
         new_digest: &Self::DigestGadget,
         proof: &Self::UpdateProofGadget,
+    ) -> Result<(), SynthesisError>;
+
+    fn conditional_check_update_proof<CS: ConstraintSystem<ConstraintF>>(
+        cs: CS,
+        pp: &Self::PublicParametersGadget,
+        prev_digest: &Self::DigestGadget,
+        new_digest: &Self::DigestGadget,
+        proof: &Self::UpdateProofGadget,
+        condition: &Boolean,
     ) -> Result<(), SynthesisError>;
 }

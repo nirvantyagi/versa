@@ -3,4 +3,5 @@
 members = [
   "crypto_primitives",
   "single_step_avd",
+  "full_history_avd",
 ]
