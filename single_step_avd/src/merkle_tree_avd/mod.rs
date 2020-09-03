@@ -200,6 +200,9 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
         &mut self,
         kvs: &Vec<([u8; 32], [u8; 32])>,
     ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
+        if kvs.len() > P::MAX_UPDATE_BATCH_SIZE as usize {
+            return Err(Box::new(MerkleTreeAVDError::UpdateBatchSize(kvs.len() as u64)));
+        }
         let update_proof = kvs
             .iter()
             .map(|(k, v)| self.update(k, v))

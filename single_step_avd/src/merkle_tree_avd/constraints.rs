@@ -199,7 +199,6 @@ where
         let mut current_digest = prev_digest.clone();
         for upd_i in 0..proof.paths.len() {
             // Check path with respect to previous leaf
-            //TODO: kary_or allocates bits -- need to input as witness
             let is_prev_version_ne_0 = Boolean::kary_or(
                 &mut cs.ns(|| format!("version_zero_{}", upd_i)),
                 &proof.versions[upd_i].to_bits_le(),
