@@ -31,15 +31,13 @@ pub struct SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Co
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
         ConstraintF: Field,
 {
-    ssavd_pp: SSAVDGadget::PublicParametersGadget,
-    history_tree_pp: HGadget::ParametersGadget,
-    ssavd_proof: SSAVDGadget::UpdateProofGadget,
-    history_tree_proof: MerkleTreePathGadget<HTParams, HGadget, ConstraintF>,
-    prev_ssavd_digest: SSAVDGadget::DigestGadget,
-    new_ssavd_digest: SSAVDGadget::DigestGadget,
-    prev_digest: HGadget::OutputGadget,
-    new_digest: HGadget::OutputGadget,
-    prev_epoch: UInt64,
+    pub ssavd_proof: SSAVDGadget::UpdateProofGadget,
+    pub history_tree_proof: MerkleTreePathGadget<HTParams, HGadget, ConstraintF>,
+    pub prev_ssavd_digest: SSAVDGadget::DigestGadget,
+    pub new_ssavd_digest: SSAVDGadget::DigestGadget,
+    pub prev_digest: HGadget::OutputGadget,
+    pub new_digest: HGadget::OutputGadget,
+    pub prev_epoch: UInt64,
 }
 
 impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> AllocGadget<SingleStepUpdateProof<SSAVD, HTParams>, ConstraintF>
@@ -56,8 +54,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
             T: Borrow<SingleStepUpdateProof<SSAVD, HTParams>>,
             CS: ConstraintSystem<ConstraintF>,
     {
-        let ssavd_pp = SSAVDGadget::PublicParametersGadget::alloc_constant(&mut cs.ns(|| "ssavd_pp"), &val.borrow().ssavd_pp)?;
-        let history_tree_pp = HGadget::ParametersGadget::alloc_constant(&mut cs.ns(|| "history_tree_pp"), &val.borrow().history_tree_pp)?;
         let ssavd_proof = SSAVDGadget::UpdateProofGadget::alloc_constant(&mut cs.ns(|| "ssavd_proof"), &val.borrow().ssavd_proof)?;
         let history_tree_proof = <MerkleTreePathGadget<HTParams, HGadget, ConstraintF>>::alloc_constant(&mut cs.ns(|| "history_tree_proof"), &val.borrow().history_tree_proof)?;
         let prev_ssavd_digest = SSAVDGadget::DigestGadget::alloc_constant(&mut cs.ns(|| "prev_ssavd_digest"), &val.borrow().prev_ssavd_digest)?;
@@ -66,8 +62,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
         let new_digest = HGadget::OutputGadget::alloc_constant(&mut cs.ns(|| "new_digest"), &val.borrow().new_digest)?;
         let prev_epoch = UInt64::alloc_constant(&mut cs.ns(|| "prev_epoch"), &val.borrow().prev_epoch)?;
         Ok(SingleStepUpdateProofGadget{
-            ssavd_pp,
-            history_tree_pp,
             ssavd_proof,
             history_tree_proof,
             prev_ssavd_digest,
@@ -85,8 +79,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
             CS: ConstraintSystem<ConstraintF>,
     {
         let f_out = f()?;
-        let ssavd_pp = SSAVDGadget::PublicParametersGadget::alloc(&mut cs.ns(|| "ssavd_pp"), || Ok(&f_out.borrow().ssavd_pp))?;
-        let history_tree_pp = HGadget::ParametersGadget::alloc(&mut cs.ns(|| "history_tree_pp"), || Ok(&f_out.borrow().history_tree_pp))?;
         let ssavd_proof = SSAVDGadget::UpdateProofGadget::alloc(&mut cs.ns(|| "ssavd_proof"), || Ok(&f_out.borrow().ssavd_proof))?;
         let history_tree_proof = <MerkleTreePathGadget<HTParams, HGadget, ConstraintF>>::alloc(&mut cs.ns(|| "history_tree_proof"), || Ok(&f_out.borrow().history_tree_proof))?;
         let prev_ssavd_digest = SSAVDGadget::DigestGadget::alloc(&mut cs.ns(|| "prev_ssavd_digest"), || Ok(&f_out.borrow().prev_ssavd_digest))?;
@@ -95,8 +87,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
         let new_digest = HGadget::OutputGadget::alloc(&mut cs.ns(|| "new_digest"), || Ok(&f_out.borrow().new_digest))?;
         let prev_epoch = UInt64::alloc(&mut cs.ns(|| "prev_epoch"), || Ok(&f_out.borrow().prev_epoch))?;
         Ok(SingleStepUpdateProofGadget{
-            ssavd_pp,
-            history_tree_pp,
             ssavd_proof,
             history_tree_proof,
             prev_ssavd_digest,
@@ -114,8 +104,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
             CS: ConstraintSystem<ConstraintF>,
     {
         let f_out = f()?;
-        let ssavd_pp = SSAVDGadget::PublicParametersGadget::alloc_input(&mut cs.ns(|| "ssavd_pp"), || Ok(&f_out.borrow().ssavd_pp))?;
-        let history_tree_pp = HGadget::ParametersGadget::alloc_input(&mut cs.ns(|| "history_tree_pp"), || Ok(&f_out.borrow().history_tree_pp))?;
         let ssavd_proof = SSAVDGadget::UpdateProofGadget::alloc_input(&mut cs.ns(|| "ssavd_proof"), || Ok(&f_out.borrow().ssavd_proof))?;
         let history_tree_proof = <MerkleTreePathGadget<HTParams, HGadget, ConstraintF>>::alloc_input(&mut cs.ns(|| "history_tree_proof"), || Ok(&f_out.borrow().history_tree_proof))?;
         let prev_ssavd_digest = SSAVDGadget::DigestGadget::alloc_input(&mut cs.ns(|| "prev_ssavd_digest"), || Ok(&f_out.borrow().prev_ssavd_digest))?;
@@ -124,8 +112,6 @@ for SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, Constrain
         let new_digest = HGadget::OutputGadget::alloc_input(&mut cs.ns(|| "new_digest"), || Ok(&f_out.borrow().new_digest))?;
         let prev_epoch = UInt64::alloc_input(&mut cs.ns(|| "prev_epoch"), || Ok(&f_out.borrow().prev_epoch))?;
         Ok(SingleStepUpdateProofGadget{
-            ssavd_pp,
-            history_tree_pp,
             ssavd_proof,
             history_tree_proof,
             prev_ssavd_digest,
@@ -151,11 +137,13 @@ SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
     pub fn conditional_check_single_step_with_history_update<CS: ConstraintSystem<ConstraintF>>(
         &self,
         mut cs: CS,
+        ssavd_pp: &SSAVDGadget::PublicParametersGadget,
+        history_tree_pp: &HGadget::ParametersGadget,
         condition: &Boolean,
     ) -> Result<(), SynthesisError> {
         SSAVDGadget::conditional_check_update_proof(
             &mut cs.ns(|| "check_ssavd_update_proof"),
-            &self.ssavd_pp,
+            &ssavd_pp,
             &self.prev_ssavd_digest,
             &self.new_ssavd_digest,
             &self.ssavd_proof,
@@ -166,11 +154,11 @@ SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
             &mut cs.ns(|| "calc_prev_history_tree_digest"),
             &history_tree_leaf_default,
             &self.prev_epoch,
-            &self.history_tree_pp,
+            &history_tree_pp,
         )?;
         let calc_prev_digest = hash_to_final_digest_gadget::<_, SSAVD, SSAVDGadget, HTParams::H, HGadget, ConstraintF>(
             &mut cs.ns(|| "calc_prev_digest"),
-            &self.history_tree_pp,
+            &history_tree_pp,
             &self.prev_ssavd_digest,
             &prev_history_tree_digest,
             &self.prev_epoch,
@@ -185,7 +173,7 @@ SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
             &mut cs.ns(|| "calc_new_history_tree_digest"),
             &history_tree_prev_ssavd_digest_leaf,
             &self.prev_epoch,
-            &self.history_tree_pp,
+            &history_tree_pp,
         )?;
         let new_epoch = UInt64::addmany(
             &mut cs.ns(|| "calc_new_epoch"),
@@ -193,7 +181,7 @@ SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
         )?;
         let calc_new_digest = hash_to_final_digest_gadget::<_, SSAVD, SSAVDGadget, HTParams::H, HGadget, ConstraintF>(
             &mut cs.ns(|| "calc_new_digest"),
-            &self.history_tree_pp,
+            &history_tree_pp,
             &self.new_ssavd_digest,
             &new_history_tree_digest,
             &new_epoch,
@@ -316,8 +304,46 @@ mod test {
         )
             .unwrap();
 
+        let ssavd_pp_gadget = <TestMerkleTreeAVDGadget as SingleStepAVDGadget<TestMerkleTreeAVD, Fq>>::PublicParametersGadget::alloc(&mut cs.ns(|| "ssavd_pp"), || Ok(&ssavd_pp)).unwrap();
+        let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(&mut cs.ns(|| "history_tree_pp"), || Ok(&crh_pp)).unwrap();
+
         proof_var.conditional_check_single_step_with_history_update(
             &mut cs.ns(|| "check_update_proof"),
+            &ssavd_pp_gadget,
+            &crh_pp_gadget,
+            &Boolean::constant(true),
+        ).unwrap();
+
+        assert!(cs.is_satisfied());
+    }
+
+    #[test]
+    fn batch_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        let updates = vec![
+            ([1_u8; 32], [2_u8; 32]),
+            ([1_u8; 32], [3_u8; 32]),
+            ([10_u8; 32], [11_u8; 32]),
+        ];
+        let proof = avd.batch_update(&updates).unwrap();
+
+        let mut cs = TestConstraintSystem::<Fq>::new();
+
+        // Allocate proof variables
+        let proof_var = TestHistoryUpdateGadget::alloc(
+            &mut cs.ns(|| "alloc_proof"),
+            || Ok(proof),
+        )
+            .unwrap();
+        let ssavd_pp_gadget = <TestMerkleTreeAVDGadget as SingleStepAVDGadget<TestMerkleTreeAVD, Fq>>::PublicParametersGadget::alloc(&mut cs.ns(|| "ssavd_pp"), || Ok(&ssavd_pp)).unwrap();
+        let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(&mut cs.ns(|| "history_tree_pp"), || Ok(&crh_pp)).unwrap();
+
+        proof_var.conditional_check_single_step_with_history_update(
+            &mut cs.ns(|| "check_update_proof"),
+            &ssavd_pp_gadget,
+            &crh_pp_gadget,
             &Boolean::constant(true),
         ).unwrap();
 

@@ -8,10 +8,10 @@ pub mod merkle_tree_avd;
 pub type Error = Box<dyn ErrorTrait>;
 
 pub trait SingleStepAVD: Sized {
-    type Digest: ToBytes + Clone + Eq + Hash;
+    type Digest: ToBytes + Clone + Eq + Hash + Default;
     type PublicParameters: Clone + Default;
     type LookupProof;
-    type UpdateProof;
+    type UpdateProof: Default;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 

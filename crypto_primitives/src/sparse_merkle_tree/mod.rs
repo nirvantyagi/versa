@@ -48,6 +48,15 @@ impl<P: MerkleTreeParameters> Clone for MerkleTreePath<P> {
     }
 }
 
+impl<P: MerkleTreeParameters> Default for MerkleTreePath<P> {
+    fn default() -> Self {
+        Self {
+            path: vec![<P::H as FixedLengthCRH>::Output::default(); P::DEPTH as usize],
+            _parameters: PhantomData,
+        }
+    }
+}
+
 impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
     pub fn new(
         initial_leaf_value: &[u8],

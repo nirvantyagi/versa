@@ -47,19 +47,30 @@ impl<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> HistoryTree<P, D> 
 
 pub struct SingleStepUpdateProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters>
 {
-    ssavd_pp: SSAVD::PublicParameters,
-    history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
-    ssavd_proof: SSAVD::UpdateProof,
-    history_tree_proof: MerkleTreePath<HTParams>,
-    prev_ssavd_digest: SSAVD::Digest,
-    new_ssavd_digest: SSAVD::Digest,
-    prev_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
-    new_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
-    prev_epoch: u64,
+    pub ssavd_proof: SSAVD::UpdateProof,
+    pub history_tree_proof: MerkleTreePath<HTParams>,
+    pub prev_ssavd_digest: SSAVD::Digest,
+    pub new_ssavd_digest: SSAVD::Digest,
+    pub prev_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
+    pub new_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
+    pub prev_epoch: u64,
+}
+
+impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Default for SingleStepUpdateProof<SSAVD, HTParams>{
+    fn default() -> Self {
+        Self {
+            ssavd_proof: SSAVD::UpdateProof::default(),
+            history_tree_proof: <MerkleTreePath<HTParams>>::default(),
+            prev_ssavd_digest: SSAVD::Digest::default(),
+            new_ssavd_digest: SSAVD::Digest::default(),
+            prev_digest: Default::default(),
+            new_digest: Default::default(),
+            prev_epoch: Default::default(),
+        }
+    }
 }
 
 pub struct SingleStepAVDWithHistory<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters>{
-    ssavd_pp: SSAVD::PublicParameters,
     ssavd: SSAVD,
     history_tree: HistoryTree<HTParams, SSAVD::Digest>,
     digest: <HTParams::H as FixedLengthCRH>::Output,
@@ -91,7 +102,6 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
             &history_tree.epoch,
         )?;
         Ok(SingleStepAVDWithHistory{
-            ssavd_pp: ssavd_pp.clone(),
             ssavd: ssavd,
             history_tree: history_tree,
             digest: digest,
@@ -119,8 +129,6 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         )?;
 
         Ok(SingleStepUpdateProof{
-            ssavd_pp: self.ssavd_pp.clone(),
-            history_tree_pp: self.history_tree.tree.hash_parameters.clone(),
             ssavd_proof: ssavd_proof,
             history_tree_proof: history_tree_proof,
             prev_ssavd_digest: prev_ssavd_digest,
@@ -151,8 +159,6 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         )?;
 
         Ok(SingleStepUpdateProof{
-            ssavd_pp: self.ssavd_pp.clone(),
-            history_tree_pp: self.history_tree.tree.hash_parameters.clone(),
             ssavd_proof: ssavd_proof,
             history_tree_proof: history_tree_proof,
             prev_ssavd_digest: prev_ssavd_digest,

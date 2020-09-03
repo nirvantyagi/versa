@@ -7,8 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives"}
-algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ] }
+zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives", features = [ "groth16" ] }
+algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381", "bls12_381" ] }
 groth16 = {git = "https://github.com/nirvantyagi/zexe/", package = "groth16" }
 r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core" }
 r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381" ] }

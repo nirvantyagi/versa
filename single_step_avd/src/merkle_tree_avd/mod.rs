@@ -45,6 +45,19 @@ pub struct UpdateProof<P: MerkleTreeAVDParameters> {
     new_values: Vec<[u8; 32]>,
 }
 
+impl<P: MerkleTreeAVDParameters> Default for UpdateProof<P> {
+    fn default() -> Self {
+        Self {
+            paths: vec![MerkleTreePath::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+            indices: vec![MerkleIndex::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+            keys: vec![<[u8; 32]>::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+            versions: vec![u64::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+            prev_values: vec![<[u8; 32]>::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+            new_values: vec![<[u8; 32]>::default(); P::MAX_UPDATE_BATCH_SIZE as usize],
+        }
+    }
+}
+
 impl<P: MerkleTreeAVDParameters> Clone for LookupProof<P> {
     fn clone(&self) -> Self {
         Self {
@@ -182,6 +195,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
         ))
     }
 
+    //TODO: Pad number of updates to MAX_UPDATE_BATCH_SIZE with dummy ops for consistent circuit size
     fn batch_update(
         &mut self,
         kvs: &Vec<([u8; 32], [u8; 32])>,
