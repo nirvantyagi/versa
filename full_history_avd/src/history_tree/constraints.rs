@@ -168,10 +168,10 @@ SingleStepUpdateProofGadget<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
             &calc_prev_digest,
             condition,
         )?;
-        let history_tree_prev_ssavd_digest_leaf = self.prev_ssavd_digest.to_bytes(&mut cs.ns(|| "prev_ssavd_digest_to_bytes"))?;
+        let history_tree_prev_digest_leaf = self.prev_digest.to_bytes(&mut cs.ns(|| "prev_digest_to_bytes"))?;
         let new_history_tree_digest = self.history_tree_proof.check_calc_root(
             &mut cs.ns(|| "calc_new_history_tree_digest"),
-            &history_tree_prev_ssavd_digest_leaf,
+            &history_tree_prev_digest_leaf,
             &self.prev_epoch,
             &history_tree_pp,
         )?;
@@ -318,6 +318,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn batch_update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();

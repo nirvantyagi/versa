@@ -9,7 +9,8 @@ pub type Error = Box<dyn ErrorTrait>;
 
 pub trait FullHistoryAVD: Sized {
     type Digest: ToBytes + Clone + Eq + Hash;
-    type PublicParameters: Clone + Default;
+    type PublicParameters: Clone;
+    type VerificationParameters: Clone;
     type LookupProof;
     type DigestProof;
     type HistoryProof;
@@ -23,7 +24,7 @@ pub trait FullHistoryAVD: Sized {
     fn lookup(
         &self,
         key: &[u8; 32],
-    ) -> Result<(Option<(u32, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
+    ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 
     fn update(
         &mut self,
@@ -37,15 +38,15 @@ pub trait FullHistoryAVD: Sized {
     ) -> Result<(Self::Digest, Self::DigestProof), Error>;
 
     fn verify_digest(
-        pp: &Self::PublicParameters,
+        pp: &Self::VerificationParameters,
         digest: &Self::Digest,
         proof: &Self::DigestProof,
     ) -> Result<bool, Error>;
 
     fn verify_lookup(
-        pp: &Self::PublicParameters,
+        pp: &Self::VerificationParameters,
         key: &[u8; 32],
-        value: &Option<(u32, [u8; 32])>,
+        value: &Option<(u64, [u8; 32])>,
         digest: &Self::Digest,
         proof: &Self::LookupProof,
     ) -> Result<bool, Error>;
@@ -56,7 +57,7 @@ pub trait FullHistoryAVD: Sized {
     ) -> Result<(Self::Digest, Option<Self::HistoryProof>), Error>;
 
     fn verify_history(
-        pp: &Self::PublicParameters,
+        pp: &Self::VerificationParameters,
         prev_digest: &Self::Digest,
         current_digest: &Self::Digest,
         proof: &Self::HistoryProof,
