@@ -1,6 +1,6 @@
 use algebra::bytes::ToBytes;
 use rand::Rng;
-use std::{error::Error as ErrorTrait, hash::Hash};
+use std::{error::Error as ErrorTrait};
 
 pub mod history_tree;
 pub mod aggregation;
@@ -8,9 +8,9 @@ pub mod aggregation;
 pub type Error = Box<dyn ErrorTrait>;
 
 pub trait FullHistoryAVD: Sized {
-    type Digest: ToBytes + Clone + Eq + Hash;
+    type Digest: ToBytes + Clone + Eq;
+    //TODO: Can create separate verification parameters
     type PublicParameters: Clone;
-    type VerificationParameters: Clone;
     type LookupProof;
     type DigestProof;
     type HistoryProof;
@@ -26,25 +26,27 @@ pub trait FullHistoryAVD: Sized {
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 
-    fn update(
+    fn update<R: Rng>(
         &mut self,
+        rng: &mut R,
         key: &[u8; 32],
         value: &[u8; 32],
     ) -> Result<(Self::Digest, Self::DigestProof), Error>;
 
-    fn batch_update(
+    fn batch_update<R: Rng>(
         &mut self,
+        rng: &mut R,
         kvs: &Vec<([u8; 32], [u8; 32])>,
     ) -> Result<(Self::Digest, Self::DigestProof), Error>;
 
     fn verify_digest(
-        pp: &Self::VerificationParameters,
+        pp: &Self::PublicParameters,
         digest: &Self::Digest,
         proof: &Self::DigestProof,
     ) -> Result<bool, Error>;
 
     fn verify_lookup(
-        pp: &Self::VerificationParameters,
+        pp: &Self::PublicParameters,
         key: &[u8; 32],
         value: &Option<(u64, [u8; 32])>,
         digest: &Self::Digest,
@@ -57,7 +59,7 @@ pub trait FullHistoryAVD: Sized {
     ) -> Result<(Self::Digest, Option<Self::HistoryProof>), Error>;
 
     fn verify_history(
-        pp: &Self::VerificationParameters,
+        pp: &Self::PublicParameters,
         prev_digest: &Self::Digest,
         current_digest: &Self::Digest,
         proof: &Self::HistoryProof,

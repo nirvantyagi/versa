@@ -49,8 +49,8 @@ pub struct SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Constra
 }
 
 pub struct SingleStepProofVerifierInput<HTParams: MerkleTreeParameters> {
-    prev_digest: <HTParams::H as FixedLengthCRH>::Output,
-    new_digest: <HTParams::H as FixedLengthCRH>::Output,
+    pub(crate) prev_digest: <HTParams::H as FixedLengthCRH>::Output,
+    pub(crate) new_digest: <HTParams::H as FixedLengthCRH>::Output,
 }
 
 impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> ConstraintSynthesizer<ConstraintF> for SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
@@ -108,7 +108,7 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> SingleStepProofCircuit<
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
         ConstraintF: PrimeField,
 {
-    fn blank(
+    pub fn blank(
         ssavd_pp: &SSAVD::PublicParameters,
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
     ) -> Self {
@@ -122,7 +122,7 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> SingleStepProofCircuit<
         }
     }
 
-    fn new(
+    pub fn new(
         ssavd_pp: &SSAVD::PublicParameters,
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
         proof: SingleStepUpdateProof<SSAVD, HTParams>,
@@ -161,7 +161,6 @@ mod test {
         ed_on_bls12_381::{EdwardsAffine as JubJub, Fq},
         bls12_381::Bls12_381,
     };
-    use r1cs_core::ConstraintSystem;
     use r1cs_std::{ed_on_bls12_381::EdwardsGadget, test_constraint_system::TestConstraintSystem};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::{
@@ -180,6 +179,7 @@ mod test {
     use crate::{
         history_tree::SingleStepAVDWithHistory,
     };
+    use std::time::Instant;
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -204,7 +204,7 @@ mod test {
     pub struct MerkleTreeAVDTestParameters;
 
     impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
-        const MAX_UPDATE_BATCH_SIZE: u64 = 1;
+        const MAX_UPDATE_BATCH_SIZE: u64 = 3;
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
@@ -212,43 +212,53 @@ mod test {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters>;
-    type TestHistoryUpdateGadget = SingleStepUpdateProofGadget<
-        TestMerkleTreeAVD,
-        TestMerkleTreeAVDGadget,
-        MerkleTreeTestParameters,
-        HG,
-        Fq,
-    >;
 
     type TestCircuit = SingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, Fq>;
     type TestVerifierInput = SingleStepProofVerifierInput<MerkleTreeTestParameters>;
 
     #[test]
-    #[ignore] // Expensive test, run with ``cargo test uupdate_and_verify_circuit_test --release -- --ignored``
+    #[ignore] // Expensive test, run with ``cargo test update_and_verify_circuit_test --release -- --ignored --nocapture``
     fn update_and_verify_circuit_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
-        let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        let proof = avd.batch_update(
+            &vec![
+                ([1_u8; 32], [2_u8; 32]),
+                ([11_u8; 32], [12_u8; 32]),
+                ([21_u8; 32], [22_u8; 32]),
+            ]).unwrap();
         let verifier_input = TestVerifierInput{
             prev_digest: proof.prev_digest.clone(),
             new_digest: proof.new_digest.clone(),
         };
 
         // Generate proof circuit
+        println!("Setting up proof with tree height: {}, and number of updates: {}...",
+                 MerkleTreeTestParameters::DEPTH,
+                 MerkleTreeAVDTestParameters::MAX_UPDATE_BATCH_SIZE,
+        );
+        let start = Instant::now();
         let blank_circuit = TestCircuit::blank(
             &ssavd_pp,
             &crh_pp,
         );
         let parameters =
             Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::setup(blank_circuit, &mut rng).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
 
         // Generate proof
+        println!("Generating proof...");
+        let start = Instant::now();
         let circuit_proof = Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::prove(
             &parameters.0,
             TestCircuit::new(&ssavd_pp, &crh_pp, proof),
             &mut rng,
         ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
 
         // Verify proof
         let result = Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::verify(
@@ -263,5 +273,14 @@ mod test {
             &circuit_proof,
         ).unwrap();
         assert!(!result2);
+
+        // Count constraints
+        let blank_circuit_constraint_counter = TestCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+        );
+        let mut cs = TestConstraintSystem::<Fq>::new();
+        blank_circuit_constraint_counter.generate_constraints(&mut cs).unwrap();
+        println!("\t number of constraints: {}", cs.num_constraints());
     }
 }

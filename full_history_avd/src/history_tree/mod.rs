@@ -8,13 +8,17 @@ use single_step_avd::SingleStepAVD;
 
 use crate::Error;
 
-use std::{collections::HashMap, hash::Hash, io::{Write, Cursor}};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    io::{Write, Cursor, Result as IoResult},
+};
 use rand::Rng;
 
 pub mod constraints;
 
 pub struct HistoryTree<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> {
-    tree: SparseMerkleTree<P>,
+    pub tree: SparseMerkleTree<P>,
     digest_d: HashMap<D, MerkleIndex>,
     epoch: MerkleIndex,
 }
@@ -71,16 +75,39 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Default for SingleSte
 }
 
 pub struct SingleStepAVDWithHistory<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters>{
-    ssavd: SSAVD,
-    history_tree: HistoryTree<HTParams, <HTParams::H as FixedLengthCRH>::Output>,
+    pub ssavd: SSAVD,
+    pub history_tree: HistoryTree<HTParams, <HTParams::H as FixedLengthCRH>::Output>,
     digest: <HTParams::H as FixedLengthCRH>::Output,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Digest<HTParams: MerkleTreeParameters> {
-    epoch: u64,
-    digest: <HTParams::H as FixedLengthCRH>::Output,
+    pub epoch: u64,
+    pub digest: <HTParams::H as FixedLengthCRH>::Output,
 }
+
+impl<HTParams: MerkleTreeParameters> ToBytes for Digest<HTParams> {
+    fn write<W: Write>(self: &Self, mut writer: W) -> IoResult<()> {
+        self.epoch.write(&mut writer)?;
+        self.digest.write(&mut writer)
+    }
+}
+
+impl<HTParams: MerkleTreeParameters> Clone for Digest<HTParams> {
+    fn clone(&self) -> Self {
+        Self {
+            epoch: self.epoch,
+            digest: self.digest.clone(),
+        }
+    }
+}
+
+impl<HTParams: MerkleTreeParameters> PartialEq for Digest<HTParams> {
+    fn eq(&self, other: &Self) -> bool {
+        self.epoch.eq(&other.epoch) && self.digest.eq(&other.digest)
+    }
+}
+
+impl<HTParams: MerkleTreeParameters> Eq for Digest<HTParams> {}
 
 pub struct LookupProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> {
     ssavd_proof: SSAVD::LookupProof,
@@ -104,7 +131,6 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         ))
     }
 
-    //TODO: Double storing SSAVD public parameters (also stored in MerkleTreeAVD)
     //TODO: Double storing hash parameters if shared across SSAVD and history tree
     pub fn new<R: Rng>(
         rng: &mut R,
@@ -194,7 +220,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         })
     }
 
-    fn lookup(
+    pub fn lookup(
         &self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error>{
@@ -209,7 +235,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         ))
     }
 
-    fn verify_lookup(
+    pub fn verify_lookup(
         ssavd_pp: &SSAVD::PublicParameters,
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
         key: &[u8; 32],
@@ -229,7 +255,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         )
     }
 
-    fn lookup_history(
+    pub fn lookup_history(
         &self,
         prev_digest: &Digest<HTParams>,
     ) -> Result<Option<HistoryProof<SSAVD, HTParams>>, Error> {
@@ -248,7 +274,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         }
     }
 
-    fn verify_history(
+    pub fn verify_history(
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
         prev_digest: &Digest<HTParams>,
         current_digest: &Digest<HTParams>,
@@ -305,7 +331,7 @@ pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<[u8; 128], Error> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use algebra::ed_on_bls12_381::{EdwardsAffine as JubJub, Fq};
+    use algebra::ed_on_bls12_381::{EdwardsAffine as JubJub};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::crh::{
         pedersen::{PedersenCRH, PedersenWindow},
