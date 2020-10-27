@@ -223,22 +223,22 @@ impl fmt::Display for MerkleTreeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::EdwardsAffine as JubJub;
+    use algebra::ed_on_bls12_381::EdwardsProjective as JubJub;
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::crh::{
-        pedersen::{PedersenCRH, PedersenWindow},
+        pedersen::{CRH, Window},
         FixedLengthCRH,
     };
 
     #[derive(Clone)]
     pub struct Window4x256;
 
-    impl PedersenWindow for Window4x256 {
+    impl Window for Window4x256 {
         const WINDOW_SIZE: usize = 4;
         const NUM_WINDOWS: usize = 256;
     }
 
-    type H = PedersenCRH<JubJub, Window4x256>;
+    type H = CRH<JubJub, Window4x256>;
 
     #[derive(Clone)]
     pub struct MerkleTreeTestParameters;

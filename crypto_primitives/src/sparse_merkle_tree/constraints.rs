@@ -1,9 +1,9 @@
 use algebra::Field;
-use r1cs_core::{ConstraintSystem, SynthesisError};
+use r1cs_core::{SynthesisError, Namespace};
 use r1cs_std::{
-    alloc::AllocGadget,
+    alloc::{AllocVar, AllocationMode},
     bits::ToBytesGadget,
-    eq::{EqGadget, ConditionalEqGadget},
+    eq::{EqGadget},
     select::CondSelectGadget,
     uint64::UInt64, uint8::UInt8,
     boolean::Boolean,
@@ -15,31 +15,29 @@ use crate::sparse_merkle_tree::{MerkleTreeParameters, MerkleTreePath};
 use std::{borrow::Borrow, marker::PhantomData};
 
 #[derive(Clone)]
-pub struct MerkleTreePathGadget<P, HGadget, ConstraintF>
+pub struct MerkleTreePathVar<P, HGadget, ConstraintF>
 where
     P: MerkleTreeParameters,
     HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
-    path: Vec<HGadget::OutputGadget>,
+    path: Vec<HGadget::OutputVar>,
     _parameters: PhantomData<P>,
 }
 
-impl<P, HGadget, ConstraintF> MerkleTreePathGadget<P, HGadget, ConstraintF>
+impl<P, HGadget, ConstraintF> MerkleTreePathVar<P, HGadget, ConstraintF>
 where
     P: MerkleTreeParameters,
     HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
-    pub fn check_calc_root<CS: ConstraintSystem<ConstraintF>>(
+    pub fn compute_root_var(
         &self,
-        mut cs: CS,
-        leaf: &Vec<UInt8>,
-        index: &UInt64,
-        hash_parameters: &HGadget::ParametersGadget,
-    ) -> Result<HGadget::OutputGadget, SynthesisError> {
-        let mut current_hash = hash_leaf_gadget::<P::H, HGadget, ConstraintF, _>(
-            &mut cs.ns(|| "hash_leaf"),
+        leaf: &Vec<UInt8<ConstraintF>>,
+        index: &UInt64<ConstraintF>,
+        hash_parameters: &HGadget::ParametersVar,
+    ) -> Result<HGadget::OutputVar, SynthesisError> {
+        let mut current_hash = hash_leaf_var::<P::H, HGadget, ConstraintF>(
             hash_parameters,
             leaf,
         )?;
@@ -49,20 +47,17 @@ where
             .take(P::DEPTH as usize)
             .enumerate()
         {
-            let lc = HGadget::OutputGadget::conditionally_select(
-                &mut cs.ns(|| format!("left_child_index_{}", P::DEPTH as usize - i)),
+            let lc = HGadget::OutputVar::conditionally_select(
                 b,
                 &self.path[i],
                 &current_hash,
             )?;
-            let rc = HGadget::OutputGadget::conditionally_select(
-                &mut cs.ns(|| format!("right_child_index_{}", P::DEPTH as usize - i)),
+            let rc = HGadget::OutputVar::conditionally_select(
                 b,
                 &current_hash,
                 &self.path[i],
             )?;
-            current_hash = hash_inner_node_gadget::<P::H, HGadget, ConstraintF, _>(
-                &mut cs.ns(|| format!("hash_inner_node_{}", P::DEPTH as usize - i)),
+            current_hash = hash_inner_node_var::<P::H, HGadget, ConstraintF>(
                 hash_parameters,
                 &lc,
                 &rc,
@@ -71,121 +66,89 @@ where
         Ok(current_hash)
     }
 
-    pub fn check_path<CS: ConstraintSystem<ConstraintF>>(
+    pub fn check_path(
         &self,
-        mut cs: CS,
-        root: &HGadget::OutputGadget,
-        leaf: &Vec<UInt8>,
-        index: &UInt64,
-        hash_parameters: &HGadget::ParametersGadget,
+        root: &HGadget::OutputVar,
+        leaf: &Vec<UInt8<ConstraintF>>,
+        index: &UInt64<ConstraintF>,
+        hash_parameters: &HGadget::ParametersVar,
     ) -> Result<(), SynthesisError> {
-        let calc_root = self.check_calc_root(
-            &mut cs.ns(|| "calculate_root_from_path"),
+        let computed_root = self.compute_root_var(
             leaf,
             index,
             hash_parameters,
         )?;
-        root.enforce_equal(&mut cs.ns(|| "root_equal"), &calc_root)?;
-        Ok(())
+        root.enforce_equal(&computed_root)
     }
 
-    pub fn conditional_check_path<CS: ConstraintSystem<ConstraintF>>(
+    pub fn conditional_check_path(
         &self,
-        mut cs: CS,
-        root: &HGadget::OutputGadget,
-        leaf: &Vec<UInt8>,
-        index: &UInt64,
-        hash_parameters: &HGadget::ParametersGadget,
-        condition: &Boolean,
+        root: &HGadget::OutputVar,
+        leaf: &Vec<UInt8<ConstraintF>>,
+        index: &UInt64<ConstraintF>,
+        hash_parameters: &HGadget::ParametersVar,
+        condition: &Boolean<ConstraintF>,
     ) -> Result<(), SynthesisError> {
-        let calc_root = self.check_calc_root(
-            &mut cs.ns(|| "calculate_root_from_path"),
+        let computed_root = self.compute_root_var(
             leaf,
             index,
             hash_parameters,
         )?;
-        root.conditional_enforce_equal(&mut cs.ns(|| "root_equal"), &calc_root, condition)?;
-        Ok(())
+        root.conditional_enforce_equal(&computed_root, condition)
     }
 
 }
 
-pub fn hash_leaf_gadget<H, HGadget, ConstraintF, CS>(
-    cs: CS,
-    parameters: &HGadget::ParametersGadget,
-    leaf: &Vec<UInt8>,
-) -> Result<HGadget::OutputGadget, SynthesisError>
+pub fn hash_leaf_var<H, HGadget, ConstraintF>(
+    parameters: &HGadget::ParametersVar,
+    leaf: &Vec<UInt8<ConstraintF>>,
+) -> Result<HGadget::OutputVar, SynthesisError>
 where
     H: FixedLengthCRH,
     HGadget: FixedLengthCRHGadget<H, ConstraintF>,
     ConstraintF: Field,
-    CS: ConstraintSystem<ConstraintF>,
 {
     let mut buffer = leaf.clone();
     buffer.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    HGadget::check_evaluation_gadget(cs, parameters, &buffer)
+    HGadget::evaluate(parameters, &buffer)
 }
 
-pub fn hash_inner_node_gadget<H, HGadget, ConstraintF, CS>(
-    mut cs: CS,
-    parameters: &HGadget::ParametersGadget,
-    left: &HGadget::OutputGadget,
-    right: &HGadget::OutputGadget,
-) -> Result<HGadget::OutputGadget, SynthesisError>
+pub fn hash_inner_node_var<H, HGadget, ConstraintF>(
+    parameters: &HGadget::ParametersVar,
+    left: &HGadget::OutputVar,
+    right: &HGadget::OutputVar,
+) -> Result<HGadget::OutputVar, SynthesisError>
 where
     H: FixedLengthCRH,
     HGadget: FixedLengthCRHGadget<H, ConstraintF>,
     ConstraintF: Field,
-    CS: ConstraintSystem<ConstraintF>,
 {
-    let mut buffer = left.to_bytes(&mut cs.ns(|| "left_to_bytes"))?;
-    buffer.extend_from_slice(&right.to_bytes(&mut cs.ns(|| "right_to_bytes"))?);
+    // Little endian byte representation (must match serialization in hash_inner_node)
+    let mut buffer = left.to_bytes()?;
+    buffer.extend_from_slice(&right.to_bytes()?);
     buffer.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    HGadget::check_evaluation_gadget(cs, parameters, &buffer)
+    HGadget::evaluate(parameters, &buffer)
 }
 
-impl<P, HGadget, ConstraintF> AllocGadget<MerkleTreePath<P>, ConstraintF>
-    for MerkleTreePathGadget<P, HGadget, ConstraintF>
+impl<P, HGadget, ConstraintF> AllocVar<MerkleTreePath<P>, ConstraintF>
+    for MerkleTreePathVar<P, HGadget, ConstraintF>
 where
     P: MerkleTreeParameters,
     HGadget: FixedLengthCRHGadget<P::H, ConstraintF>,
     ConstraintF: Field,
 {
-    fn alloc_constant<T, CS>(cs: CS, val: T) -> Result<Self, SynthesisError>
-    where
-        T: Borrow<MerkleTreePath<P>>,
-        CS: ConstraintSystem<ConstraintF>,
-    {
-        let path = Vec::<HGadget::OutputGadget>::alloc_constant(cs, &val.borrow().path[..])?;
-        Ok(MerkleTreePathGadget {
-            path,
-            _parameters: PhantomData,
-        })
-    }
-
-    fn alloc<F, T, CS>(cs: CS, f: F) -> Result<Self, SynthesisError>
-    where
-        F: FnOnce() -> Result<T, SynthesisError>,
-        T: Borrow<MerkleTreePath<P>>,
-        CS: ConstraintSystem<ConstraintF>,
-    {
+    fn new_variable<T: Borrow<MerkleTreePath<P>>>(
+        cs: impl Into<Namespace<ConstraintF>>,
+        f: impl FnOnce() -> Result<T, SynthesisError>,
+        mode: AllocationMode
+    ) -> Result<Self, SynthesisError> {
         let f_out = f()?;
-        let path = Vec::<HGadget::OutputGadget>::alloc(cs, || Ok(&f_out.borrow().path[..]))?;
-        Ok(MerkleTreePathGadget {
-            path,
-            _parameters: PhantomData,
-        })
-    }
-
-    fn alloc_input<F, T, CS>(cs: CS, f: F) -> Result<Self, SynthesisError>
-    where
-        F: FnOnce() -> Result<T, SynthesisError>,
-        T: Borrow<MerkleTreePath<P>>,
-        CS: ConstraintSystem<ConstraintF>,
-    {
-        let f_out = f()?;
-        let path = Vec::<HGadget::OutputGadget>::alloc_input(cs, || Ok(&f_out.borrow().path[..]))?;
-        Ok(MerkleTreePathGadget {
+        let path = Vec::<HGadget::OutputVar>::new_variable(
+            cs,
+            || Ok(&f_out.borrow().path[..]),
+            mode,
+        )?;
+        Ok(MerkleTreePathVar{
             path,
             _parameters: PhantomData,
         })
@@ -196,25 +159,25 @@ where
 mod tests {
     use super::*;
     use crate::sparse_merkle_tree::*;
-    use algebra::ed_on_bls12_381::{EdwardsAffine as JubJub, Fq};
+    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub, Fq};
     use r1cs_core::ConstraintSystem;
-    use r1cs_std::{ed_on_bls12_381::EdwardsGadget, test_constraint_system::TestConstraintSystem};
+    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::crh::{
-        pedersen::{constraints::PedersenCRHGadget, PedersenCRH, PedersenWindow},
+        pedersen::{constraints::CRHGadget, CRH, Window},
         FixedLengthCRH, FixedLengthCRHGadget,
     };
 
     #[derive(Clone)]
     pub struct Window4x256;
 
-    impl PedersenWindow for Window4x256 {
+    impl Window for Window4x256 {
         const WINDOW_SIZE: usize = 4;
         const NUM_WINDOWS: usize = 256;
     }
 
-    type H = PedersenCRH<JubJub, Window4x256>;
-    type HG = PedersenCRHGadget<JubJub, Fq, EdwardsGadget>;
+    type H = CRH<JubJub, Window4x256>;
+    type HG = CRHGadget<JubJub, EdwardsVar, Window4x256>;
 
     #[derive(Clone)]
     pub struct MerkleTreeTestParameters;
@@ -234,38 +197,42 @@ mod tests {
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
-        let mut cs = TestConstraintSystem::<Fq>::new();
+        let cs = ConstraintSystem::<Fq>::new_ref();
 
         // Allocate hash parameters
-        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(
-            &mut cs.ns(|| "hash_parameters"),
-            || Ok(crh_parameters.clone()),
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            r1cs_core::ns!(cs, "parameters"),
+            &crh_parameters,
         )
         .unwrap();
 
         // Allocate root
-        let root_var =
-            <HG as FixedLengthCRHGadget<H, _>>::OutputGadget::alloc(&mut cs.ns(|| "root"), || {
-                Ok(tree.root.clone())
-            })
-            .unwrap();
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            r1cs_core::ns!(cs, "root"),
+            || Ok(tree.root.clone()),
+        ).unwrap();
 
         // Allocate leaf
-        let leaf_var = Vec::<UInt8>::alloc(&mut cs.ns(|| "leaf"), || Ok([1_u8; 16])).unwrap();
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            r1cs_core::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
 
         // Allocate leaf
-        let index_var = UInt64::alloc(&mut cs.ns(|| "index"), || Ok(177)).unwrap();
+        let index_var = UInt64::<Fq>::new_witness(
+            r1cs_core::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
 
         // Allocate path
-        let path_var = MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(
-            &mut cs.ns(|| "path"),
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            r1cs_core::ns!(cs, "path"),
             || Ok(path),
         )
         .unwrap();
 
         path_var
             .check_path(
-                &mut cs.ns(|| "check_path"),
                 &root_var,
                 &leaf_var,
                 &index_var,
@@ -273,7 +240,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(cs.is_satisfied());
+        assert!(cs.is_satisfied().unwrap());
     }
 
     #[test]
@@ -284,38 +251,42 @@ mod tests {
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
-        let mut cs = TestConstraintSystem::<Fq>::new();
+        let cs = ConstraintSystem::<Fq>::new_ref();
 
         // Allocate hash parameters
-        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(
-            &mut cs.ns(|| "hash_parameters"),
-            || Ok(crh_parameters.clone()),
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            r1cs_core::ns!(cs, "parameters"),
+            &crh_parameters,
         )
-        .unwrap();
-
-        // Allocate root
-        let root_var =
-            <HG as FixedLengthCRHGadget<H, _>>::OutputGadget::alloc(&mut cs.ns(|| "root"), || {
-                Ok(<H as FixedLengthCRH>::Output::default())
-            })
             .unwrap();
 
-        // Allocate leaf
-        let leaf_var = Vec::<UInt8>::alloc(&mut cs.ns(|| "leaf"), || Ok([1_u8; 16])).unwrap();
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            r1cs_core::ns!(cs, "root"),
+            || Ok(<H as FixedLengthCRH>::Output::default()),
+        ).unwrap();
 
         // Allocate leaf
-        let index_var = UInt64::alloc(&mut cs.ns(|| "index"), || Ok(177)).unwrap();
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            r1cs_core::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            r1cs_core::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
 
         // Allocate path
-        let path_var = MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(
-            &mut cs.ns(|| "path"),
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            r1cs_core::ns!(cs, "path"),
             || Ok(path),
         )
-        .unwrap();
+            .unwrap();
 
         path_var
             .check_path(
-                &mut cs.ns(|| "check_path"),
                 &root_var,
                 &leaf_var,
                 &index_var,
@@ -323,7 +294,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(!cs.is_satisfied());
+        assert!(!cs.is_satisfied().unwrap());
     }
 
     #[test]
@@ -334,38 +305,42 @@ mod tests {
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
-        let mut cs = TestConstraintSystem::<Fq>::new();
+        let cs = ConstraintSystem::<Fq>::new_ref();
 
         // Allocate hash parameters
-        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(
-            &mut cs.ns(|| "hash_parameters"),
-            || Ok(crh_parameters.clone()),
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            r1cs_core::ns!(cs, "parameters"),
+            &crh_parameters,
         )
-        .unwrap();
-
-        // Allocate root
-        let root_var =
-            <HG as FixedLengthCRHGadget<H, _>>::OutputGadget::alloc(&mut cs.ns(|| "root"), || {
-                Ok(tree.root.clone())
-            })
             .unwrap();
 
-        // Allocate leaf
-        let leaf_var = Vec::<UInt8>::alloc(&mut cs.ns(|| "leaf"), || Ok([2_u8; 16])).unwrap();
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            r1cs_core::ns!(cs, "root"),
+            || Ok(tree.root.clone()),
+        ).unwrap();
 
         // Allocate leaf
-        let index_var = UInt64::alloc(&mut cs.ns(|| "index"), || Ok(177)).unwrap();
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            r1cs_core::ns!(cs, "leaf"),
+            || Ok([2_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            r1cs_core::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
 
         // Allocate path
-        let path_var = MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(
-            &mut cs.ns(|| "path"),
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            r1cs_core::ns!(cs, "path"),
             || Ok(path),
         )
-        .unwrap();
+            .unwrap();
 
         path_var
             .check_path(
-                &mut cs.ns(|| "check_path"),
                 &root_var,
                 &leaf_var,
                 &index_var,
@@ -373,7 +348,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(!cs.is_satisfied());
+        assert!(!cs.is_satisfied().unwrap());
     }
 
     #[test]
@@ -384,38 +359,42 @@ mod tests {
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
-        let mut cs = TestConstraintSystem::<Fq>::new();
+        let cs = ConstraintSystem::<Fq>::new_ref();
 
         // Allocate hash parameters
-        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersGadget::alloc(
-            &mut cs.ns(|| "hash_parameters"),
-            || Ok(crh_parameters.clone()),
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            r1cs_core::ns!(cs, "parameters"),
+            &crh_parameters,
         )
-        .unwrap();
-
-        // Allocate root
-        let root_var =
-            <HG as FixedLengthCRHGadget<H, _>>::OutputGadget::alloc(&mut cs.ns(|| "root"), || {
-                Ok(tree.root.clone())
-            })
             .unwrap();
 
-        // Allocate leaf
-        let leaf_var = Vec::<UInt8>::alloc(&mut cs.ns(|| "leaf"), || Ok([1_u8; 16])).unwrap();
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            r1cs_core::ns!(cs, "root"),
+            || Ok(tree.root.clone()),
+        ).unwrap();
 
         // Allocate leaf
-        let index_var = UInt64::alloc(&mut cs.ns(|| "index"), || Ok(176)).unwrap();
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            r1cs_core::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            r1cs_core::ns!(cs, "index"),
+            || Ok(176),
+        ).unwrap();
 
         // Allocate path
-        let path_var = MerkleTreePathGadget::<MerkleTreeTestParameters, HG, Fq>::alloc(
-            &mut cs.ns(|| "path"),
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            r1cs_core::ns!(cs, "path"),
             || Ok(path),
         )
-        .unwrap();
+            .unwrap();
 
         path_var
             .check_path(
-                &mut cs.ns(|| "check_path"),
                 &root_var,
                 &leaf_var,
                 &index_var,
@@ -423,6 +402,6 @@ mod tests {
             )
             .unwrap();
 
-        assert!(!cs.is_satisfied());
+        assert!(!cs.is_satisfied().unwrap());
     }
 }
