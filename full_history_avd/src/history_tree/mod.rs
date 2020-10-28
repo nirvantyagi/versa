@@ -331,10 +331,10 @@ pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<[u8; 128], Error> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use algebra::ed_on_bls12_381::{EdwardsAffine as JubJub};
+    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::crh::{
-        pedersen::{PedersenCRH, PedersenWindow},
+        pedersen::{CRH, Window},
     };
 
     use single_step_avd::{
@@ -348,12 +348,12 @@ mod test {
     #[derive(Clone)]
     pub struct Window4x256;
 
-    impl PedersenWindow for Window4x256 {
+    impl Window for Window4x256 {
         const WINDOW_SIZE: usize = 4;
         const NUM_WINDOWS: usize = 256;
     }
 
-    type H = PedersenCRH<JubJub, Window4x256>;
+    type H = CRH<JubJub, Window4x256>;
 
     #[derive(Clone)]
     pub struct MerkleTreeTestParameters;
