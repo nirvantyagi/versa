@@ -73,12 +73,13 @@ where
         index: &UInt64<ConstraintF>,
         hash_parameters: &HGadget::ParametersVar,
     ) -> Result<(), SynthesisError> {
-        let computed_root = self.compute_root_var(
+        self.conditional_check_path(
+            root,
             leaf,
             index,
             hash_parameters,
-        )?;
-        root.enforce_equal(&computed_root)
+            &Boolean::constant(true),
+        )
     }
 
     pub fn conditional_check_path(

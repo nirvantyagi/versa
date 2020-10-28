@@ -1,43 +1,35 @@
 use crate::SingleStepAVD;
 use algebra::Field;
-use r1cs_core::{ConstraintSystem, SynthesisError};
-use r1cs_std::{
-    alloc::AllocGadget,
-    bits::ToBytesGadget,
-    eq::{ConditionalEqGadget, EqGadget},
-    select::CondSelectGadget,
-    boolean::Boolean,
-};
+use r1cs_core::{SynthesisError};
+use r1cs_std::prelude::*;
 use std::fmt::Debug;
 
 pub trait SingleStepAVDGadget<AVD: SingleStepAVD, ConstraintF: Field>: Sized {
-    type PublicParametersGadget: AllocGadget<AVD::PublicParameters, ConstraintF> + Clone;
+    type PublicParametersVar: AllocVar<AVD::PublicParameters, ConstraintF> + Clone;
 
-    type DigestGadget: ConditionalEqGadget<ConstraintF>
-        + EqGadget<ConstraintF>
+    type DigestVar: EqGadget<ConstraintF>
         + ToBytesGadget<ConstraintF>
         + CondSelectGadget<ConstraintF>
-        + AllocGadget<AVD::Digest, ConstraintF>
+        + AllocVar<AVD::Digest, ConstraintF>
+        + R1CSVar<ConstraintF>
         + Debug
         + Clone
         + Sized;
 
-    type UpdateProofGadget: AllocGadget<AVD::UpdateProof, ConstraintF>;
+    type UpdateProofVar: AllocVar<AVD::UpdateProof, ConstraintF>;
 
-    fn check_update_proof<CS: ConstraintSystem<ConstraintF>>(
-        cs: CS,
-        pp: &Self::PublicParametersGadget,
-        prev_digest: &Self::DigestGadget,
-        new_digest: &Self::DigestGadget,
-        proof: &Self::UpdateProofGadget,
+    fn check_update_proof(
+        pp: &Self::PublicParametersVar,
+        prev_digest: &Self::DigestVar,
+        new_digest: &Self::DigestVar,
+        proof: &Self::UpdateProofVar,
     ) -> Result<(), SynthesisError>;
 
-    fn conditional_check_update_proof<CS: ConstraintSystem<ConstraintF>>(
-        cs: CS,
-        pp: &Self::PublicParametersGadget,
-        prev_digest: &Self::DigestGadget,
-        new_digest: &Self::DigestGadget,
-        proof: &Self::UpdateProofGadget,
-        condition: &Boolean,
+    fn conditional_check_update_proof(
+        pp: &Self::PublicParametersVar,
+        prev_digest: &Self::DigestVar,
+        new_digest: &Self::DigestVar,
+        proof: &Self::UpdateProofVar,
+        condition: &Boolean<ConstraintF>,
     ) -> Result<(), SynthesisError>;
 }
