@@ -4,7 +4,7 @@ use single_step_avd::{
 };
 use crypto_primitives::sparse_merkle_tree::{
     MerkleTreeParameters,
-    constraints::MerkleTreePathGadget,
+    constraints::MerkleTreePathVar,
 };
 
 use algebra::{
@@ -12,10 +12,10 @@ use algebra::{
     fields::{Field, PrimeField},
 };
 use r1cs_core::{
-    ConstraintSynthesizer, ConstraintSystem, SynthesisError,
+    ConstraintSynthesizer, ConstraintSystemRef, SynthesisError,
 };
 use r1cs_std::{
-    alloc::AllocGadget,
+    alloc::AllocVar,
     uint64::UInt64,
     boolean::Boolean,
 };
@@ -25,7 +25,7 @@ use crate::{
     Error,
     history_tree::{
         SingleStepUpdateProof,
-        constraints::SingleStepUpdateProofGadget,
+        constraints::SingleStepUpdateProofVar,
     },
 };
 
@@ -61,27 +61,54 @@ where
     HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
     ConstraintF: PrimeField,
 {
-    fn generate_constraints<CS: ConstraintSystem<ConstraintF>>(
+    fn generate_constraints(
         self,
-        cs: &mut CS,
+        cs: ConstraintSystemRef<ConstraintF>,
     ) -> Result<(), SynthesisError> {
         // Allocate constants
-        let ssavd_pp = SSAVDGadget::PublicParametersGadget::alloc_constant(&mut cs.ns(|| "ssavd_pp"), &self.ssavd_pp)?;
-        let history_tree_pp = HGadget::ParametersGadget::alloc_constant(&mut cs.ns(|| "history_tree_pp"), &self.history_tree_pp)?;
+        let ssavd_pp = SSAVDGadget::PublicParametersVar::new_constant(
+            r1cs_core::ns!(cs, "ssavd_pp"),
+            &self.ssavd_pp,
+        )?;
+        let history_tree_pp = HGadget::ParametersVar::new_constant(
+            r1cs_core::ns!(cs, "history_tree_pp"),
+            &self.history_tree_pp,
+        )?;
 
         // Allocate public inputs
-        let prev_digest = HGadget::OutputGadget::alloc_input(&mut cs.ns(|| "prev_digest"), || Ok(&self.proof.prev_digest))?;
-        let new_digest = HGadget::OutputGadget::alloc_input(&mut cs.ns(|| "new_digest"), || Ok(&self.proof.new_digest))?;
+        let prev_digest = HGadget::OutputVar::new_input(
+            r1cs_core::ns!(cs, "prev_digest"),
+            || Ok(&self.proof.prev_digest),
+        )?;
+        let new_digest = HGadget::OutputVar::new_input(
+            r1cs_core::ns!(cs, "new_digest"),
+            || Ok(&self.proof.new_digest),
+        )?;
 
         // Allocate witness inputs
-        let ssavd_proof = SSAVDGadget::UpdateProofGadget::alloc(&mut cs.ns(|| "ssavd_proof"), || Ok(&self.proof.ssavd_proof))?;
-        let history_tree_proof = <MerkleTreePathGadget<HTParams, HGadget, ConstraintF>>::alloc(&mut cs.ns(|| "history_tree_proof"), || Ok(&self.proof.history_tree_proof))?;
-        let prev_ssavd_digest = SSAVDGadget::DigestGadget::alloc(&mut cs.ns(|| "prev_ssavd_digest"), || Ok(&self.proof.prev_ssavd_digest))?;
-        let new_ssavd_digest = SSAVDGadget::DigestGadget::alloc(&mut cs.ns(|| "new_ssavd_digest"), || Ok(&self.proof.new_ssavd_digest))?;
-        let prev_epoch = UInt64::alloc(&mut cs.ns(|| "prev_epoch"), || Ok(&self.proof.prev_epoch))?;
+        let ssavd_proof = SSAVDGadget::UpdateProofVar::new_witness(
+            r1cs_core::ns!(cs, "ssavd_proof"),
+            || Ok(&self.proof.ssavd_proof),
+        )?;
+        let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, ConstraintF>>::new_witness(
+            r1cs_core::ns!(cs, "history_tree_proof"),
+            || Ok(&self.proof.history_tree_proof),
+        )?;
+        let prev_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
+            r1cs_core::ns!(cs, "prev_ssavd_digest"),
+            || Ok(&self.proof.prev_ssavd_digest),
+        )?;
+        let new_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
+            r1cs_core::ns!(cs, "new_ssavd_digest"),
+            || Ok(&self.proof.new_ssavd_digest),
+        )?;
+        let prev_epoch = UInt64::new_witness(
+            r1cs_core::ns!(cs, "prev_epoch"),
+            || Ok(&self.proof.prev_epoch),
+        )?;
 
         // Check update proof
-        let proof_gadget = SingleStepUpdateProofGadget::<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>{
+        let proof_gadget = SingleStepUpdateProofVar::<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>{
             ssavd_proof,
             history_tree_proof,
             prev_ssavd_digest,
@@ -91,7 +118,6 @@ where
             prev_epoch,
         };
         proof_gadget.conditional_check_single_step_with_history_update(
-            &mut cs.ns(|| "check_ssavd_update_proof_with_history"),
             &ssavd_pp,
             &history_tree_pp,
             &Boolean::constant(true),
@@ -158,13 +184,14 @@ ConstraintF: Field,
 mod test {
     use super::*;
     use algebra::{
-        ed_on_bls12_381::{EdwardsAffine as JubJub, Fq},
+        ed_on_bls12_381::{EdwardsProjective as JubJub, Fq},
         bls12_381::Bls12_381,
     };
-    use r1cs_std::{ed_on_bls12_381::EdwardsGadget, test_constraint_system::TestConstraintSystem};
+    use r1cs_core::ConstraintSystem;
+    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::{
-        crh::pedersen::{constraints::PedersenCRHGadget, PedersenCRH, PedersenWindow},
+        crh::pedersen::{constraints::CRHGadget, CRH, Window},
         nizk::{groth16::Groth16, NIZK},
     };
 
@@ -184,13 +211,13 @@ mod test {
     #[derive(Clone)]
     pub struct Window4x256;
 
-    impl PedersenWindow for Window4x256 {
+    impl Window for Window4x256 {
         const WINDOW_SIZE: usize = 4;
         const NUM_WINDOWS: usize = 256;
     }
 
-    type H = PedersenCRH<JubJub, Window4x256>;
-    type HG = PedersenCRHGadget<JubJub, Fq, EdwardsGadget>;
+    type H = CRH<JubJub, Window4x256>;
+    type HG = CRHGadget<JubJub, EdwardsVar, Window4x256>;
 
     #[derive(Clone)]
     pub struct MerkleTreeTestParameters;
@@ -279,8 +306,8 @@ mod test {
             &ssavd_pp,
             &crh_pp,
         );
-        let mut cs = TestConstraintSystem::<Fq>::new();
-        blank_circuit_constraint_counter.generate_constraints(&mut cs).unwrap();
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
         println!("\t number of constraints: {}", cs.num_constraints());
     }
 }

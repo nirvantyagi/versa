@@ -413,13 +413,13 @@ impl Display for AggregatedFullHistoryAVDError {
 mod test {
     use super::*;
     use algebra::{
-        ed_on_bls12_381::{EdwardsAffine as JubJub, Fq},
+        ed_on_bls12_381::{EdwardsProjective as JubJub, Fq},
         bls12_381::Bls12_381,
     };
-    use r1cs_std::{ed_on_bls12_381::EdwardsGadget};
+    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::{
-        crh::pedersen::{constraints::PedersenCRHGadget, PedersenCRH, PedersenWindow},
+        crh::pedersen::{constraints::CRHGadget, CRH, Window},
     };
     use blake2::Blake2b;
 
@@ -436,13 +436,13 @@ mod test {
     #[derive(Clone)]
     pub struct Window4x256;
 
-    impl PedersenWindow for Window4x256 {
+    impl Window for Window4x256 {
         const WINDOW_SIZE: usize = 4;
         const NUM_WINDOWS: usize = 256;
     }
 
-    type H = PedersenCRH<JubJub, Window4x256>;
-    type HG = PedersenCRHGadget<JubJub, Fq, EdwardsGadget>;
+    type H = CRH<JubJub, Window4x256>;
+    type HG = CRHGadget<JubJub, EdwardsVar, Window4x256>;
 
     #[derive(Clone)]
     pub struct MerkleTreeTestParameters;

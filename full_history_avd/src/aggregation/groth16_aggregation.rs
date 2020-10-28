@@ -1,5 +1,4 @@
 use algebra::{
-    bytes::ToBytes,
     curves::{AffineCurve, PairingEngine},
     fields::Field,
     groups::Group,
@@ -24,7 +23,7 @@ use inner_products::{
 };
 use ip_proofs::{
     tipa::{
-        structured_scalar_message::{structured_scalar_power, TIPAWithSSMProof},
+        structured_scalar_message::{structured_scalar_power, TIPAWithSSM, TIPAWithSSMProof},
         TIPAProof, VerifierSRS, SRS, TIPA,
     },
 };
@@ -53,10 +52,9 @@ type PairingInnerProductABProof<P, D> = TIPAProof<
     D,
 >;
 
-type MultiExpInnerProductC<P, D> = TIPA<
+type MultiExpInnerProductC<P, D> = TIPAWithSSM<
     MultiexponentiationInnerProduct<<P as PairingEngine>::G1Projective>,
     AFGHOCommitmentG1<P>,
-    PedersenCommitment<<P as PairingEngine>::G1Projective>,
     IdentityCommitment<<P as PairingEngine>::G1Projective, <P as PairingEngine>::Fr>,
     P,
     D,
@@ -65,16 +63,14 @@ type MultiExpInnerProductC<P, D> = TIPA<
 type MultiExpInnerProductCProof<P, D> = TIPAWithSSMProof<
     MultiexponentiationInnerProduct<<P as PairingEngine>::G1Projective>,
     AFGHOCommitmentG1<P>,
-    PedersenCommitment<<P as PairingEngine>::G1Projective>,
     IdentityCommitment<<P as PairingEngine>::G1Projective, <P as PairingEngine>::Fr>,
     P,
     D,
 >;
 
-type DigestScalarInnerProduct<P, D> = TIPA::<
+type DigestScalarInnerProduct<P, D> = TIPAWithSSM::<
     ScalarInnerProduct<<P as PairingEngine>::Fr>,
     PedersenCommitment<<P as PairingEngine>::G2Projective>,
-    PedersenCommitment<<P as PairingEngine>::G1Projective>,
     IdentityCommitment<<P as PairingEngine>::Fr, <P as PairingEngine>::Fr>,
     P,
     D,
@@ -83,7 +79,6 @@ type DigestScalarInnerProduct<P, D> = TIPA::<
 type DigestScalarInnerProductProof<P, D> = TIPAWithSSMProof::<
     ScalarInnerProduct<<P as PairingEngine>::Fr>,
     PedersenCommitment<<P as PairingEngine>::G2Projective>,
-    PedersenCommitment<<P as PairingEngine>::G1Projective>,
     IdentityCommitment<<P as PairingEngine>::Fr, <P as PairingEngine>::Fr>,
     P,
     D,
@@ -258,14 +253,14 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         let tipa_proof_c = MultiExpInnerProductC::<Pairing, FastH>::prove_with_structured_scalar_message(
             &ip_srs,
             (&c, &r_vec),
-            (ck_1, ck_2, &HomomorphicPlaceholderValue),
+            (ck_1, &HomomorphicPlaceholderValue),
         )?;
 
         let tipa_proof_d = digest_cross_slices.iter().map(|d| {
             DigestScalarInnerProduct::<Pairing, FastH>::prove_with_structured_scalar_message(
                 &ip_srs,
                 (d, &r_vec),
-                (ck_1, ck_2, &HomomorphicPlaceholderValue),
+                (ck_1, &HomomorphicPlaceholderValue),
             )
         }).collect::<Result<Vec<_>, Error>>()?;
 
