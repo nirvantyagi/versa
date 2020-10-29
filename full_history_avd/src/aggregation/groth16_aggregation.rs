@@ -5,17 +5,16 @@ use algebra::{
     to_bytes,
 };
 use groth16::{VerifyingKey};
+use ff_fft::polynomial::DensePolynomial as UnivariatePolynomial;
 
 use std::ops::AddAssign;
 
 use rand::Rng;
-use num_traits::identities::One;
+use num_traits::identities::{One, Zero};
 
 use dh_commitments::{
-    DoublyHomomorphicCommitment,
     afgho16::{AFGHOCommitmentG1, AFGHOCommitmentG2},
     identity::{HomomorphicPlaceholderValue, IdentityCommitment, IdentityOutput},
-    pedersen::PedersenCommitment,
 };
 use inner_products::{
     ExtensionFieldElement, InnerProduct, MultiexponentiationInnerProduct, PairingInnerProduct,
@@ -68,21 +67,59 @@ type MultiExpInnerProductCProof<P, D> = TIPAWithSSMProof<
     D,
 >;
 
-type DigestScalarInnerProduct<P, D> = TIPAWithSSM::<
-    ScalarInnerProduct<<P as PairingEngine>::Fr>,
-    PedersenCommitment<<P as PairingEngine>::G2Projective>,
-    IdentityCommitment<<P as PairingEngine>::Fr, <P as PairingEngine>::Fr>,
-    P,
-    D,
->;
+// Simple implementation of KZG polynomial commitment scheme
+pub struct KZG<P: PairingEngine> {
+    _pairing: PhantomData<P>,
+}
 
-type DigestScalarInnerProductProof<P, D> = TIPAWithSSMProof::<
-    ScalarInnerProduct<<P as PairingEngine>::Fr>,
-    PedersenCommitment<<P as PairingEngine>::G2Projective>,
-    IdentityCommitment<<P as PairingEngine>::Fr, <P as PairingEngine>::Fr>,
-    P,
-    D,
->;
+impl<P: PairingEngine> KZG<P> {
+    pub fn commit(
+        powers: &[P::G1Projective],
+        coeffs: &[P::Fr],
+    ) -> Result<P::G1Projective, Error> {
+        assert!(powers.len() == coeffs.len());
+        MultiexponentiationInnerProduct::<<P as PairingEngine>::G1Projective>::inner_product(
+            powers,
+            &coeffs,
+        )
+    }
+
+    pub fn open(
+        powers: &[P::G1Projective],
+        coeffs: &[P::Fr],
+        point: &P::Fr,
+    ) -> Result<P::G1Projective, Error> {
+        assert!(powers.len() == coeffs.len());
+        let polynomial = UnivariatePolynomial::from_coefficients_slice(coeffs);
+
+        // Trick to calculate (p(x) - p(z)) / (x - z) as p(x) / (x - z) ignoring remainder p(z)
+        let quotient_polynomial = &polynomial
+            / &UnivariatePolynomial::from_coefficients_vec(vec![-point.clone(), P::Fr::one()]);
+        let mut quotient_coeffs = quotient_polynomial.coeffs.to_vec();
+        quotient_coeffs.resize(powers.len(), <P::Fr>::zero());
+        MultiexponentiationInnerProduct::<<P as PairingEngine>::G1Projective>::inner_product(
+            powers,
+            &quotient_coeffs,
+        )
+    }
+
+    pub fn verify(
+        v_srs: &VerifierSRS<P>,
+        com: &P::G1Projective,
+        point: &P::Fr,
+        eval: &P::Fr,
+        proof: &P::G1Projective,
+    ) -> Result<bool, Error> {
+        Ok(P::pairing(
+            com.clone() - &<P::G1Projective as Group>::mul(&v_srs.g, eval),
+            v_srs.h.clone(),
+        ) == P::pairing(
+            proof.clone(),
+            v_srs.h_alpha.clone() - &<P::G2Projective as Group>::mul(&v_srs.h, point),
+        ))
+    }
+}
+
 
 pub struct AggregateDigestProof<SSAVD, HTParams, P, FastH>
     where
@@ -94,13 +131,13 @@ pub struct AggregateDigestProof<SSAVD, HTParams, P, FastH>
     com_a: ExtensionFieldElement<P>,
     com_b: ExtensionFieldElement<P>,
     com_c: ExtensionFieldElement<P>,
-    com_d: Vec<P::G2Projective>,
+    com_d: Vec<P::G1Projective>,
     ip_ab: ExtensionFieldElement<P>,
     agg_c: P::G1Projective,
     agg_d: Vec<P::Fr>,
     tipa_proof_ab: PairingInnerProductABProof<P, FastH>,
     tipa_proof_c: MultiExpInnerProductCProof<P, FastH>,
-    tipa_proof_d: Vec<DigestScalarInnerProductProof<P, FastH>>,
+    tipa_proof_d: Vec<P::G1Projective>,
     pub trailing_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
     pub trailing_digest_opening: (u64, SSAVD::Digest, <HTParams::H as FixedLengthCRH>::Output),
 }
@@ -165,6 +202,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             g_beta: self.ip_pp.g_beta.clone(),
             h_alpha: self.ip_pp.h_alpha.clone(),
         };
+        let kzg_srs = &ip_srs.g_alpha_powers[0..size];
 
         let proofs = &self.proofs[start_i..end_i];
         let a = proofs
@@ -203,7 +241,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         let com_b = PairingInnerProduct::<Pairing>::inner_product(ck_2, &b)?;
         let com_c = PairingInnerProduct::<Pairing>::inner_product(&c, ck_1)?;
         let com_d = digest_cross_slices.iter().map(|d| {
-            PedersenCommitment::<Pairing::G2Projective>::commit(ck_1, d)
+            KZG::<Pairing>::commit(kzg_srs, d)
         }).collect::<Result<Vec<_>, Error>>()?;
 
         // Random linear combination of proofs
@@ -257,11 +295,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         )?;
 
         let tipa_proof_d = digest_cross_slices.iter().map(|d| {
-            DigestScalarInnerProduct::<Pairing, FastH>::prove_with_structured_scalar_message(
-                &ip_srs,
-                (d, &r_vec),
-                (ck_1, &HomomorphicPlaceholderValue),
-            )
+            KZG::<Pairing>::open(&kzg_srs, d, &r)
         }).collect::<Result<Vec<_>, Error>>()?;
 
         Ok(AggregateDigestProof {
@@ -321,12 +355,12 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             &proof.tipa_proof_c,
         )?;
         let tipa_proof_d_valid = proof.tipa_proof_d.iter().enumerate().map(|(i, p)| {
-            DigestScalarInnerProduct::<Pairing, FastH>::verify_with_structured_scalar_message(
+            KZG::<Pairing>::verify(
                 ip_verifier_srs,
-                &HomomorphicPlaceholderValue,
-                (&proof.com_d[i], &IdentityOutput(vec![proof.agg_d[i].clone()])),
+                &proof.com_d[i],
                 &r,
-                &p,
+                &proof.agg_d[i],
+                p,
             )
         })
             .collect::<Result<Vec<bool>, Error>>()?
