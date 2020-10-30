@@ -125,9 +125,11 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
 
     pub fn setup<R: Rng>(rng: &mut R)
         -> Result<(SSAVD::PublicParameters, <HTParams::H as FixedLengthCRH>::Parameters), Error> {
+        let ssavd_pp = SSAVD::setup(rng)?;
+        let crh_pp = <HTParams::H as FixedLengthCRH>::setup(rng)?;
         Ok((
-            SSAVD::setup(rng)?,
-            <HTParams::H as FixedLengthCRH>::setup(rng)?,
+            ssavd_pp,
+            crh_pp,
         ))
     }
 
@@ -307,14 +309,15 @@ pub fn hash_to_final_digest<SSAVD: SingleStepAVD, H: FixedLengthCRH>(
     epoch: &u64,
 ) -> Result<H::Output, Error> {
     // Hash together digests
-    let mut buffer1 = [0u8; 128];
+    //TODO: Oversized buffer to hopefully not underflow hash input size
+    let mut buffer1 = [0u8; 1024];
     let mut writer1 = Cursor::new(&mut buffer1[..]);
     ssavd_digest.write(&mut writer1)?;
     history_tree_digest.write(&mut writer1)?;
     let digests_hash = H::evaluate(&parameters, &buffer1[..(H::INPUT_SIZE_BITS / 8)])?;
 
     // Hash in epoch
-    let mut buffer2 = [0u8; 128];
+    let mut buffer2 = [0u8; 1024];
     let mut writer2 = Cursor::new(&mut buffer2[..]);
     writer2.write(&epoch.to_le_bytes())?;
     digests_hash.write(&mut writer2)?;

@@ -4,6 +4,7 @@ use std::{error::Error as ErrorTrait};
 
 pub mod history_tree;
 pub mod aggregation;
+pub mod recursion;
 
 pub type Error = Box<dyn ErrorTrait>;
 

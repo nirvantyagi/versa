@@ -180,7 +180,8 @@ pub fn hash_leaf<H: FixedLengthCRH>(
     parameters: &H::Parameters,
     leaf: &[u8],
 ) -> Result<H::Output, Error> {
-    let mut buffer = [0u8; 128];
+    //TODO: Oversized buffer to hopefully not underflow hash input size
+    let mut buffer = [0u8; 1024];
     let mut writer = Cursor::new(&mut buffer[..]);
     leaf.write(&mut writer)?;
     H::evaluate(&parameters, &buffer[..(H::INPUT_SIZE_BITS / 8)])
@@ -191,7 +192,8 @@ pub fn hash_inner_node<H: FixedLengthCRH>(
     left: &H::Output,
     right: &H::Output,
 ) -> Result<H::Output, Error> {
-    let mut buffer = [0u8; 128];
+    //TODO: Oversized buffer to hopefully not underflow hash input size
+    let mut buffer = [0u8; 1024];
     let mut writer = Cursor::new(&mut buffer[..]);
     left.write(&mut writer)?;
     right.write(&mut writer)?;
