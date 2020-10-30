@@ -76,6 +76,15 @@ pub struct InnerSingleStepProofVerifierInput<HTParams: MerkleTreeParameters> {
     pub(crate) new_epoch: u64,
 }
 
+impl<HTParams: MerkleTreeParameters> Clone for InnerSingleStepProofVerifierInput<HTParams> {
+    fn clone(&self) -> Self {
+        Self {
+            new_digest: self.new_digest.clone(),
+            new_epoch: self.new_epoch,
+        }
+    }
+}
+
 impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> ConstraintSynthesizer<<Cycle::E2 as PairingEngine>::Fq>
 for InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
 where
@@ -509,7 +518,8 @@ mod test {
     type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
     type TestInnerVerifierInput = InnerSingleStepProofVerifierInput<MerkleTreeTestParameters>;
 
-    type TestOuterCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type TestOuterCircuit = OuterCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type TestOuterVerifierInput = OuterVerifierInput<MerkleTreeTestParameters, MNT298Cycle>;
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
@@ -523,20 +533,10 @@ mod test {
         let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
 
-        // Setup outer proof circuit
-        // TODO: Figure out how to circularly add inner proof circuit verifying key to outer circuit
-        // Create dummy vk with proper number of elements
-        //println!("Setting up outer proof...");
-        //let start = Instant::now();
-        //let outer_blank_circuit = TestOuterCircuit::blank();
-        //let outer_parameters =
-        //    Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::setup(outer_blank_circuit, &mut rng).unwrap();
-        //println!("PreparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
-        //let bench = start.elapsed().as_secs();
-        //println!("\t setup time: {} s", bench);
-
 
         // Setup inner proof circuit
+        // TODO: Figure out how to circularly add outer proof circuit verifying key to inner circuit
+        // Create dummy vk with proper number of elements
         println!("Setting up inner proof...");
         let start = Instant::now();
         let inner_blank_circuit = TestInnerCircuit::blank(
@@ -547,6 +547,16 @@ mod test {
         let inner_parameters =
             Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::setup(inner_blank_circuit, &mut rng).unwrap();
         println!("PreparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        // Setup outer proof circuit
+        println!("Setting up outer proof...");
+        let start = Instant::now();
+        let outer_blank_circuit = TestOuterCircuit::blank(inner_parameters.0.vk.clone());
+        let outer_parameters =
+            Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::setup(outer_blank_circuit, &mut rng).unwrap();
+        println!("PreparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -589,33 +599,40 @@ mod test {
         assert!(!result2);
 
         // Construct outer genesis proof
-        //println!("Generating outer genesis proof...");
-        //let start = Instant::now();
-        //let outer_genesis_proof = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::prove(
-        //    &outer_parameters.0,
-        //    TestOuterCircuit::new(genesis_digest.clone(), 0),
-        //    &mut rng,
-        //).unwrap();
-        //let bench = start.elapsed().as_secs();
-        //println!("\t proving time: {} s", bench);
+        println!("Generating outer genesis proof...");
+        let start = Instant::now();
+        let outer_genesis_proof = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::prove(
+            &outer_parameters.0,
+            TestOuterCircuit::new(
+                inner_genesis_proof.clone(),
+                verifier_input_genesis.clone(),
+                inner_parameters.0.vk.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
 
         // Verify outer genesis proof
-        //let verifier_input = TestInnerVerifierInput{
-        //    new_digest: genesis_digest.clone(),
-        //    new_epoch: 0,
-        //};
-        //let result = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::verify(
-        //    &outer_parameters.1,
-        //    &verifier_input,
-        //    &outer_genesis_proof,
-        //).unwrap();
-        //assert!(result);
-        //let result2 = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::verify(
-        //    &outer_parameters.1,
-        //    &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
-        //    &outer_genesis_proof,
-        //).unwrap();
-        //assert!(!result2);
+        let outer_genesis_verifier_input = TestOuterVerifierInput{
+            prev_inner_proof_input: verifier_input_genesis.clone(),
+            _cycle: PhantomData,
+        };
+        let result = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
+            &outer_parameters.1,
+            &outer_genesis_verifier_input,
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
+            &outer_parameters.1,
+            &TestOuterVerifierInput{
+                prev_inner_proof_input: TestInnerVerifierInput{ new_digest: Default::default(), new_epoch: 0 },
+                _cycle: PhantomData,
+           },
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
 
         // Update AVD
         let proof = avd.batch_update(
