@@ -107,19 +107,20 @@ where
         //    r1cs_core::ns!(cs, "vk"),
         //    &self.vk,
         //)?;
+        let genesis_digest_val = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(
+            &mut StepRng::new(1, 1),
+            &self.ssavd_pp,
+            &self.history_tree_pp,
+        ).unwrap().digest().digest;
         let genesis_digest = HGadget::OutputVar::new_constant(
             r1cs_core::ns!(cs, "genesis_digest"),
-            &SingleStepAVDWithHistory::<SSAVD, HTParams>::new(
-                &mut StepRng::new(1, 1),
-                &self.ssavd_pp,
-                &self.history_tree_pp,
-            ).unwrap().digest().digest,
+            &genesis_digest_val,
         )?;
 
         // Allocate public inputs
         let new_digest = HGadget::OutputVar::new_input(
             r1cs_core::ns!(cs, "new_digest"),
-            || Ok(&self.proof.new_digest),
+            || Ok(if self.is_genesis { &genesis_digest_val } else {&self.proof.new_digest} ),
         )?;
         let new_epoch = UInt64::new_input(
             r1cs_core::ns!(cs, "new_epoch"),
@@ -552,6 +553,40 @@ mod test {
         // Construct genesis proof
         //TODO: Construct inner genesis proof
         let genesis_digest = avd.digest().digest;
+        let verifier_input_genesis = TestInnerVerifierInput{
+            new_digest: genesis_digest.clone(),
+            new_epoch: 0,
+        };
+        println!("Generating inner proof for genesis epoch...");
+        let start = Instant::now();
+        let inner_genesis_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+            &inner_parameters.0,
+            TestInnerCircuit::new(
+                true,
+                &ssavd_pp,
+                &crh_pp,
+                Default::default(),
+                //outer_parameters.0.vk.clone(),
+                //outer_genesis_proof.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for genesis epoch
+        let result = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
+            &inner_parameters.1,
+            &verifier_input_genesis,
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
+            &inner_parameters.1,
+            &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 },
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
 
         // Construct outer genesis proof
         //println!("Generating outer genesis proof...");
