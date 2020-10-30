@@ -34,7 +34,7 @@ use crate::{
 pub mod constraints;
 use constraints::{
     InnerSingleStepProofCircuit, InnerSingleStepProofVerifierInput,
-    //OuterProofCircuit, OuterProofVerifierInput,
+    //OuterCircuit, OuterVerifierInput,
 };
 
 /*

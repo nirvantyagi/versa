@@ -7,8 +7,9 @@ use crypto_primitives::sparse_merkle_tree::{
     constraints::MerkleTreePathVar,
 };
 use algebra::{
+    biginteger::BigInteger,
     ToConstraintField,
-    fields::{Field, PrimeField, SquareRootField},
+    fields::{Field, PrimeField, SquareRootField, FftParameters},
     curves::{CycleEngine, PairingEngine},
 };
 use groth16::{Proof, VerifyingKey};
@@ -18,6 +19,7 @@ use r1cs_core::{
 use r1cs_std::{
     prelude::*,
     uint64::UInt64,
+    ToConstraintFieldGadget,
 };
 use zexe_cp::{
     crh::{FixedLengthCRH, FixedLengthCRHGadget},
@@ -44,13 +46,14 @@ use rand::rngs::mock::StepRng;
 use std::ops::MulAssign;
 
 
-pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget>
+pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
         HTParams: MerkleTreeParameters,
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>,
         Cycle: CycleEngine,
+        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
@@ -63,6 +66,7 @@ pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cy
     history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
     _ssavd_gadget: PhantomData<SSAVDGadget>,
     _hash_gadget: PhantomData<HGadget>,
+    _e1_gadget: PhantomData<E1Gadget>,
     _e2_gadget: PhantomData<E2Gadget>,
     _cycle: PhantomData<Cycle>,
 }
@@ -72,17 +76,19 @@ pub struct InnerSingleStepProofVerifierInput<HTParams: MerkleTreeParameters> {
     pub(crate) new_epoch: u64,
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget> ConstraintSynthesizer<<Cycle::E2 as PairingEngine>::Fq>
-for InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> ConstraintSynthesizer<<Cycle::E2 as PairingEngine>::Fq>
+for InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
 where
     SSAVD: SingleStepAVD,
     SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
     HTParams: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>,
+    HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
     Cycle: CycleEngine,
+    E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
     E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
     <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
     <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+    <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     fn generate_constraints(
         self,
@@ -97,7 +103,7 @@ where
             r1cs_core::ns!(cs, "history_tree_pp"),
             &self.history_tree_pp,
         )?;
-        //let vk_gadget = VerifyingKeyVar::<Cycle::E2, E2Gadget>::new_constant(
+        //let vk = VerifyingKeyVar::<Cycle::E2, E2Gadget>::new_constant(
         //    r1cs_core::ns!(cs, "vk"),
         //    &self.vk,
         //)?;
@@ -154,7 +160,7 @@ where
         let is_genesis = new_digest.is_eq(&genesis_digest)?;
         new_epoch.conditional_enforce_equal(&UInt64::constant(0), &is_genesis)?;
 
-        // Else check update proof
+        // Else check update proof and perform recursive check on previous epoch
         new_epoch.conditional_enforce_equal(
             &UInt64::addmany(&[prev_epoch.clone(), UInt64::constant(1)])?,
             &is_genesis.not(),
@@ -168,23 +174,37 @@ where
             new_digest,
             prev_epoch,
         };
-        //TODO: verify previous circuit proof
         proof_gadget.conditional_check_single_step_with_history_update(
             &ssavd_pp,
             &history_tree_pp,
             &is_genesis.not(),
         )?;
+        //let prev_digest_as_proof_input = prev_digest.to_constraint_field()?;
+        //let prev_epoch_as_proof_input = prev_epoch.to_bits_le().iter()
+        //    .map(|b| b.to_constraint_field())
+        //    .collect::<Result<Vec<_>, SynthesisError>>()?
+        //    .iter().flatten().cloned().collect::<Vec<_>>();
+        //let mut proof_input = vec![];
+        //proof_input.extend_from_slice(&prev_digest_as_proof_input);
+        //proof_input.extend_from_slice(&prev_epoch_as_proof_input);
+
+        //<Groth16VerifierGadget<Cycle::E2, E2Gadget> as NIZKVerifierGadget<
+        //    Groth16<Cycle::E2, OuterCircuit<HTParams, HGadget, Cycle, E1Gadget>, InnerSingleStepProofVerifierInput<HTParams>>,
+        //    <Cycle::E2 as PairingEngine>::Fq,
+        //>>::verify(&vk, proof_input, &prev_recursive_proof)?
+        //    .conditional_enforce_equal(&Boolean::TRUE, &is_genesis.not())?;
         Ok(())
     }
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget> InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
         HTParams: MerkleTreeParameters,
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>,
         Cycle: CycleEngine,
+        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
@@ -196,11 +216,14 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget> InnerSingleStepProo
     ) -> Self {
         Self {
             is_genesis: Default::default(),
+            //prev_recursive_proof: Default::default(),
+            //vk: vk,
             proof: SingleStepUpdateProof::<SSAVD, HTParams>::default(),
             ssavd_pp: ssavd_pp.clone(),
             history_tree_pp: history_tree_pp.clone(),
             _ssavd_gadget: PhantomData ,
             _hash_gadget: PhantomData,
+            _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
             _cycle: PhantomData,
         }
@@ -211,14 +234,19 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E2Gadget> InnerSingleStepProo
         ssavd_pp: &SSAVD::PublicParameters,
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
         proof: SingleStepUpdateProof<SSAVD, HTParams>,
+        //vk: VerifyingKey<Cycle::E2>,
+        //prev_recursive_proof: Proof<Cycle::E2>,
     ) -> Self {
         Self {
             is_genesis,
+            //prev_recursive_proof,
+            //vk: vk,
             proof: proof,
             ssavd_pp: ssavd_pp.clone(),
             history_tree_pp: history_tree_pp.clone(),
             _ssavd_gadget: PhantomData ,
             _hash_gadget: PhantomData,
+            _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
             _cycle: PhantomData,
         }
@@ -239,6 +267,7 @@ ConstraintF: PrimeField,
         let mut new_epoch_as_le_bits = Vec::with_capacity(64);
         let mut tmp = self.new_epoch;
         for _ in 0..64 {
+            //TODO: remove if statement (wait until tests pass)
             if tmp & 1 == 1 {
                 new_epoch_as_le_bits.push(<ConstraintF>::from(true as u8))
             } else {
@@ -252,13 +281,163 @@ ConstraintF: PrimeField,
     }
 }
 
+pub struct OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+    where
+        SSAVD: SingleStepAVD,
+        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
+        HTParams: MerkleTreeParameters,
+        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>,
+        Cycle: CycleEngine,
+        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
+        E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+{
+    prev_inner_proof_input: InnerSingleStepProofVerifierInput<HTParams>,
+    prev_inner_proof: Proof<Cycle::E1>,
+    vk: VerifyingKey<Cycle::E1>,
+    _inner_proof: PhantomData<InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>>,
+}
+
+pub struct OuterVerifierInput<HTParams: MerkleTreeParameters, Cycle: CycleEngine>
+where
+    <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+    <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+{
+    pub(crate) prev_inner_proof_input: InnerSingleStepProofVerifierInput<HTParams>,
+    _cycle: PhantomData<Cycle>,
+}
+
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> ConstraintSynthesizer<<Cycle::E1 as PairingEngine>::Fq>
+for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+    where
+        SSAVD: SingleStepAVD,
+        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
+        HTParams: MerkleTreeParameters,
+        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
+        Cycle: CycleEngine,
+        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
+        E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
+        <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+{
+    fn generate_constraints(self, cs: ConstraintSystemRef<<<Cycle as CycleEngine>::E1 as PairingEngine>::Fq>) -> Result<(), SynthesisError> {
+        let inner_proof_input_as_e1_fr: Vec<<Cycle::E1 as PairingEngine>::Fr> = self.prev_inner_proof_input.to_field_elements().unwrap();
+        let inner_proof_input_as_e1_fr_bytes = inner_proof_input_as_e1_fr.iter()
+            .map(|e1_fr| {
+                e1_fr
+                    .into_repr()
+                    .as_ref()
+                    .iter()
+                    .map(|e1_fr_int| e1_fr_int.to_le_bytes().to_vec())
+                    .collect::<Vec<Vec<u8>>>()
+            })
+            .collect::<Vec<Vec<Vec<u8>>>>().iter()
+            .flatten().flatten().cloned().collect::<Vec<u8>>();
+        let inner_proof_input_as_e1_fr_bytes_var = UInt8::<<Cycle::E1 as PairingEngine>::Fq>::new_input_vec(
+            r1cs_core::ns!(cs, "e1_fr_bytes"),
+            &inner_proof_input_as_e1_fr_bytes,
+        )?;
+        let e1_fr_size_in_bytes = <<<Cycle::E1 as PairingEngine>::Fr as PrimeField>::Params as FftParameters>::BigInt::NUM_LIMBS * 8;
+        let inner_proof_input_repacked_as_e1_fq = inner_proof_input_as_e1_fr_bytes_var
+            .chunks(e1_fr_size_in_bytes)
+            .map(|e1_fr_chunk| e1_fr_chunk.to_vec())
+            .collect::<Vec<Vec<UInt8<_>>>>();
+
+        let vk = VerifyingKeyVar::<Cycle::E1, E1Gadget>::new_constant(
+            r1cs_core::ns!(cs, "vk"),
+            &self.vk,
+        )?;
+        let prev_inner_proof = ProofVar::<Cycle::E1, E1Gadget>::new_witness(
+            r1cs_core::ns!(cs, "inner_proof"),
+            || Ok(&self.prev_inner_proof),
+        )?;
+
+        <Groth16VerifierGadget<Cycle::E1, E1Gadget> as NIZKVerifierGadget<
+            Groth16<
+                Cycle::E1,
+                InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
+                InnerSingleStepProofVerifierInput<HTParams>,
+            >,
+            <Cycle::E1 as PairingEngine>::Fq,
+        >>::verify(&vk, &inner_proof_input_repacked_as_e1_fq, &prev_inner_proof)?
+            .enforce_equal(&Boolean::TRUE)?;
+        Ok(())
+    }
+}
+
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+    where
+        SSAVD: SingleStepAVD,
+        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
+        HTParams: MerkleTreeParameters,
+        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
+        Cycle: CycleEngine,
+        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
+        E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+{
+    pub fn blank(
+        vk: VerifyingKey<Cycle::E1>,
+    ) -> Self {
+       Self {
+           prev_inner_proof_input: InnerSingleStepProofVerifierInput {
+               new_digest: Default::default(),
+               new_epoch: Default::default(),
+           },
+           prev_inner_proof: Default::default(),
+           vk: vk,
+           _inner_proof: PhantomData,
+       }
+    }
+
+    pub fn new(
+        prev_inner_proof: Proof<Cycle::E1>,
+        prev_inner_proof_input: InnerSingleStepProofVerifierInput<HTParams>,
+        vk: VerifyingKey<Cycle::E1>,
+    ) -> Self {
+        Self {
+            prev_inner_proof_input: prev_inner_proof_input,
+            prev_inner_proof: prev_inner_proof,
+            vk: vk,
+            _inner_proof: PhantomData,
+        }
+    }
+}
+
+impl <HTParams, Cycle> ToConstraintField<<Cycle::E1 as PairingEngine>::Fq> for OuterVerifierInput<HTParams, Cycle>
+    where
+        HTParams: MerkleTreeParameters,
+        Cycle: CycleEngine,
+        <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
+{
+    fn to_field_elements(&self) -> Result<Vec<<Cycle::E1 as PairingEngine>::Fq>, Error> {
+        let inner_proof_input_as_e1_fr: Vec<<Cycle::E1 as PairingEngine>::Fr> = self.prev_inner_proof_input.to_field_elements()?;
+        let inner_proof_input_as_e1_fr_bytes = inner_proof_input_as_e1_fr.iter()
+            .map(|e1_fr| {
+                e1_fr.into_repr().as_ref().iter()
+                    .map(|e1_fr_int| e1_fr_int.to_le_bytes().to_vec())
+                    .collect::<Vec<Vec<u8>>>()
+            })
+            .collect::<Vec<Vec<Vec<u8>>>>()
+            .iter().flatten().flatten().cloned().collect::<Vec<u8>>();
+        inner_proof_input_as_e1_fr_bytes.to_field_elements()
+    }
+}
+
 
 #[cfg(test)]
 mod test {
     use super::*;
     use algebra::{
         ed_on_mnt4_298::{EdwardsProjective, Fq},
-        mnt4_298::MNT4_298,
+        mnt4_298::{MNT4_298, Fq as MNT4Fq},
         mnt6_298::MNT6_298,
     };
     use r1cs_core::ConstraintSystem;
@@ -326,65 +505,125 @@ mod test {
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters>;
 
-    type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT6PairingVar>;
+    type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
     type TestInnerVerifierInput = InnerSingleStepProofVerifierInput<MerkleTreeTestParameters>;
+
+    type TestOuterCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
     fn update_and_verify_inner_circuit_test() {
+        println!("Test with tree height: {}, and number of updates: {}...",
+                 MerkleTreeTestParameters::DEPTH,
+                 MerkleTreeAVDTestParameters::MAX_UPDATE_BATCH_SIZE,
+        );
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+
+
+        // Setup outer proof circuit
+        // TODO: Figure out how to circularly add inner proof circuit verifying key to outer circuit
+        // Create dummy vk with proper number of elements
+        //println!("Setting up outer proof...");
+        //let start = Instant::now();
+        //let outer_blank_circuit = TestOuterCircuit::blank();
+        //let outer_parameters =
+        //    Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::setup(outer_blank_circuit, &mut rng).unwrap();
+        //println!("PreparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
+        //let bench = start.elapsed().as_secs();
+        //println!("\t setup time: {} s", bench);
+
+
+        // Setup inner proof circuit
+        println!("Setting up inner proof...");
+        let start = Instant::now();
+        let inner_blank_circuit = TestInnerCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+            //outer_parameters.0.vk.clone(),
+        );
+        let inner_parameters =
+            Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::setup(inner_blank_circuit, &mut rng).unwrap();
+        println!("PreparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        // Construct genesis proof
+        //TODO: Construct inner genesis proof
+        let genesis_digest = avd.digest().digest;
+
+        // Construct outer genesis proof
+        //println!("Generating outer genesis proof...");
+        //let start = Instant::now();
+        //let outer_genesis_proof = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::prove(
+        //    &outer_parameters.0,
+        //    TestOuterCircuit::new(genesis_digest.clone(), 0),
+        //    &mut rng,
+        //).unwrap();
+        //let bench = start.elapsed().as_secs();
+        //println!("\t proving time: {} s", bench);
+
+        // Verify outer genesis proof
+        //let verifier_input = TestInnerVerifierInput{
+        //    new_digest: genesis_digest.clone(),
+        //    new_epoch: 0,
+        //};
+        //let result = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::verify(
+        //    &outer_parameters.1,
+        //    &verifier_input,
+        //    &outer_genesis_proof,
+        //).unwrap();
+        //assert!(result);
+        //let result2 = Groth16::<MNT6_298, TestOuterCircuit, TestInnerVerifierInput>::verify(
+        //    &outer_parameters.1,
+        //    &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
+        //    &outer_genesis_proof,
+        //).unwrap();
+        //assert!(!result2);
+
+        // Update AVD
         let proof = avd.batch_update(
             &vec![
                 ([1_u8; 32], [2_u8; 32]),
                 ([11_u8; 32], [12_u8; 32]),
                 ([21_u8; 32], [22_u8; 32]),
             ]).unwrap();
-        let verifier_input = TestInnerVerifierInput{
+
+
+        // Generate inner proof for new update
+        let verifier_input_epoch_1 = TestInnerVerifierInput{
             new_digest: proof.new_digest.clone(),
             new_epoch: 1,
         };
-
-        // Generate proof circuit
-        println!("Setting up proof with tree height: {}, and number of updates: {}...",
-                 MerkleTreeTestParameters::DEPTH,
-                 MerkleTreeAVDTestParameters::MAX_UPDATE_BATCH_SIZE,
-        );
+        println!("Generating inner proof for epoch 1...");
         let start = Instant::now();
-        let blank_circuit = TestInnerCircuit::blank(
-            &ssavd_pp,
-            &crh_pp,
-        );
-        let parameters =
-            Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::setup(blank_circuit, &mut rng).unwrap();
-        println!("PreparedVK len: {}", parameters.1.gamma_abc_g1.len());
-        let bench = start.elapsed().as_secs();
-        println!("\t setup time: {} s", bench);
-
-
-        // Generate proof
-        println!("Generating proof...");
-        let start = Instant::now();
-        let circuit_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
-            &parameters.0,
-            TestInnerCircuit::new(false, &ssavd_pp, &crh_pp, proof),
+        let inner_epoch_1_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+            &inner_parameters.0,
+            TestInnerCircuit::new(
+                false,
+                &ssavd_pp,
+                &crh_pp,
+                proof,
+                //outer_parameters.0.vk.clone(),
+                //outer_genesis_proof.clone(),
+            ),
             &mut rng,
         ).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t proving time: {} s", bench);
 
-        // Verify proof
+        // Verify inner proof for epoch 1
         let result = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &parameters.1,
-            &verifier_input,
-            &circuit_proof,
+            &inner_parameters.1,
+            &verifier_input_epoch_1,
+            &inner_epoch_1_proof,
         ).unwrap();
         assert!(result);
         let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &parameters.1,
+            &inner_parameters.1,
             &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
-            &circuit_proof,
+            &inner_epoch_1_proof,
         ).unwrap();
         assert!(!result2);
 
@@ -392,9 +631,14 @@ mod test {
         let blank_circuit_constraint_counter = TestInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
+            //outer_parameters.0.vk.clone(),
         );
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
-        println!("\t number of constraints: {}", cs.num_constraints());
+        println!("\t number of constraints for inner circuit: {}", cs.num_constraints());
+        //let blank_circuit_constraint_counter = TestOuterCircuit::blank();
+        //let cs = ConstraintSystem::<MNT4Fq>::new_ref();
+        //blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
+        //println!("\t number of constraints for outer circuit: {}", cs.num_constraints());
     }
 }
