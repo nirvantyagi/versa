@@ -222,20 +222,20 @@ where
             })
             .collect::<Vec<Vec<UInt8<_>>>>();
 
-        //let outer_proof_verifies = <Groth16VerifierGadget<Cycle::E2, E2Gadget> as NIZKVerifierGadget<
-        //    Groth16<
-        //        Cycle::E2,
-        //        OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-        //        OuterVerifierInput<HTParams, Cycle>,
-        //    >,
-        //    <Cycle::E2 as PairingEngine>::Fq,
-        //>>::verify(&vk, &inner_proof_input_as_e1_fq_bytes, &prev_recursive_proof)?;
-        //    .conditional_enforce_equal(&Boolean::TRUE, &is_genesis.not())?;
+        let outer_proof_verifies = <Groth16VerifierGadget<Cycle::E2, E2Gadget> as NIZKVerifierGadget<
+            Groth16<
+                Cycle::E2,
+                OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
+                OuterVerifierInput<HTParams, Cycle>,
+            >,
+            <Cycle::E2 as PairingEngine>::Fq,
+        >>::verify(&vk, &inner_proof_input_as_e1_fq_bytes, &prev_recursive_proof)?;
+        outer_proof_verifies.conditional_enforce_equal(&Boolean::TRUE, &is_genesis.not())?;
 
-        //match outer_proof_verifies.value() {
-        //    Ok(v) => println!("outer_proof_verifies in circuit: {}", v),
-        //    Err(_) => (),
-        //};
+        match outer_proof_verifies.value() {
+            Ok(v) => println!("outer_proof_verifies in circuit: {}", v),
+            Err(_) => (),
+        };
         Ok(())
     }
 }
@@ -473,6 +473,8 @@ mod test {
         ed_on_mnt4_298::{EdwardsProjective, Fq},
         mnt4_298::{MNT4_298, Fq as MNT4Fq},
         mnt6_298::MNT6_298,
+        curves::{AffineCurve, ProjectiveCurve},
+        UniformRand,
     };
     use r1cs_core::ConstraintSystem;
     use r1cs_std::{
@@ -597,28 +599,16 @@ mod test {
             new_epoch: 0,
         };
 
-        //Temp CS test
-        {
-            use algebra::UniformRand;
-            use algebra::curves::{AffineCurve, ProjectiveCurve};
-            use crypto_primitives::sparse_merkle_tree::MerkleTreePath;
-            let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
-            let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
-            let a = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
-            let b = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
-            let c = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
-            let update_proof =
-                Self {
-                    ssavd_proof: SSAVD::UpdateProof::default(),
-                    history_tree_proof: <MerkleTreePath<MerkleTreeTestParameters>>::default(),
-                    prev_ssavd_digest: SSAVD::Digest::default(),
-                    new_ssavd_digest: SSAVD::Digest::default(),
-                    prev_digest: Default::default(),
-                    new_digest: Default::default(),
-                    prev_epoch: Default::default(),
-                };
-            let cs = ConstraintSystem::<Fq>::new_ref();
-            let circuit = TestInnerCircuit::new(
+        println!("Generating inner proof for genesis epoch...");
+        let start = Instant::now();
+        let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
+        let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
+        let a = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
+        let b = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
+        let c = <<MNT6_298 as PairingEngine>::Fr>::rand(&mut rng);
+        let inner_genesis_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+            &inner_parameters.0,
+            TestInnerCircuit::new(
                 true,
                 &ssavd_pp,
                 &crh_pp,
@@ -629,29 +619,6 @@ mod test {
                     b: g2.mul(b).into_affine(),
                     c: g.mul(c).into_affine(),
                 },
-            );
-            circuit.generate_constraints(cs.clone()).unwrap();
-            if !cs.is_satisfied().unwrap() {
-                println!("=========================================================");
-                println!("Unsatisfied constraints:");
-                println!("{:?}", cs.which_is_unsatisfied().unwrap());
-                println!("=========================================================");
-            }
-            assert!(cs.is_satisfied().unwrap());
-        }
-
-
-        println!("Generating inner proof for genesis epoch...");
-        let start = Instant::now();
-        let inner_genesis_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
-            &inner_parameters.0,
-            TestInnerCircuit::new(
-                true,
-                &ssavd_pp,
-                &crh_pp,
-                Default::default(),
-                outer_parameters.0.vk.clone(),
-                Default::default(),
             ),
             &mut rng,
         ).unwrap();
@@ -664,14 +631,13 @@ mod test {
             &verifier_input_genesis,
             &inner_genesis_proof,
         ).unwrap();
-        //assert!(result);
+        assert!(result);
         let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
             &inner_parameters.1,
             &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 },
             &inner_genesis_proof,
         ).unwrap();
-        //assert!(!result2);
-        println!("Inner genesis verifications: {} and {}", result, result2);
+        assert!(!result2);
 
         // Construct outer genesis proof
         println!("Generating outer genesis proof...");
@@ -698,7 +664,7 @@ mod test {
             &outer_genesis_verifier_input,
             &outer_genesis_proof,
         ).unwrap();
-        //assert!(result);
+        assert!(result);
         let result2 = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
             &outer_parameters.1,
             &TestOuterVerifierInput{
@@ -707,8 +673,7 @@ mod test {
            },
             &outer_genesis_proof,
         ).unwrap();
-        //assert!(!result2);
-        println!("Outer genesis verifications: {} and {}", result, result2);
+        assert!(!result2);
 
         // Update AVD
         let proof = avd.batch_update(
@@ -747,20 +712,19 @@ mod test {
             &verifier_input_epoch_1,
             &inner_epoch_1_proof,
         ).unwrap();
-        //assert!(result);
+        assert!(result);
         let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
             &inner_parameters.1,
             &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
             &inner_epoch_1_proof,
         ).unwrap();
-        //assert!(!result2);
+        assert!(!result2);
         let result3 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
             &inner_parameters.1,
             &TestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 },
             &inner_epoch_1_proof,
         ).unwrap();
-        //assert!(!result2);
-        println!("Inner epoch 1 verifications: {} and {} and {}", result, result2, result3);
+        assert!(!result3);
 
         // Count constraints
         let blank_circuit_constraint_counter = TestInnerCircuit::blank(
