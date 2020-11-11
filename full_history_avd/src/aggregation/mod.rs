@@ -264,7 +264,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             .collect::<Result<Vec<bool>, Error>>()?
             .iter()
             .all(|b| *b);
-        //TODO: May not be last epoch but second to last epoch
+        //May not be last epoch but second to last epoch
         let valid_last_epoch = if (epoch & 1) == 1 {
             let base_proof = proof.base_proof.as_ref().ok_or(Box::new(AggregatedFullHistoryAVDError::Verification))?;
             (epoch - 1 == prev_epoch) &&
