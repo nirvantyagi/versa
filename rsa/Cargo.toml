@@ -1,0 +1,21 @@
+[package]
+name = "rsa"
+version = "0.1.0"
+authors = ["Nirvan Tyagi <nirvan.tyagi@gmail.com>"]
+edition = "2018"
+
+# Ported from https://github.com/alex-ozdemir/bellman-bignat
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives", branch = "int-condselect" }
+algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
+r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core", branch = "int-condselect" }
+r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
+#zexe_cp = {git = "https://github.com/scipr-lab/zexe/", package = "crypto-primitives", rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
+#algebra = {git = "https://github.com/scipr-lab/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ], rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
+#r1cs_core = {git = "https://github.com/scipr-lab/zexe/", package = "r1cs-core", rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
+#r1cs_std = {git = "https://github.com/scipr-lab/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381" ], rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
+rug = { version = "1.10", default-features = false, features = ["integer", "serde", "rand"] }
+rand = { version = "0.7" }
+num-traits = { version = "0.2" }
