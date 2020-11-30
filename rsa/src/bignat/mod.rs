@@ -11,7 +11,38 @@ use std::error::Error as ErrorTrait;
 use crate::Error;
 
 pub type BigNat = Integer;
-pub type Limb<F: PrimeField> = F;
+
+
+
+pub fn extended_euclidean_gcd(a: &BigNat, b: &BigNat) -> ((BigNat, BigNat), BigNat) {
+    let mut prev_r = a.clone();
+    let mut r = b.clone();
+    let mut prev_s = BigNat::from(1);
+    let mut s = BigNat::from(0);
+    let mut prev_t = BigNat::from(0);
+    let mut t = BigNat::from(1);
+    let mut tmp_r = Default::default();
+    let mut tmp_s = Default::default();
+    let mut tmp_t = Default::default();
+
+    while r != 0 {
+        let quotient: BigNat = <BigNat>::from(&prev_r / &r);
+
+        tmp_r = BigNat::from(&prev_r - (&quotient * &r));
+        prev_r = r;
+        r = tmp_r;
+
+        tmp_s = BigNat::from(&prev_s - (&quotient * &s));
+        prev_s = s;
+        s = tmp_s;
+
+        tmp_t = BigNat::from(&prev_t - (&quotient * &t));
+        prev_t = t;
+        t = tmp_t;
+    }
+    ((prev_s, prev_t), prev_r)
+}
+
 
 /// Convert a field element to a natural number
 pub fn f_to_nat<F: PrimeField>(f: &F) -> BigNat {
@@ -33,7 +64,7 @@ pub fn nat_to_f<F: PrimeField>(n: &BigNat) -> Result<F, Error> {
 
 /// Compute the natural number represented by an array of limbs.
 /// The limbs are assumed to be based the `limb_width` power of 2.
-pub fn limbs_to_nat<F: PrimeField, B: Borrow<Limb<F>>, I: DoubleEndedIterator<Item = B>>(
+pub fn limbs_to_nat<F: PrimeField, B: Borrow<F>, I: DoubleEndedIterator<Item = B>>(
     limbs: I,
     limb_width: usize,
 ) -> BigNat {
@@ -50,7 +81,7 @@ pub fn nat_to_limbs<'a, F: PrimeField>(
     nat: &BigNat,
     limb_width: usize,
     n_limbs: usize,
-) -> Result<Vec<Limb<F>>, Error> {
+) -> Result<Vec<F>, Error> {
     assert!(limb_width <= <F::Params as FpParameters>::CAPACITY as usize);
     let mask = int_with_n_ones(limb_width);
     let mut nat = nat.clone();
@@ -69,6 +100,14 @@ pub fn nat_to_limbs<'a, F: PrimeField>(
         );
         Err(Box::new(BigNatError::Conversion(n_limbs, limb_width)))
     }
+}
+
+// Fits a natural number to the minimum number of limbs needed to represent it
+pub fn fit_nat_to_limbs<F: PrimeField>(
+    n: &BigNat,
+) -> Result<Vec<F>, Error> {
+    let bit_capacity = <F::Params as FpParameters>::CAPACITY as usize;
+    nat_to_limbs(n, bit_capacity, n.significant_bits() as usize / bit_capacity + 1)
 }
 
 

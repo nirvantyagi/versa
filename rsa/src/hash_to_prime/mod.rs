@@ -1,10 +1,13 @@
-use algebra::fields::{
-    PrimeField, FpParameters,
+use algebra::{
+    FromBytes,
+    biginteger::BigInteger,
+    fields::{PrimeField, FpParameters},
 };
 
 use crate::{
-    bignat::{BigNat, f_to_nat},
+    bignat::{BigNat, f_to_nat, fit_nat_to_limbs},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
+    Error,
 };
 
 use std::fmt::{self, Debug, Display, Formatter};
@@ -14,11 +17,14 @@ use std::{
     cmp::{max, min, Ordering},
     collections::HashMap,
     ops::AddAssign,
+    io::Cursor,
 };
 
 use num_traits::identities::{Zero, One};
+use digest::Digest;
 
-use crate::Error;
+
+pub mod blake3;
 
 
 /// A representation of an integer range to hash to
@@ -36,8 +42,8 @@ impl HashRangeParams {
     }
 }
 
-pub trait Hasher: Clone + Send + Sync {
-    type F: PrimeField + Send + Sync;
+pub trait Hasher: Clone {
+    type F: PrimeField;
 
     fn hash2(a: Self::F, b: Self::F) -> Self::F;
 
@@ -49,6 +55,8 @@ pub trait Hasher: Clone + Send + Sync {
         acc
     }
 }
+
+
 
 
 //TODO: Need to ensure hash range is greater than KVAC value domain
@@ -64,22 +72,22 @@ pub trait Hasher: Clone + Send + Sync {
 ///
 /// If, by misfortune, there is no such nonce, returns `None`.
 pub fn hash_to_prime<H: Hasher>(
-    inputs: &[H::F],
+    input: &BigNat,
     params: &HashRangeParams,
-) -> Option<(BigNat, H::F)> {
+) -> Result<(BigNat, H::F), Error> {
     let n_bits = params.nonce_width();
-    let mut inputs: Vec<H::F> = inputs.iter().copied().collect();
+    let mut inputs = fit_nat_to_limbs::<H::F>(input)?;
     inputs.push(H::F::zero());
     for _ in 0..(1 << n_bits) {
         let hash = hash_to_integer::<H>(&inputs, params);
         if miller_rabin(&hash, 30) {
             // unwrap is safe because of the push above
-            return Some((hash, inputs.pop().unwrap()));
+            return Ok((hash, inputs.pop().unwrap()));
         }
         // unwrap is safe because of the push above
         inputs.last_mut().unwrap().add_assign(&H::F::one());
     }
-    None
+    Err(Box::new(HashToPrimeError::NoValidNonce))
 }
 
 
@@ -157,3 +165,52 @@ pub fn low_k_bits(n: &BigNat, k: usize) -> BigNat {
     n.clone().keep_bits(k as u32)
 }
 
+
+#[derive(Debug)]
+pub enum HashToPrimeError {
+    NoValidNonce,
+}
+
+impl ErrorTrait for HashToPrimeError{
+    fn source(self: &Self) -> Option<&(dyn ErrorTrait + 'static)> {
+        None
+    }
+}
+
+impl fmt::Display for HashToPrimeError {
+    fn fmt(self: &Self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            HashToPrimeError::NoValidNonce => format!("No valid nonce found"),
+        };
+        write!(f, "{}", msg)
+    }
+}
+
+pub struct HasherFromDigest<F: PrimeField, D: Digest> {
+    _field: PhantomData<F>,
+    _digest: PhantomData<D>,
+}
+
+impl<F: PrimeField, D: Digest> Clone for HasherFromDigest<F, D>{
+    fn clone(&self) -> Self {
+        HasherFromDigest {
+            _field: PhantomData,
+            _digest: PhantomData,
+        }
+    }
+}
+
+impl<F: PrimeField, D: Digest> Hasher for HasherFromDigest<F, D>{
+    type F = F;
+
+    fn hash2(a: Self::F, b: Self::F) -> Self::F {
+        let byte_capacity = min(D::output_size(), <F::Params as FpParameters>::CAPACITY as usize / 8);
+        let mut writer = Cursor::new(vec![0u8; <F as PrimeField>::BigInt::NUM_LIMBS * 8 * 2]);
+        a.write(&mut writer).unwrap();
+        b.write(&mut writer).unwrap();
+        let h = D::digest(writer.get_ref());
+        let mut f_buffer = vec![0u8; <F as PrimeField>::BigInt::NUM_LIMBS * 8];
+        f_buffer.iter_mut().zip(&h.as_slice()[..byte_capacity]).for_each(|(a, b)| *a = *b);
+        F::read(f_buffer.as_slice()).unwrap()
+    }
+}
