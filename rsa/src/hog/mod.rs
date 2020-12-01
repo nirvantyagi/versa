@@ -6,24 +6,24 @@ use crate::bignat::{
 use std::{
     error::Error as ErrorTrait,
     marker::PhantomData,
-    cmp::{max, min, Ordering},
+    cmp::min,
     str::FromStr,
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug},
 };
 
 use crate::Error;
 
 //TODO: Rug doesn't support const integers
 pub trait RsaGroupParams: Clone + Eq + Debug {
-    const raw_G: usize;
-    const raw_M: &'static str;
+    const RAW_G: usize;
+    const RAW_M: &'static str;
 
-    fn G() -> BigNat {
-        BigNat::from(Self::raw_G)
+    fn g() -> BigNat {
+        BigNat::from(Self::RAW_G)
     }
 
-    fn M() -> BigNat {
-        BigNat::from_str(Self::raw_M).unwrap()
+    fn m() -> BigNat {
+        BigNat::from_str(Self::RAW_M).unwrap()
     }
 }
 
@@ -43,10 +43,10 @@ impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     pub fn from_nat(n: BigNat) -> Self {
         let mut a = n;
         if a < 0 {
-            a += P::M();
+            a += P::m();
         }
-        a %= P::M();
-        let mut ma = P::M();
+        a %= P::m();
+        let mut ma = P::m();
         ma -= &a;
         RsaHiddenOrderGroup{ n: min(a, ma), _params: PhantomData }
     }
@@ -54,8 +54,8 @@ impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     pub fn op(&self, other: &Self) -> Self {
         let mut a = self.n.clone();
         a *= &other.n;
-        a %= P::M();
-        let mut ma = P::M();
+        a %= P::m();
+        let mut ma = P::m();
         ma -= &a;
         RsaHiddenOrderGroup{ n: min(a, ma), _params: PhantomData }
     }
@@ -65,24 +65,33 @@ impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     }
 
     pub fn generator() -> Self {
-        RsaHiddenOrderGroup{ n: P::G(), _params: PhantomData }
+        RsaHiddenOrderGroup{ n: P::g(), _params: PhantomData }
     }
 
     pub fn power(&self, e: &BigNat) -> Self {
-        let r = BigNat::from(self.n.pow_mod_ref(e, &P::M()).unwrap());
-        let mut mr = P::M();
+        let r = BigNat::from(self.n.pow_mod_ref(e, &P::m()).unwrap());
+        let mut mr = P::m();
         mr -= &r;
         RsaHiddenOrderGroup{ n: min(r, mr), _params: PhantomData }
     }
 
+    pub fn power_integer(&self, e_int: &BigNat) -> Result<Self, Error> {
+        if *e_int >= 0 {
+            Ok(self.power(e_int))
+        } else {
+            let exp = <BigNat>::from(e_int.abs_ref());
+            Ok(self.inverse()?.power(&exp))
+        }
+    }
+
     //TODO: Optimization for only calculating needed Bezout coefficient
     pub fn inverse(&self) -> Result<Self, Error> {
-        let ((mut inv, _), gcd) = extended_euclidean_gcd(&self.n, &P::M());
+        let ((mut inv, _), gcd) = extended_euclidean_gcd(&self.n, &P::m());
         if gcd.abs() > 1 {
             return Err(Box::new(RsaHOGError::NotInvertible))
         }
         if inv < 0 {
-            inv += P::M();
+            inv += P::m();
         }
         Ok(Self::from_nat(inv))
     }
@@ -114,16 +123,13 @@ impl fmt::Display for RsaHOGError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::UniformRand;
-    use algebra::ed_on_bls12_381::{Fq};
-    use rand::{rngs::StdRng, SeedableRng};
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsaParams;
 
     impl RsaGroupParams for TestRsaParams {
-        const raw_G: usize = 2;
-        const raw_M: &'static str = "2519590847565789349402718324004839857142928212620403202777713783604366202070\
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "2519590847565789349402718324004839857142928212620403202777713783604366202070\
                           7595556264018525880784406918290641249515082189298559149176184502808489120072\
                           8449926873928072877767359714183472702618963750149718246911650776133798590957\
                           0009733045974880842840179742910064245869181719511874612151517265463228221686\

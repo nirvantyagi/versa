@@ -1,12 +1,14 @@
 use rug::{Integer, integer::Order};
 use algebra::{
-    fields::{Field, PrimeField, FpParameters},
+    fields::{PrimeField, FpParameters},
     biginteger::BigInteger,
 };
 
-use std::borrow::Borrow;
-use std::fmt::{self, Debug, Display, Formatter};
-use std::error::Error as ErrorTrait;
+use std::{
+    borrow::Borrow,
+    fmt::{self, Debug},
+    error::Error as ErrorTrait,
+};
 
 use crate::Error;
 
@@ -21,9 +23,9 @@ pub fn extended_euclidean_gcd(a: &BigNat, b: &BigNat) -> ((BigNat, BigNat), BigN
     let mut s = BigNat::from(0);
     let mut prev_t = BigNat::from(0);
     let mut t = BigNat::from(1);
-    let mut tmp_r = Default::default();
-    let mut tmp_s = Default::default();
-    let mut tmp_t = Default::default();
+    let mut tmp_r: BigNat;
+    let mut tmp_s: BigNat;
+    let mut tmp_t: BigNat;
 
     while r != 0 {
         let quotient: BigNat = <BigNat>::from(&prev_r / &r);

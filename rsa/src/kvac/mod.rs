@@ -1,20 +1,19 @@
 use crate::{
-    bignat::{BigNat, extended_euclidean_gcd},
+    bignat::{BigNat, extended_euclidean_gcd, fit_nat_to_limbs},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
     hash_to_prime::{HashRangeParams, Hasher, hash_to_prime},
+    wesolowski::{PoKER, Statement as PoKERStatement, Witness as PoKERWitness, Proof as PoKERProof},
     Error,
 };
 
 use std::{
     error::Error as ErrorTrait,
     marker::PhantomData,
-    cmp::{max, min, Ordering},
     collections::HashMap,
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug},
 };
 
 use rug::ops::Pow;
-use digest::Digest;
 
 pub trait RsaKVACParams: Clone + Eq + Debug {
     const KEY_LEN: usize;
@@ -37,10 +36,7 @@ pub struct MembershipWitness<P: RsaKVACParams> {
     u: usize,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct UpdateProof<P: RsaKVACParams> {
-    _params: PhantomData<P>,
-}
+pub type UpdateProof<P> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RsaKVAC<P: RsaKVACParams, H: Hasher> {
@@ -81,7 +77,7 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
                 Ok((Some(value.clone()), updated_witness))
             },
             None => {
-                let (z, _) = hash_to_prime::<H>(&k, &self.hash_params)?;
+                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
                 let ((a, b), gcd) = extended_euclidean_gcd(&self.counter_dict_exp, &z);
                 assert_eq!(gcd, 1);
                 Ok((
@@ -91,7 +87,7 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
                            pi_2: Default::default(),
                            pi_3: Default::default(),
                            a,
-                           b: RsaQGroup::<P>::generator().power(&b),
+                           b: RsaQGroup::<P>::generator().power_integer(&b)?,
                            u: 0,
                        }),
                 )
@@ -107,17 +103,17 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
         hash_params: &HashRangeParams,
     ) -> Result<bool, Error> {
         let (c1, c2) = c;
-        let (z, _) = hash_to_prime::<H>(&k, hash_params)?;
+        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, hash_params)?;
         if  v.is_none() {
             // Non-membership proof
-            Ok(c2.power(&witness.a).op(&witness.b.power(&z)) == RsaQGroup::<P>::generator())
+            Ok(c2.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator())
         } else {
             // Membership proof
             let z_u = z.clone().pow(witness.u as u32);
             let b_1 = witness.pi_2.power(&z) == c2;
             let b_2 = witness.pi_1.power(&z_u).op(&witness.pi_2.power(v.unwrap())) == c1;
             let b_3 = witness.pi_3.power(&z_u) == c2;
-            let b_4 = witness.pi_3.power(&witness.a).op(&witness.b.power(&z)) == RsaQGroup::<P>::generator();
+            let b_4 = witness.pi_3.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator();
             Ok(b_1 && b_2 && b_3 && b_4)
         }
     }
@@ -131,8 +127,8 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             return Err(Box::new(RsaKVACError::InvalidKey(k)))
         }
         // Update value and witness
-        let (z, _) = hash_to_prime::<H>(&k, &self.hash_params)?;
-        let (c1, c2) = &self.commitment;
+        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
+        let (c1, c2) = self.commitment.clone();
         let v_delta = if let Some((prev_v, prev_witness, last_update_epoch)) = self.map.get(&k) {
             let prev_v = prev_v.clone(); // Needed for borrow checker
             let mut current_witness = self._full_update_witness(&k, *last_update_epoch, prev_witness)?;
@@ -144,11 +140,11 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             let ((a, b), gcd) = extended_euclidean_gcd(&self.counter_dict_exp, &z);
             assert_eq!(gcd, 1);
             let initial_witness = MembershipWitness{
-                pi_1: <RsaQGroup<P>>::clone(c1),
-                pi_2: <RsaQGroup<P>>::clone(c2),
-                pi_3: <RsaQGroup<P>>::clone(c2),
+                pi_1: <RsaQGroup<P>>::clone(&c1),
+                pi_2: <RsaQGroup<P>>::clone(&c2),
+                pi_3: <RsaQGroup<P>>::clone(&c2),
                 a,
-                b: RsaQGroup::<P>::generator().power(&b),
+                b: RsaQGroup::<P>::generator().power_integer(&b)?,
                 u: 1,
             };
             self.map.insert(k.clone(), (v.clone(), initial_witness, self.epoch + 1));
@@ -156,29 +152,48 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
         };
 
         // Update commitment
-        let c1_new = if v_delta > 0 {
-            c1.power(&z).op(&c2.power(&v_delta))
-        } else {
-            c1.power(&z).op(&c2.inverse()?.power(&BigNat::from(v_delta.abs_ref())))
-        };
+        let c1_new = c1.power(&z).op(&c2.power_integer(&v_delta)?);
         let c2_new = c2.power(&z);
         self.commitment = (c1_new, c2_new);
-        self.counter_dict_exp *= z;
+        self.counter_dict_exp *= z.clone();
         self.epoch += 1;
 
         // Prove update append-only
-        // TODO: Modified Wesolowski Sigma protocol
-        let update_proof = UpdateProof{_params: PhantomData};
+        let statement = PoKERStatement {
+            u1: RsaQGroup::<P>::clone(&c1),
+            u2: RsaQGroup::<P>::clone(&c2),
+            w1: self.commitment.0.clone(),
+            w2: self.commitment.1.clone(),
+        };
+        let witness = PoKERWitness {
+            a: z.clone(),
+            b: v_delta.clone(),
+        };
+        let update_proof = PoKER::<RsaParams<P>, H>::prove(&statement, &witness)?;
         self.epoch_updates.push((k.clone(), v_delta.clone()));
 
         Ok((self.commitment.clone(), update_proof))
+    }
+
+    pub fn verify_update_append_only(
+        c: &Commitment<P>,
+        c_new: &Commitment<P>,
+        proof: &UpdateProof<P>,
+    ) -> Result<bool, Error> {
+        let statement = PoKERStatement {
+            u1: RsaQGroup::<P>::clone(&c.0),
+            u2: RsaQGroup::<P>::clone(&c.1),
+            w1: RsaQGroup::<P>::clone(&c_new.0),
+            w2: RsaQGroup::<P>::clone(&c_new.1),
+        };
+        PoKER::<RsaParams<P>, H>::verify(&statement, &proof)
     }
 
     // Updates membership witness for all updates from 'last_update_epoch' to self.epoch.
     // Assumes all updates are for k'\neq k since membership witness is updated if value is updated
     fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let mut witness = witness.clone();
-        for epoch in (last_update_epoch..self.epoch) {
+        for epoch in last_update_epoch..self.epoch {
             witness = self._update_witness(k, epoch, &witness)?;
         }
         Ok(witness)
@@ -188,8 +203,8 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
     // Assumes update is for k'\neq k since membership witness is updated if value is updated
     fn _update_witness(&self, k: &BigNat, update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let (uk, delta) = &self.epoch_updates[update_epoch];
-        let (z, _) = hash_to_prime::<H>(&k, &self.hash_params)?;
-        let (uz, _) = hash_to_prime::<H>(uk, &self.hash_params)?;
+        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
+        let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limbs(uk)?, &self.hash_params)?;
 
         let ((_alpha, beta), gcd) = extended_euclidean_gcd(&z, &uz);
         assert_eq!(gcd, 1);
@@ -235,9 +250,7 @@ impl fmt::Display for RsaKVACError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::UniformRand;
     use algebra::ed_on_bls12_381::{Fq};
-    use rand::{rngs::StdRng, SeedableRng};
 
     use crate::hash_to_prime::HasherFromDigest;
 
@@ -245,8 +258,8 @@ mod tests {
     pub struct TestRsaParams;
 
     impl RsaGroupParams for TestRsaParams {
-        const raw_G: usize = 2;
-        const raw_M: &'static str = "2519590847565789349402718324004839857142928212620403202777713783604366202070\
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "2519590847565789349402718324004839857142928212620403202777713783604366202070\
                           7595556264018525880784406918290641249515082189298559149176184502808489120072\
                           8449926873928072877767359714183472702618963750149718246911650776133798590957\
                           0009733045974880842840179742910064245869181719511874612151517265463228221686\
@@ -266,8 +279,6 @@ mod tests {
         type RsaGroupParams = TestRsaParams;
     }
 
-    pub type Hog = RsaHiddenOrderGroup<TestRsaParams>;
-    //pub type Kvac = RsaKVAC<TestKVACParams, Blake3<Fq>>;
     pub type Kvac = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>>;
 
     #[test]
@@ -285,7 +296,7 @@ mod tests {
 
         let k2 = BigNat::from(200);
         let v2 = BigNat::from(201);
-        let (c2, _) = kvac.update(k2.clone(), v2.clone()).unwrap();
+        let (_c2, _) = kvac.update(k2.clone(), v2.clone()).unwrap();
 
         let k3 = BigNat::from(300);
         let v3 = BigNat::from(301);
@@ -311,6 +322,7 @@ mod tests {
     #[test]
     fn update_value_test() {
         let mut kvac = Kvac::new();
+        let c0 = kvac.commitment.clone();
 
         let k1 = BigNat::from(100);
         let v1 = BigNat::from(101);
@@ -323,23 +335,31 @@ mod tests {
 
         let k2 = BigNat::from(200);
         let v2 = BigNat::from(201);
-        let (c2, _) = kvac.update(k2.clone(), v2.clone()).unwrap();
+        let (c2, update2) = kvac.update(k2.clone(), v2.clone()).unwrap();
+        let b = Kvac::verify_update_append_only(&c1, &c2, &update2).unwrap();
+        assert!(b);
+        let b = Kvac::verify_update_append_only(&c0, &c2, &update2).unwrap();
+        assert!(!b);
 
         let v1_new = BigNat::from(102);
-        let (c3, _) = kvac.update(k1.clone(), v1_new.clone()).unwrap();
+        let (c3, update3) = kvac.update(k1.clone(), v1_new.clone()).unwrap();
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_new);
         let b = Kvac::verify_witness(&k1, v.as_ref(), c3.clone(), witness, &kvac.hash_params).unwrap();
         assert!(b);
+        let b = Kvac::verify_update_append_only(&c2, &c3, &update3).unwrap();
+        assert!(b);
 
         // Update with negative delta
         let v1_neg = BigNat::from(50);
-        let (c4, _) = kvac.update(k1.clone(), v1_neg.clone()).unwrap();
+        let (c4, update4) = kvac.update(k1.clone(), v1_neg.clone()).unwrap();
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_neg);
         let b = Kvac::verify_witness(&k1, v.as_ref(), c4.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+        let b = Kvac::verify_update_append_only(&c3, &c4, &update4).unwrap();
         assert!(b);
     }
 

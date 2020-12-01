@@ -1,30 +1,24 @@
 use algebra::{
-    FromBytes,
     biginteger::BigInteger,
     fields::{PrimeField, FpParameters},
 };
 
 use crate::{
-    bignat::{BigNat, f_to_nat, fit_nat_to_limbs},
-    hog::{RsaHiddenOrderGroup, RsaGroupParams},
+    bignat::{BigNat, f_to_nat},
     Error,
 };
 
-use std::fmt::{self, Debug, Display, Formatter};
 use std::{
+    fmt::{self, Debug},
     error::Error as ErrorTrait,
     marker::PhantomData,
-    cmp::{max, min, Ordering},
-    collections::HashMap,
+    cmp::min,
     ops::AddAssign,
     io::Cursor,
 };
 
 use num_traits::identities::{Zero, One};
 use digest::Digest;
-
-
-pub mod blake3;
 
 
 /// A representation of an integer range to hash to
@@ -72,11 +66,11 @@ pub trait Hasher: Clone {
 ///
 /// If, by misfortune, there is no such nonce, returns `None`.
 pub fn hash_to_prime<H: Hasher>(
-    input: &BigNat,
+    inputs: &[H::F],
     params: &HashRangeParams,
 ) -> Result<(BigNat, H::F), Error> {
     let n_bits = params.nonce_width();
-    let mut inputs = fit_nat_to_limbs::<H::F>(input)?;
+    let mut inputs: Vec<H::F> = inputs.iter().copied().collect();
     inputs.push(H::F::zero());
     for _ in 0..(1 << n_bits) {
         let hash = hash_to_integer::<H>(&inputs, params);
