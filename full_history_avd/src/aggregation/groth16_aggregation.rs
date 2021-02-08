@@ -220,9 +220,9 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
 
         //TODO: Keep as iters instead of collecting to vector
         let digest_size = self.digests[start_i].to_field_elements()?.len();
-        let digests_as_field = self.digests.iter().map(|d| d.to_field_elements()).collect::<Result<Vec<Vec<Pairing::Fr>>, Error>>()?;
+        let digests_as_field = self.digests[start_i..end_i].iter().map(|d| d.to_field_elements()).collect::<Result<Vec<Vec<Pairing::Fr>>, Error>>()?;
         let digest_cross_slices = (0..digest_size).map(|i| {
-            digests_as_field[start_i..end_i].iter().map(|d| d[i].clone()).collect::<Vec<Pairing::Fr>>()
+            digests_as_field.iter().map(|d| d[i].clone()).collect::<Vec<Pairing::Fr>>()
         }).collect::<Vec<_>>();
 
         let trailing_digest = self.digests[end_i].clone();
