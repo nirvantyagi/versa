@@ -25,11 +25,9 @@ pub type RsaParams<P> = <P as RsaKVACParams>::RsaGroupParams;
 pub type RsaQGroup<P> = RsaHiddenOrderGroup<RsaParams<P>>;
 pub type Commitment<P> = (RsaQGroup<P>, RsaQGroup<P>);
 
-//TODO: Optimization: pi_2 and pi_3 are redundant -- can remove pi_2
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct MembershipWitness<P: RsaKVACParams> {
     pi_1: RsaQGroup<P>,
-    pi_2: RsaQGroup<P>,
     pi_3: RsaQGroup<P>,
     a: BigNat,
     b: RsaQGroup<P>,
@@ -111,7 +109,6 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
                        None,
                        MembershipWitness{
                            pi_1: Default::default(),
-                           pi_2: Default::default(),
                            pi_3: Default::default(),
                            a,
                            b: RsaQGroup::<P>::generator().power_integer(&b)?,
@@ -136,12 +133,12 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             Ok(c2.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator())
         } else {
             // Membership proof
-            let z_u = z.clone().pow(witness.u as u32);
-            let b_1 = witness.pi_2.power(&z) == c2;
-            let b_2 = witness.pi_1.power(&z_u).op(&witness.pi_2.power(v.unwrap())) == c1;
-            let b_3 = witness.pi_3.power(&z_u) == c2;
-            let b_4 = witness.pi_3.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator();
-            Ok(b_1 && b_2 && b_3 && b_4)
+            let z_u1 = z.clone().pow(witness.u as u32 - 1);
+            let z_u = BigNat::from(&z_u1 * &z);
+            let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.unwrap() * &z_u1))) == c1;
+            let b_2 = witness.pi_3.power(&z_u) == c2;
+            let b_3 = witness.pi_3.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator();
+            Ok(b_1 && b_2 && b_3)
         }
     }
 
@@ -217,7 +214,6 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             // Defer computation of (a,b) coprime proof by creating incomplete witness
             let incomplete_witness = MembershipWitness {
                 pi_1: <RsaQGroup<P>>::clone(&c1),
-                pi_2: <RsaQGroup<P>>::clone(&c2),
                 pi_3: <RsaQGroup<P>>::clone(&c2),
                 a: BigNat::from(1), // dummy
                 b: RsaQGroup::<P>::generator(), // dummy
@@ -248,7 +244,6 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             // If k = uk, then only need to perform a simple update
             Ok(MembershipWitness {
                 pi_1: witness.pi_1.clone(),
-                pi_2: witness.pi_2.power(&z),
                 pi_3: witness.pi_3.clone(),
                 a: witness.a.clone(),
                 b: witness.b.clone(),
@@ -263,9 +258,10 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             let gamma = BigNat::from(&BigNat::from(&witness.a * &beta) % &z);
             let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
 
+            //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
+            let z_u1 = z.clone().pow(witness.u as u32 - 1);
             Ok(MembershipWitness {
-                pi_1: witness.pi_1.power(&uz).op(&witness.pi_2.power(delta)),
-                pi_2: witness.pi_2.power(&uz),
+                pi_1: witness.pi_1.power(&uz).op(&witness.pi_3.power(&BigNat::from(delta * &z_u1))),
                 pi_3: witness.pi_3.power(&uz),
                 a: gamma,
                 b: witness.b.op(&witness.pi_3.power(&eta)),
