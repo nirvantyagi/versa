@@ -51,7 +51,7 @@ pub struct RsaKVAC<P: RsaKVACParams, H: Hasher> {
     pub commitment: Commitment<P>,
     pub counter_dict_exp: BigNat,
     pub epoch: usize,
-    pub epoch_updates: Vec<(BigNat, BigNat)>,
+    pub epoch_updates: Vec<Vec<(BigNat, BigNat)>>,
     pub hash_params: HashRangeParams,
     _hash: PhantomData<H>,
 }
@@ -147,34 +147,12 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
 
 
     pub fn update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<P>, UpdateProof<P>), Error> {
-        if v.significant_bits() > P::VALUE_LEN as u32 || v < 0 {
-            return Err(Box::new(RsaKVACError::InvalidValue(v)))
-        }
-        if k.significant_bits() > P::KEY_LEN as u32 || k < 0 {
-            return Err(Box::new(RsaKVACError::InvalidKey(k)))
-        }
-        // Update value (but not witness - create incomplete witness for new keys)
-        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
-        let (c1, c2) = self.commitment.clone();
-        let v_delta = if let Some(map_value) = self.map.get(&k) {
-            let (prev_v, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
-            self.map.insert(k.clone(), (v.clone(), prev_witness, last_update_epoch));
-            v - prev_v
-        } else {
-            // Defer computation of (a,b) coprime proof by creating incomplete witness
-            let incomplete_witness = MembershipWitness{
-                pi_1: <RsaQGroup<P>>::clone(&c1),
-                pi_2: <RsaQGroup<P>>::clone(&c2),
-                pi_3: <RsaQGroup<P>>::clone(&c2),
-                a: BigNat::from(1), // dummy
-                b: RsaQGroup::<P>::generator(), // dummy
-                u: 1,
-            };
-            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch + 1));
-            v
-        };
+        // Update value
+        let v_delta = self._update_value(k.clone(), v.clone())?;
 
         // Update commitment
+        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
+        let (c1, c2) = self.commitment.clone();
         let c1_new = c1.power(&z).op(&c2.power_integer(&v_delta)?);
         let c2_new = c2.power(&z);
         self.commitment = (c1_new, c2_new);
@@ -193,9 +171,17 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             b: v_delta.clone(),
         };
         let update_proof = PoKER::<RsaParams<P>, H>::prove(&statement, &witness)?;
-        self.epoch_updates.push((k.clone(), v_delta.clone()));
+        self.epoch_updates.push(vec![(k.clone(), v_delta.clone())]);
 
         Ok((self.commitment.clone(), update_proof))
+    }
+
+
+    pub fn batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<P>, UpdateProof<P>), Error> {
+        // Update individual values and compute batched update values
+        //let mut z_vals = vec![];
+        //let mut delta_vals= vec![];
+        unimplemented!()
     }
 
     pub fn verify_update_append_only(
@@ -212,18 +198,51 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
         PoKER::<RsaParams<P>, H>::verify(&statement, &proof)
     }
 
-    // Updates membership witness for all updates from 'last_update_epoch' to self.epoch.
+
+
+    pub fn _update_value(&mut self, k: BigNat, v: BigNat) -> Result<BigNat, Error> {
+        if v.significant_bits() > P::VALUE_LEN as u32 || v < 0 {
+            return Err(Box::new(RsaKVACError::InvalidValue(v)))
+        }
+        if k.significant_bits() > P::KEY_LEN as u32 || k < 0 {
+            return Err(Box::new(RsaKVACError::InvalidKey(k)))
+        }
+        // Update value (but not witness - create incomplete witness for new keys) and returns "value delta" to be incorporated in commitment update
+        let (c1, c2) = self.commitment.clone();
+        if let Some(map_value) = self.map.get(&k) {
+            let (prev_v, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
+            self.map.insert(k.clone(), (v.clone(), prev_witness, last_update_epoch));
+            Ok(v - prev_v)
+        } else {
+            // Defer computation of (a,b) coprime proof by creating incomplete witness
+            let incomplete_witness = MembershipWitness {
+                pi_1: <RsaQGroup<P>>::clone(&c1),
+                pi_2: <RsaQGroup<P>>::clone(&c2),
+                pi_3: <RsaQGroup<P>>::clone(&c2),
+                a: BigNat::from(1), // dummy
+                b: RsaQGroup::<P>::generator(), // dummy
+                u: 1,
+            };
+            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch + 1));
+            Ok(v)
+        }
+    }
+
+
+        // Updates membership witness for all updates from 'last_update_epoch' to self.epoch.
     fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let mut witness = witness.clone();
         for epoch in last_update_epoch..self.epoch {
-            witness = self._update_witness(k, epoch, &witness)?;
+            for upd in self.epoch_updates[epoch].iter() {
+                witness = self._update_witness(k, upd, &witness)?;
+            }
         }
         Ok(witness)
     }
 
     // Updates membership witness with update from epoch 'update_epoch'
-    fn _update_witness(&self, k: &BigNat, update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
-        let (uk, delta) = &self.epoch_updates[update_epoch];
+    fn _update_witness(&self, k: &BigNat, update: &(BigNat, BigNat), witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
+        let (uk, delta) = update;
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
         if k == uk {
             // If k = uk, then only need to perform a simple update
@@ -245,7 +264,7 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
 
             Ok(MembershipWitness {
-                pi_1: witness.pi_1.power(&uz).op(&witness.pi_2.power(&delta)),
+                pi_1: witness.pi_1.power(&uz).op(&witness.pi_2.power(delta)),
                 pi_2: witness.pi_2.power(&uz),
                 pi_3: witness.pi_3.power(&uz),
                 a: gamma,
