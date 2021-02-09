@@ -133,6 +133,7 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             Ok(c2.power_integer(&witness.a)?.op(&witness.b.power(&z)) == RsaQGroup::<P>::generator())
         } else {
             // Membership proof
+            //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
             let z_u1 = z.clone().pow(witness.u as u32 - 1);
             let z_u = BigNat::from(&z_u1 * &z);
             let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.unwrap() * &z_u1))) == c1;
@@ -293,7 +294,6 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             let gamma = BigNat::from(&BigNat::from(&witness.a * &beta) % &z);
             let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
 
-            //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
             Ok(MembershipWitness {
                 pi_1: witness.pi_1.power(&uz).op(&witness.pi_3.power(delta)),
                 pi_3: witness.pi_3.power(&uz),
