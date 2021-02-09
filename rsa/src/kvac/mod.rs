@@ -176,9 +176,43 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
 
     pub fn batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<P>, UpdateProof<P>), Error> {
         // Update individual values and compute batched update values
-        //let mut z_vals = vec![];
-        //let mut delta_vals= vec![];
-        unimplemented!()
+        let mut z_product = BigNat::from(1);
+        let mut z_vals = vec![];
+        let mut delta_vals= vec![];
+        for (k, v) in kvs.iter() {
+            let z = hash_to_prime::<H>(&fit_nat_to_limbs(k)?, &self.hash_params)?.0;
+            z_product = z_product * z.clone();
+            z_vals.push(z);
+            delta_vals.push(self._update_value(k.clone(), v.clone())?);
+        }
+        let mut delta_sum = BigNat::from(0);
+        for (z, delta) in z_vals.iter().zip(&delta_vals) {
+            delta_sum = delta_sum + BigNat::from(delta * &BigNat::from(z_product.div_exact_ref(z)));
+        }
+
+        // Update commitment
+        let (c1, c2) = self.commitment.clone();
+        let c1_new = c1.power(&z_product).op(&c2.power_integer(&delta_sum)?);
+        let c2_new = c2.power(&z_product);
+        self.commitment = (c1_new, c2_new);
+        self.counter_dict_exp *= z_product.clone();
+        self.epoch += 1;
+
+        // Prove update append-only
+        let statement = PoKERStatement {
+            u1: RsaQGroup::<P>::clone(&c1),
+            u2: RsaQGroup::<P>::clone(&c2),
+            w1: self.commitment.0.clone(),
+            w2: self.commitment.1.clone(),
+        };
+        let witness = PoKERWitness {
+            a: z_product.clone(),
+            b: delta_sum.clone(),
+        };
+        let update_proof = PoKER::<RsaParams<P>, H>::prove(&statement, &witness)?;
+        self.epoch_updates.push(kvs.iter().zip(&delta_vals).map(|((k, _v), d)| (k.clone(), d.clone())).collect());
+
+        Ok((self.commitment.clone(), update_proof))
     }
 
     pub fn verify_update_append_only(
@@ -217,9 +251,10 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
                 pi_3: <RsaQGroup<P>>::clone(&c2),
                 a: BigNat::from(1), // dummy
                 b: RsaQGroup::<P>::generator(), // dummy
-                u: 1,
+                u: 0,
             };
-            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch + 1));
+            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch));
+            // Set u=0 and last_epoch_updated=self.epoch so that future witness update catches other updates in this epoch batch
             Ok(v)
         }
     }
@@ -259,9 +294,8 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
             let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
 
             //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
-            let z_u1 = z.clone().pow(witness.u as u32 - 1);
             Ok(MembershipWitness {
-                pi_1: witness.pi_1.power(&uz).op(&witness.pi_3.power(&BigNat::from(delta * &z_u1))),
+                pi_1: witness.pi_1.power(&uz).op(&witness.pi_3.power(delta)),
                 pi_3: witness.pi_3.power(&uz),
                 a: gamma,
                 b: witness.b.op(&witness.pi_3.power(&eta)),
@@ -440,9 +474,9 @@ mod tests {
         let b = Kvac::verify_update_append_only(&c2, &c3, &update3).unwrap();
         assert!(b);
 
-        // Update (k1, v1_3) and verify update
-        let v1_3 = BigNat::from(103);
-        let (c4, update4) = kvac.update(k1.clone(), v1_3.clone()).unwrap();
+        // Update (k2, v2_2) and verify update
+        let v2_2 = BigNat::from(202);
+        let (c4, update4) = kvac.update(k2.clone(), v2_2.clone()).unwrap();
         let b = Kvac::verify_update_append_only(&c3, &c4, &update4).unwrap();
         assert!(b);
 
@@ -454,6 +488,72 @@ mod tests {
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_4);
         let b = Kvac::verify_witness(&k1, v.as_ref(), c5.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+    }
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test kvac_batch_update_test --release -- --ignored --nocapture``
+    fn kvac_batch_update_test() {
+        let mut kvac = Kvac::new();
+        let c0 = kvac.commitment.clone();
+
+        let k1 = BigNat::from(100);
+        let k2 = BigNat::from(200);
+        let k3 = BigNat::from(300);
+
+        // Insert (k1, k2, k3)
+        let kvs1 = vec![
+            (k1.clone(), BigNat::from(101)),
+            (k2.clone(), BigNat::from(201)),
+            (k3.clone(), BigNat::from(301)),
+        ];
+        let (c1, update1) = kvac.batch_update(&kvs1).unwrap();
+        let b = Kvac::verify_update_append_only(&c0, &c1, &update1).unwrap();
+        assert!(b);
+        // Lookup k3
+        let (v, witness) = kvac.lookup(&k3).unwrap();
+        assert_eq!(v.clone().unwrap(), kvs1[2].1);
+        let b = Kvac::verify_witness(&k3, v.as_ref(), c1.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+
+        // Update (k1, k2, k3)
+        let kvs2 = vec![
+            (k1.clone(), BigNat::from(102)),
+            (k2.clone(), BigNat::from(202)),
+            (k3.clone(), BigNat::from(302)),
+        ];
+        let (c2, update2) = kvac.batch_update(&kvs2).unwrap();
+        let b = Kvac::verify_update_append_only(&c1, &c2, &update2).unwrap();
+        assert!(b);
+        // Lookup k3
+        let (v, witness) = kvac.lookup(&k3).unwrap();
+        assert_eq!(v.clone().unwrap(), kvs2[2].1);
+        let b = Kvac::verify_witness(&k3, v.as_ref(), c2.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+        // Lookup k1
+        let (v, witness) = kvac.lookup(&k1).unwrap();
+        assert_eq!(v.clone().unwrap(), kvs2[0].1);
+        let b = Kvac::verify_witness(&k1, v.as_ref(), c2.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+
+        // Update (k1, k2) (repeat k1)
+        let kvs3 = vec![
+            (k1.clone(), BigNat::from(103)),
+            (k2.clone(), BigNat::from(203)),
+            (k1.clone(), BigNat::from(104)),
+        ];
+        let (c3, update3) = kvac.batch_update(&kvs3).unwrap();
+        let b = Kvac::verify_update_append_only(&c2, &c3, &update3).unwrap();
+        assert!(b);
+        // Lookup k2
+        let (v, witness) = kvac.lookup(&k2).unwrap();
+        assert_eq!(v.clone().unwrap(), kvs3[1].1);
+        let b = Kvac::verify_witness(&k2, v.as_ref(), c3.clone(), witness, &kvac.hash_params).unwrap();
+        assert!(b);
+        // Lookup k1
+        let (v, witness) = kvac.lookup(&k1).unwrap();
+        assert_eq!(v.clone().unwrap(), kvs3[2].1);
+        let b = Kvac::verify_witness(&k1, v.as_ref(), c3.clone(), witness, &kvac.hash_params).unwrap();
         assert!(b);
     }
 
