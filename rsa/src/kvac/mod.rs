@@ -36,11 +36,18 @@ pub struct MembershipWitness<P: RsaKVACParams> {
     u: usize,
 }
 
+// Helper wrapper to allow for deferring expensive witness operations
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum WitnessWrapper<P: RsaKVACParams> {
+    Complete(MembershipWitness<P>),
+    IncompleteCoprimeProof(MembershipWitness<P>),
+}
+
 pub type UpdateProof<P> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RsaKVAC<P: RsaKVACParams, H: Hasher> {
-    pub map: HashMap<BigNat, (BigNat, MembershipWitness<P>, usize)>,
+    pub map: HashMap<BigNat, (BigNat, WitnessWrapper<P>, usize)>, // key -> (value, witness, last_epoch_witness_updated)
     pub commitment: Commitment<P>,
     pub counter_dict_exp: BigNat,
     pub epoch: usize,
@@ -70,10 +77,30 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
 
     pub fn lookup(&mut self, k: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error> {
         match self.map.get(k) {
-            Some((value, witness, last_update_epoch)) => {
+            Some((value, witness_status, last_update_epoch)) => {
                 let value = value.clone(); // Needed for borrow checker
-                let updated_witness = self._full_update_witness(k, *last_update_epoch, witness)?;
-                self.map.insert(k.clone(), (value.clone(), updated_witness.clone(), self.epoch));
+                let updated_witness = match witness_status {
+                    WitnessWrapper::Complete(witness) => {
+                        let updated_witness = self._full_update_witness(k, *last_update_epoch, witness)?;
+                        updated_witness
+                    },
+                    WitnessWrapper::IncompleteCoprimeProof(witness) => {
+                        // Finish witness proof
+                        // TODO: Optimization: updating this witness also updates the filler coprime proof values
+                        let mut updated_incomplete_witness = self._full_update_witness(k, *last_update_epoch, witness)?;
+                        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
+                        let z_u = z.clone().pow(updated_incomplete_witness.u as u32);
+                        let ((a, b), gcd) = extended_euclidean_gcd(
+                            &BigNat::from(self.counter_dict_exp.div_exact_ref(&z_u)),
+                            &z,
+                        );
+                        assert_eq!(gcd, 1);
+                        updated_incomplete_witness.a = a;
+                        updated_incomplete_witness.b = RsaQGroup::<P>::generator().power_integer(&b)?;
+                        updated_incomplete_witness
+                    }
+                };
+                self.map.insert(k.clone(), (value.clone(), WitnessWrapper::Complete(updated_witness.clone()), self.epoch));
                 Ok((Some(value.clone()), updated_witness))
             },
             None => {
@@ -126,28 +153,24 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
         if k.significant_bits() > P::KEY_LEN as u32 || k < 0 {
             return Err(Box::new(RsaKVACError::InvalidKey(k)))
         }
-        // Update value and witness
+        // Update value (but not witness - create incomplete witness for new keys)
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
         let (c1, c2) = self.commitment.clone();
-        let v_delta = if let Some((prev_v, prev_witness, last_update_epoch)) = self.map.get(&k) {
-            let prev_v = prev_v.clone(); // Needed for borrow checker
-            let mut current_witness = self._full_update_witness(&k, *last_update_epoch, prev_witness)?;
-            current_witness.pi_2 = current_witness.pi_2.power(&z);
-            current_witness.u = current_witness.u + 1;
-            self.map.insert(k.clone(), (v.clone(), current_witness, self.epoch + 1));
+        let v_delta = if let Some(map_value) = self.map.get(&k) {
+            let (prev_v, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
+            self.map.insert(k.clone(), (v.clone(), prev_witness, last_update_epoch));
             v - prev_v
         } else {
-            let ((a, b), gcd) = extended_euclidean_gcd(&self.counter_dict_exp, &z);
-            assert_eq!(gcd, 1);
-            let initial_witness = MembershipWitness{
+            // Defer computation of (a,b) coprime proof by creating incomplete witness
+            let incomplete_witness = MembershipWitness{
                 pi_1: <RsaQGroup<P>>::clone(&c1),
                 pi_2: <RsaQGroup<P>>::clone(&c2),
                 pi_3: <RsaQGroup<P>>::clone(&c2),
-                a,
-                b: RsaQGroup::<P>::generator().power_integer(&b)?,
+                a: BigNat::from(1), // dummy
+                b: RsaQGroup::<P>::generator(), // dummy
                 u: 1,
             };
-            self.map.insert(k.clone(), (v.clone(), initial_witness, self.epoch + 1));
+            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch + 1));
             v
         };
 
@@ -190,7 +213,6 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
     }
 
     // Updates membership witness for all updates from 'last_update_epoch' to self.epoch.
-    // Assumes all updates are for k'\neq k since membership witness is updated if value is updated
     fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let mut witness = witness.clone();
         for epoch in last_update_epoch..self.epoch {
@@ -200,25 +222,37 @@ impl<P: RsaKVACParams, H: Hasher> RsaKVAC<P, H> {
     }
 
     // Updates membership witness with update from epoch 'update_epoch'
-    // Assumes update is for k'\neq k since membership witness is updated if value is updated
     fn _update_witness(&self, k: &BigNat, update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let (uk, delta) = &self.epoch_updates[update_epoch];
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limbs(&k)?, &self.hash_params)?;
-        let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limbs(uk)?, &self.hash_params)?;
+        if k == uk {
+            // If k = uk, then only need to perform a simple update
+            Ok(MembershipWitness {
+                pi_1: witness.pi_1.clone(),
+                pi_2: witness.pi_2.power(&z),
+                pi_3: witness.pi_3.clone(),
+                a: witness.a.clone(),
+                b: witness.b.clone(),
+                u: witness.u + 1,
+            })
+        } else {
+            // Otherwise need to recompute co-primality proof
+            let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limbs(uk)?, &self.hash_params)?;
 
-        let ((_alpha, beta), gcd) = extended_euclidean_gcd(&z, &uz);
-        assert_eq!(gcd, 1);
-        let gamma = BigNat::from(&BigNat::from(&witness.a * &beta) % &z);
-        let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
+            let ((_alpha, beta), gcd) = extended_euclidean_gcd(&z, &uz);
+            assert_eq!(gcd, 1);
+            let gamma = BigNat::from(&BigNat::from(&witness.a * &beta) % &z);
+            let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
 
-        Ok(MembershipWitness{
-            pi_1: witness.pi_1.power(&uz).op(&witness.pi_2.power(&delta)),
-            pi_2: witness.pi_2.power(&uz),
-            pi_3: witness.pi_3.power(&uz),
-            a: gamma,
-            b: witness.b.op(&witness.pi_3.power(&eta)),
-            u: witness.u,
-        })
+            Ok(MembershipWitness {
+                pi_1: witness.pi_1.power(&uz).op(&witness.pi_2.power(&delta)),
+                pi_2: witness.pi_2.power(&uz),
+                pi_3: witness.pi_3.power(&uz),
+                a: gamma,
+                b: witness.b.op(&witness.pi_3.power(&eta)),
+                u: witness.u,
+            })
+        }
     }
 
 }
@@ -324,15 +358,19 @@ mod tests {
         let mut kvac = Kvac::new();
         let c0 = kvac.commitment.clone();
 
+        // Insert and lookup (k1, v1) and verify update
         let k1 = BigNat::from(100);
         let v1 = BigNat::from(101);
-        let (c1, _) = kvac.update(k1.clone(), v1.clone()).unwrap();
+        let (c1, update1) = kvac.update(k1.clone(), v1.clone()).unwrap();
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1);
         let b = Kvac::verify_witness(&k1, v.as_ref(), c1.clone(), witness, &kvac.hash_params).unwrap();
         assert!(b);
+        let b = Kvac::verify_update_append_only(&c0, &c1, &update1).unwrap();
+        assert!(b);
 
+        // Insert (k2, v2) and verify update
         let k2 = BigNat::from(200);
         let v2 = BigNat::from(201);
         let (c2, update2) = kvac.update(k2.clone(), v2.clone()).unwrap();
@@ -341,6 +379,7 @@ mod tests {
         let b = Kvac::verify_update_append_only(&c0, &c2, &update2).unwrap();
         assert!(!b);
 
+        // Insert (k1, v1_new) and verify update and lookup of updated witness
         let v1_new = BigNat::from(102);
         let (c3, update3) = kvac.update(k1.clone(), v1_new.clone()).unwrap();
 
@@ -360,6 +399,46 @@ mod tests {
         let b = Kvac::verify_witness(&k1, v.as_ref(), c4.clone(), witness, &kvac.hash_params).unwrap();
         assert!(b);
         let b = Kvac::verify_update_append_only(&c3, &c4, &update4).unwrap();
+        assert!(b);
+    }
+
+
+    #[test]
+    fn defer_witness_multiple_update_test() {
+        let mut kvac = Kvac::new();
+
+        // Insert and (k1, v1)
+        let k1 = BigNat::from(100);
+        let v1 = BigNat::from(101);
+        let (c1, _) = kvac.update(k1.clone(), v1.clone()).unwrap();
+
+        // Insert (k2, v2) and verify update
+        let k2 = BigNat::from(200);
+        let v2 = BigNat::from(201);
+        let (c2, update2) = kvac.update(k2.clone(), v2.clone()).unwrap();
+        let b = Kvac::verify_update_append_only(&c1, &c2, &update2).unwrap();
+        assert!(b);
+
+        // Update (k1, v1_2) and verify update
+        let v1_2 = BigNat::from(102);
+        let (c3, update3) = kvac.update(k1.clone(), v1_2.clone()).unwrap();
+        let b = Kvac::verify_update_append_only(&c2, &c3, &update3).unwrap();
+        assert!(b);
+
+        // Update (k1, v1_3) and verify update
+        let v1_3 = BigNat::from(103);
+        let (c4, update4) = kvac.update(k1.clone(), v1_3.clone()).unwrap();
+        let b = Kvac::verify_update_append_only(&c3, &c4, &update4).unwrap();
+        assert!(b);
+
+        // Update (k1, v1_4) and verify update and perform lookup verifying deferred update of witness
+        let v1_4 = BigNat::from(104);
+        let (c5, update5) = kvac.update(k1.clone(), v1_4.clone()).unwrap();
+        let b = Kvac::verify_update_append_only(&c4, &c5, &update5).unwrap();
+        assert!(b);
+        let (v, witness) = kvac.lookup(&k1).unwrap();
+        assert_eq!(v.clone().unwrap(), v1_4);
+        let b = Kvac::verify_witness(&k1, v.as_ref(), c5.clone(), witness, &kvac.hash_params).unwrap();
         assert!(b);
     }
 
