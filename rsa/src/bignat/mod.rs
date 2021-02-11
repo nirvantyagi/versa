@@ -12,6 +12,7 @@ use std::{
 
 use crate::Error;
 
+pub mod constraints;
 pub type BigNat = Integer;
 
 
@@ -104,14 +105,14 @@ pub fn nat_to_limbs<'a, F: PrimeField>(
     }
 }
 
-// Fits a natural number to the minimum number of limbs needed to represent it
+// Fits a natural number to the minimum number limbs of given width
 pub fn fit_nat_to_limbs<F: PrimeField>(
     n: &BigNat,
+    limb_width: usize,
 ) -> Result<Vec<F>, Error> {
-    let bit_capacity = <F::Params as FpParameters>::CAPACITY as usize;
-    nat_to_limbs(n, bit_capacity, n.significant_bits() as usize / bit_capacity + 1)
+    //let bit_capacity = <F::Params as FpParameters>::CAPACITY as usize;
+    nat_to_limbs(n, limb_width, n.significant_bits() as usize / limb_width + 1)
 }
-
 
 fn int_with_n_ones(n: usize) -> BigNat {
     let mut m = Integer::from(1);

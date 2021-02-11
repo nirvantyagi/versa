@@ -1,5 +1,5 @@
 use crate::{
-    bignat::{BigNat, fit_nat_to_limbs},
+    bignat::{BigNat, fit_nat_to_limbs, constraints::BigNatCircuitParams},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
     hash_to_prime::{HashRangeParams, Hasher, hash_to_prime, hash_to_integer},
     Error,
@@ -18,9 +18,10 @@ pub type RsaQGroup<P> = RsaHiddenOrderGroup<P>;
 
 // Proof of knowledge of exponent representation
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct PoKER<P: RsaGroupParams, H: Hasher> {
+pub struct PoKER<P: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> {
     _params: PhantomData<P>,
     _hash: PhantomData<H>,
+    _circuit_params: PhantomData<C>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -46,25 +47,9 @@ pub struct Proof<P: RsaGroupParams> {
     r_b: BigNat,
 }
 
-impl<P: RsaGroupParams> Statement<P> {
-    pub fn hash_to_initial_generator<H: Hasher>(&self) -> Result<RsaQGroup<P>, Error> {
-        let initial_generator_hash_params = HashRangeParams{
-            n_bits: SEC_PARAM,
-            n_trailing_ones: 0
-        };
-        let mut hash_input = vec![];
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&self.u1.n)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&self.u2.n)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&self.w1.n)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&self.w2.n)?);
-        Ok(RsaQGroup::<P>::from_nat(hash_to_integer::<H>(&hash_input, &initial_generator_hash_params)))
-    }
-
-}
-
-impl<P: RsaGroupParams, H: Hasher> PoKER<P, H> {
+impl<P: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> PoKER<P, H, C> {
     pub fn prove(x: &Statement<P>, w: &Witness) -> Result<Proof<P>, Error> {
-        let g = x.hash_to_initial_generator::<H>()?;
+        let g = Self::hash_to_initial_generator(x)?;
         let z_a = g.power_integer(&w.a)?;
         let z_b = g.power_integer(&w.b)?;
 
@@ -72,8 +57,8 @@ impl<P: RsaGroupParams, H: Hasher> PoKER<P, H> {
         let prime_hash_params = HashRangeParams{ n_bits: SEC_PARAM * SEC_PARAM.trailing_zeros() as usize, n_trailing_ones: 2 };
         let lc_hash_params = HashRangeParams{ n_bits: SEC_PARAM, n_trailing_ones: 0 };
         let mut hash_input = vec![];
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_a.n)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_b.n)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_a.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_b.n, C::LIMB_WIDTH)?);
         let (l, _) = hash_to_prime::<H>(&hash_input, &prime_hash_params)?;
         let gamma = hash_to_integer::<H>(&hash_input, &lc_hash_params);
         let gamma2 = <BigNat>::from(&gamma * &gamma);
@@ -97,14 +82,14 @@ impl<P: RsaGroupParams, H: Hasher> PoKER<P, H> {
     }
 
     pub fn verify(x: &Statement<P>, proof: &Proof<P>) -> Result<bool, Error> {
-        let g = x.hash_to_initial_generator::<H>()?;
+        let g = Self::hash_to_initial_generator(x)?;
 
         // Hash to challenge (prime and linear combination value)
         let prime_hash_params = HashRangeParams{ n_bits: SEC_PARAM * SEC_PARAM.trailing_zeros() as usize, n_trailing_ones: 2 };
         let lc_hash_params = HashRangeParams{ n_bits: SEC_PARAM, n_trailing_ones: 0 };
         let mut hash_input = vec![];
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&proof.z_a.n)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&proof.z_b.n)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&proof.z_a.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&proof.z_b.n, C::LIMB_WIDTH)?);
         let (l, _) = hash_to_prime::<H>(&hash_input, &prime_hash_params)?;
         let gamma = hash_to_integer::<H>(&hash_input, &lc_hash_params);
         let gamma2 = <BigNat>::from(&gamma * &gamma);
@@ -123,6 +108,20 @@ impl<P: RsaGroupParams, H: Hasher> PoKER<P, H> {
                 .op(&g.power(&<BigNat>::from(&gamma3 * &proof.r_b)))
         )
     }
+
+    pub fn hash_to_initial_generator(x: &Statement<P>) -> Result<RsaQGroup<P>, Error> {
+        let initial_generator_hash_params = HashRangeParams{
+            n_bits: SEC_PARAM,
+            n_trailing_ones: 0
+        };
+        let mut hash_input = vec![];
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u1.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u2.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w1.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w2.n, C::LIMB_WIDTH)?);
+        Ok(RsaQGroup::<P>::from_nat(hash_to_integer::<H>(&hash_input, &initial_generator_hash_params)))
+    }
+
 }
 
 
@@ -148,9 +147,15 @@ mod tests {
                           120720357";
     }
 
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct CircuitParams;
+    impl BigNatCircuitParams for CircuitParams {
+        const LIMB_WIDTH: usize = 32;
+    }
+
     pub type H = HasherFromDigest<Fq, blake3::Hasher>;
     pub type Hog = RsaHiddenOrderGroup<TestRsaParams>;
-    pub type TestWesolowski = PoKER<TestRsaParams, H>;
+    pub type TestWesolowski = PoKER<TestRsaParams, H, CircuitParams>;
 
     #[test]
     fn valid_proof_of_exponentiation_test() {
@@ -173,8 +178,8 @@ mod tests {
         let exp_hash_params = HashRangeParams{ n_bits: 4096, n_trailing_ones: 0 };
         let u1 = Hog::from_nat(BigNat::from(20)).inverse().unwrap();
         let u2 = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
-        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40)).unwrap(), &exp_hash_params);
-        let b = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50)).unwrap(), &exp_hash_params);
+        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
+        let b = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
         let w1 = u1.power(&a).op(&u2.power(&b));
         let w2 = u2.power(&a);
         let x = Statement{u1, u2, w1, w2};
@@ -190,8 +195,8 @@ mod tests {
         let exp_hash_params = HashRangeParams{ n_bits: 4096, n_trailing_ones: 0 };
         let u1 = Hog::from_nat(BigNat::from(20)).inverse().unwrap();
         let u2 = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
-        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40)).unwrap(), &exp_hash_params);
-        let b = -hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50)).unwrap(), &exp_hash_params);
+        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
+        let b = -hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
         let w1 = u1.power(&a).op(&u2.power(&b));
         let w2 = u2.power(&a);
         let x = Statement{u1, u2, w1, w2};
@@ -207,8 +212,8 @@ mod tests {
         let exp_hash_params = HashRangeParams{ n_bits: 4096, n_trailing_ones: 0 };
         let u1 = Hog::from_nat(BigNat::from(20)).inverse().unwrap();
         let u2 = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
-        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40)).unwrap(), &exp_hash_params);
-        let b = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50)).unwrap(), &exp_hash_params);
+        let a = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(40), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
+        let b = hash_to_integer::<H>(&fit_nat_to_limbs(&BigNat::from(50), CircuitParams::LIMB_WIDTH).unwrap(), &exp_hash_params);
         let w1 = u1.power(&a).op(&u2.power(&b));
         let w2 = u2.power(&a);
         let x = Statement{u1, u2, w1, w2};

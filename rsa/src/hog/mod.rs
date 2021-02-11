@@ -13,6 +13,8 @@ use std::{
 
 use crate::Error;
 
+pub mod constraints;
+
 //TODO: Rug doesn't support const integers
 pub trait RsaGroupParams: Clone + Eq + Debug {
     const RAW_G: usize;
