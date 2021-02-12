@@ -15,9 +15,3 @@ use crate::{
     bignat::{constraints::BigNatVar},
     hog::RsaGroupParams,
 };
-
-#[derive(Clone)]
-pub struct RsaHogVar<P: RsaGroupParams, ConstraintF: PrimeField> {
-    n: BigNatVar<ConstraintF>,
-    _params: PhantomData<P>,
-}
