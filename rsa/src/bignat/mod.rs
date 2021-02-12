@@ -67,11 +67,11 @@ pub fn nat_to_f<F: PrimeField>(n: &BigNat) -> Result<F, Error> {
 
 /// Compute the natural number represented by an array of limbs.
 /// The limbs are assumed to be based the `limb_width` power of 2.
-pub fn limbs_to_nat<F: PrimeField, B: Borrow<F>, I: DoubleEndedIterator<Item = B>>(
-    limbs: I,
+pub fn limbs_to_nat<F: PrimeField>(
+    limbs: &Vec<F>,
     limb_width: usize,
 ) -> BigNat {
-    limbs.rev().fold(Integer::from(0), |mut acc, limb| {
+    limbs.iter().rev().fold(Integer::from(0), |mut acc, limb| {
         acc <<= limb_width as u32;
         acc += f_to_nat(limb.borrow());
         acc
