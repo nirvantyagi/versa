@@ -359,6 +359,7 @@ mod tests {
     pub struct CircuitParams;
     impl BigNatCircuitParams for CircuitParams {
         const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 64; // 32 * 64 = 2048 (RSA key size)
     }
 
 

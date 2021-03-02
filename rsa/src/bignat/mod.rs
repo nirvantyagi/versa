@@ -171,7 +171,7 @@ mod tests {
 
         let m = BigNat::from_str(RSA_MODULO).unwrap();
         let bit_capacity = <<Fq as PrimeField>::Params as FpParameters>::CAPACITY as usize;
-        let m2 = limbs_to_nat::<Fq, _, _>(nat_to_limbs::<Fq>(&m, bit_capacity, m.significant_bits() as usize / bit_capacity + 1).unwrap().iter(), bit_capacity);
+        let m2 = limbs_to_nat::<Fq>(&nat_to_limbs::<Fq>(&m, bit_capacity, m.significant_bits() as usize / bit_capacity + 1).unwrap(), bit_capacity);
         assert_eq!(m, m2);
     }
 }
