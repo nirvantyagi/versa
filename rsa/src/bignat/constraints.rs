@@ -69,8 +69,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> R1CSVar<ConstraintF> for B
 
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> {
-    //TODO: Create helper method to check on debug, limbs length < P::N_LIMBS
     /// Constrain `self` to be equal to `other`, after carrying both.
+    #[tracing::instrument(target = "r1cs", skip(self, other))]
     fn enforce_equal_when_carried(
         &self,
         other: &Self,
@@ -78,42 +78,47 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let cs = self.cs().or(other.cs());
 
         // Propagate carries over fixed length of limbs.
-        let target_word_size = BigNat::from(1) << P::LIMB_WIDTH as u32;
+        let target_base = BigNat::from(1) << P::LIMB_WIDTH as u32;
         let current_word_size = max(&self.word_size, &other.word_size);
 
         let carry_bits = (((current_word_size.to_f64() * 2.0).log2() - P::LIMB_WIDTH as f64).ceil() + 0.1) as usize;
         let carry_bits2 = (current_word_size.significant_bits() as usize - P::LIMB_WIDTH + 1) as usize;
         assert_eq!(carry_bits, carry_bits2);
+        println!("target_base: {}, current_word_size: {}, carry_bits: {}", target_base.clone(), current_word_size.clone(), carry_bits);
 
         let mut carry_in = <FpVar<ConstraintF>>::zero();
         let mut accumulated_extra = BigNat::from(0);
 
         for (i, (left_limb, right_limb)) in self.limbs.iter()
             .zip(&other.limbs).enumerate() {
+            println!("Round {}:", i);
             let left_limb_value = left_limb.value()?;
             let right_limb_value = right_limb.value()?;
             let carry_in_value = carry_in.value()?;
+            println!("left: {}, right: {}, carry_in: {}", f_to_nat(&left_limb_value), f_to_nat(&right_limb_value), f_to_nat(&carry_in_value));
 
             let carry_value = nat_to_f::<ConstraintF>(
                 &(
-                    (f_to_nat(&(left_limb_value + carry_in_value - right_limb_value))
-                        + current_word_size.clone())
-                        / target_word_size.clone()
+                    (f_to_nat(&left_limb_value) + f_to_nat(&carry_in_value) - f_to_nat(&right_limb_value) + current_word_size.clone())
+                        / target_base.clone()
                 )
             ).unwrap();
+            println!("carry: {}", f_to_nat(&carry_value));
             let carry = <FpVar<ConstraintF>>::new_witness(cs.clone(), || Ok(carry_value))?;
 
             accumulated_extra += current_word_size.clone();
+            println!("accumulated_extra: {}", accumulated_extra.clone());
 
-            let (tmp_accumulated_extra, remainder) = accumulated_extra.div_rem(target_word_size.clone());
+            let (tmp_accumulated_extra, remainder) = accumulated_extra.div_rem(target_base.clone());
             accumulated_extra = tmp_accumulated_extra;
             let remainder_limb = nat_to_f::<ConstraintF>(&remainder).unwrap();
 
             let eqn_left: FpVar<ConstraintF> = left_limb
-                + nat_to_f::<ConstraintF>(&current_word_size).unwrap()
-                + &carry_in - right_limb;
-            let eqn_right = &carry * nat_to_f::<ConstraintF>(&target_word_size).unwrap()
+                + &carry_in - right_limb
+                + nat_to_f::<ConstraintF>(&current_word_size).unwrap();
+            let eqn_right = &carry * nat_to_f::<ConstraintF>(&target_base).unwrap()
                 + remainder_limb;
+            println!("eqn_right: {}, eqn_left: {}, i: {}", f_to_nat(&eqn_right.value().unwrap()), f_to_nat(&eqn_left.value().unwrap()), i);
             eqn_left.enforce_equal(&eqn_right)?;
 
             if i < P::N_LIMBS - 1 {
@@ -127,6 +132,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         Ok(())
     }
 
+    #[tracing::instrument(target = "r1cs", skip(limb, n_bits))]
     fn enforce_fits_in_bits(
         limb: &FpVar<ConstraintF>,
         n_bits: usize,
@@ -159,6 +165,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                     <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
                 coeff.double_in_place();
             }
+            println!("bit_sum: {}, limb: {}", f_to_nat(&bit_sum.value().unwrap()), f_to_nat(&limb.value().unwrap()));
             bit_sum.enforce_equal(limb)?;
         }
         Ok(())
@@ -170,7 +177,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 mod tests {
     use super::*;
     use algebra::ed_on_bls12_381::{Fq};
-    use r1cs_core::ConstraintSystem;
+    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use tracing_subscriber::layer::SubscriberExt;
 
     #[derive(Clone)]
     pub struct BigNatTestParams;
@@ -214,92 +222,113 @@ mod tests {
         }
     }
 
-    #[test]
-    fn carry_over_equal_test() {
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat1"),
-            &vec![2,1,4,7],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat2"),
-            &vec![2,1,4,7],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        nat1var.enforce_equal_when_carried(&nat2var).unwrap();
-        assert!(cs.is_satisfied().unwrap());
+    fn carry_over_equal_test(vec1: Vec<u64>, vec2: Vec<u64>, word_size_1: u64, word_size_2: u64, should_satisfy: bool) {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat1"),
+                &vec1,
+                BigNat::from(word_size_1),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat2"),
+                &vec2,
+                BigNat::from(word_size_2),
+                AllocationMode::Witness,
+            ).unwrap();
+            nat1var.enforce_equal_when_carried(&nat2var).unwrap();
 
-        // 1 carry
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat3"),
-            &vec![1,1,0,9],
-            BigNat::from(14),
-            AllocationMode::Witness,
-        ).unwrap();
-        let nat4var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat4"),
-            &vec![1,1,1,1],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        nat3var.enforce_equal_when_carried(&nat4var).unwrap();
-        assert!(cs.is_satisfied().unwrap());
-
-        // 2 carries
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        let nat5var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat5"),
-            &vec![1,1,9,9],
-            BigNat::from(14),
-            AllocationMode::Witness,
-        ).unwrap();
-        let nat6var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat6"),
-            &vec![1,2,2,1],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        nat5var.enforce_equal_when_carried(&nat6var).unwrap();
-        assert!(cs.is_satisfied().unwrap());
-
-        // 3 carries
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        let nat5var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat5"),
-            &vec![1,12,7,12],
-            BigNat::from(14),
-            AllocationMode::Witness,
-        ).unwrap();
-        let nat6var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat6"),
-            &vec![2,5,0,4],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        nat5var.enforce_equal_when_carried(&nat6var).unwrap();
-        assert!(cs.is_satisfied().unwrap());
-
-        // 3 carries
-        let cs = ConstraintSystem::<Fq>::new_ref();
-        let nat5var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat5"),
-            &vec![12,12,12,12],
-            BigNat::from(14),
-            AllocationMode::Witness,
-        ).unwrap();
-        let nat6var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-            r1cs_core::ns!(cs, "nat6"),
-            &vec![13,5,5,4],
-            BigNat::from(7),
-            AllocationMode::Witness,
-        ).unwrap();
-        nat5var.enforce_equal_when_carried(&nat6var).unwrap();
-        assert!(cs.is_satisfied().unwrap());
-
+            if should_satisfy && !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert_eq!(should_satisfy, cs.is_satisfied().unwrap());
+        })
     }
+
+    #[test]
+    fn carry_over_equal_trivial_test() {
+        carry_over_equal_test(
+            vec![2,1,4,7],
+            vec![2,1,4,7],
+            7,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_1carry_test() {
+        carry_over_equal_test(
+            vec![1,1,0,9],
+            vec![1,1,1,1],
+            14,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_2carry_test() {
+        carry_over_equal_test(
+            vec![1,1,9,9],
+            vec![1,2,2,1],
+            14,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_both_carry_test() {
+        carry_over_equal_test(
+            vec![1,1,9,9],
+            vec![1,0,18,1],
+            14,
+            21,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_large_word_test() {
+        carry_over_equal_test(
+            vec![1,1,9,66],
+            vec![1,3,1,2],
+            70,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_3carry_test() {
+        carry_over_equal_test(
+            vec![1,12,7,12],
+            vec![2,5,0,4],
+            14,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn carry_over_equal_3carry_overflow_test() {
+        carry_over_equal_test(
+            vec![12,12,12,12],
+            vec![13,5,5,4],
+            14,
+            14,
+            true,
+        )
+    }
+
 }
 

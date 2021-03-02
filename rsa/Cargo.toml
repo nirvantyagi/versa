@@ -21,3 +21,8 @@ rand = { version = "0.7" }
 num-traits = { version = "0.2" }
 blake3 = { version = "0.3" }
 digest = { version = "0.9" }
+tracing = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.2" }
+tracing = { version = "0.1", default-features = false }
