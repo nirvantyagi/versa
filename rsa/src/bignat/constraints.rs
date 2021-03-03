@@ -70,8 +70,50 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> R1CSVar<ConstraintF> for B
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> {
 
+    /// Reduce `self` to normal form with word size equal to limb width
+    pub fn reduce(&self) -> Result<Self, SynthesisError> {
+        let cs = self.cs();
+        //TODO: What to do for constants? ConstraintSystemRef::None?
+        let reduced = Self::new_witness(cs.clone(),  || Ok(self.value()?))?;
+        self.enforce_equal_when_carried(&reduced)?;
+        Ok(reduced)
+    }
+
+    pub fn add(&self, other: &Self) -> Result<Self, SynthesisError> {
+        //TODO: Ensure that word size does not overflow field capacity?
+        let word_size = BigNat::from(&self.word_size + &other.word_size);
+        if word_size.significant_bits() > <ConstraintF::Params as FpParameters>::CAPACITY {
+            self.reduce()?.add(&other.reduce()?)
+        } else {
+            let limbs = self.limbs.iter().zip(&other.limbs)
+                .map(|(l1, l2)| {
+                    l1 + l2
+                }).collect::<Vec<FpVar<ConstraintF>>>();
+            Ok(Self {
+                limbs: limbs,
+                value: self.value()? + other.value()?,
+                word_size: word_size,
+                _params: PhantomData,
+            })
+        }
+    }
+
+
+    /// Constrain `result` to be equal to `self` - `other`.
+    pub fn sub(
+        &self,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        let cs = self.cs().or(other.cs());
+        //TODO: What to do for constants? ConstraintSystemRef::None?
+        let diff = Self::new_witness(cs.clone(),  || Ok(self.value()? - other.value()?))?;
+        let sum = other.add(&diff)?;
+        self.enforce_equal_when_carried(&sum)?;
+        Ok(diff)
+    }
+
     /// Combines limbs into groups.
-    pub fn group_limbs(&self, limbs_per_group: usize) -> Vec<FpVar<ConstraintF>> {
+    fn group_limbs(&self, limbs_per_group: usize) -> Vec<FpVar<ConstraintF>> {
         let mut grouped_limbs = vec![];
         let limb_block = <FpVar<ConstraintF>>::constant(nat_to_f(&(BigNat::from(1) << (P::LIMB_WIDTH as u32))).unwrap());
         for limbs_to_group in self.limbs.as_slice().chunks(limbs_per_group) {
@@ -90,7 +132,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
     /// Constrain `self` to be equal to `other`, after carrying both.
     #[tracing::instrument(target = "r1cs", skip(self, other))]
-    fn enforce_equal_when_carried(
+    pub fn enforce_equal_when_carried(
         &self,
         other: &Self,
     ) -> Result<(), SynthesisError> {
@@ -112,7 +154,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let grouped_carry_bits = (grouped_word_size.significant_bits() as usize - P::LIMB_WIDTH * limbs_per_group + 1) as usize;
 
 
-        // Propagate carries over limbs.
+        // Propagate carries over grouped limbs.
         let mut carry_in = <FpVar<ConstraintF>>::zero();
         let mut accumulated_extra = BigNat::from(0);
         for (i, (left_limb, right_limb)) in self.group_limbs(limbs_per_group).iter()
@@ -195,6 +237,23 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             bit_sum.enforce_equal(limb)?;
         }
         Ok(())
+    }
+}
+
+impl<ConstraintF: PrimeField, P: BigNatCircuitParams> CondSelectGadget<ConstraintF> for BigNatVar<ConstraintF, P> {
+    fn conditionally_select(cond: &Boolean<ConstraintF>, true_value: &Self, false_value: &Self) -> Result<Self, SynthesisError> {
+        let selected_limbs = true_value.limbs.iter().zip(&false_value.limbs)
+            .map(|(true_limb, false_limb)| {
+                cond.select(true_limb, false_limb)
+            }).collect::<Result<Vec<FpVar<ConstraintF>>, SynthesisError>>()?;
+        let cond_bool = cond.value()?;
+        let selected_nat = if cond_bool { true_value } else { false_value };
+        Ok(Self {
+            limbs: selected_limbs,
+            value: selected_nat.value()?,
+            word_size: max(true_value.word_size.clone(), false_value.word_size.clone()),
+            _params: PhantomData,
+        })
     }
 }
 
