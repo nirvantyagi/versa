@@ -5,7 +5,7 @@ use r1cs_std::{
     fields::fp::FpVar,
 };
 
-use crate::bignat::{BigNat, fit_nat_to_limbs, limbs_to_nat, nat_to_f, f_to_nat};
+use crate::bignat::{BigNat, nat_to_limbs, limbs_to_nat, nat_to_f, f_to_nat};
 
 use std::{
     borrow::Borrow,
@@ -34,7 +34,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> AllocVar<BigNat, Constrain
         mode: AllocationMode,
     ) -> Result<Self, SynthesisError> {
         let f_out = f()?;
-        let limbs = fit_nat_to_limbs(f_out.borrow(), P::LIMB_WIDTH).unwrap();
+        let limbs = nat_to_limbs(f_out.borrow(), P::LIMB_WIDTH, P::N_LIMBS).unwrap();
         let limb_vars = Vec::<FpVar<ConstraintF>>::new_variable(
             cs,
             || Ok(&limbs[..]),
@@ -69,6 +69,25 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> R1CSVar<ConstraintF> for B
 
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> {
+
+    /// Combines limbs into groups.
+    pub fn group_limbs(&self, limbs_per_group: usize) -> Vec<FpVar<ConstraintF>> {
+        let mut grouped_limbs = vec![];
+        let limb_block = <FpVar<ConstraintF>>::constant(nat_to_f(&(BigNat::from(1) << (P::LIMB_WIDTH as u32))).unwrap());
+        for limbs_to_group in self.limbs.as_slice().chunks(limbs_per_group) {
+            let mut shift = <FpVar<ConstraintF>>::one();
+            let mut grouped_limb = <FpVar<ConstraintF>>::zero();
+            for (i, limb) in limbs_to_group.iter().enumerate() {
+                grouped_limb += &(limb * shift.clone());
+                shift *= &limb_block;
+                println!("shift: {}", f_to_nat(&shift.value().unwrap()));
+            }
+            grouped_limbs.push(grouped_limb);
+        }
+        grouped_limbs
+    }
+
+
     /// Constrain `self` to be equal to `other`, after carrying both.
     #[tracing::instrument(target = "r1cs", skip(self, other))]
     fn enforce_equal_when_carried(
@@ -77,20 +96,27 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     ) -> Result<(), SynthesisError> {
         let cs = self.cs().or(other.cs());
 
-        // Propagate carries over fixed length of limbs.
-        let target_base = BigNat::from(1) << P::LIMB_WIDTH as u32;
         let current_word_size = max(&self.word_size, &other.word_size);
-
         let carry_bits = (((current_word_size.to_f64() * 2.0).log2() - P::LIMB_WIDTH as f64).ceil() + 0.1) as usize;
         let carry_bits2 = (current_word_size.significant_bits() as usize - P::LIMB_WIDTH + 1) as usize;
         assert_eq!(carry_bits, carry_bits2);
-        println!("target_base: {}, current_word_size: {}, carry_bits: {}", target_base.clone(), current_word_size.clone(), carry_bits);
+        println!("current_word_size: {}, carry_bits: {}", current_word_size.clone(), carry_bits);
 
+        // Regroup limbs to take advantage of field size and reduce the amount of carrying
+        let limbs_per_group = (<ConstraintF::Params as FpParameters>::CAPACITY as usize - carry_bits ) / P::LIMB_WIDTH;
+        let grouped_base = BigNat::from(1) << (P::LIMB_WIDTH * limbs_per_group) as u32;
+        let grouped_word_size = (0..limbs_per_group).fold(BigNat::from(0), |mut acc, i| {
+            acc.set_bit((i * P::LIMB_WIDTH) as u32, true);
+            acc
+        }) * current_word_size.clone();
+        let grouped_carry_bits = (grouped_word_size.significant_bits() as usize - P::LIMB_WIDTH * limbs_per_group + 1) as usize;
+
+
+        // Propagate carries over limbs.
         let mut carry_in = <FpVar<ConstraintF>>::zero();
         let mut accumulated_extra = BigNat::from(0);
-
-        for (i, (left_limb, right_limb)) in self.limbs.iter()
-            .zip(&other.limbs).enumerate() {
+        for (i, (left_limb, right_limb)) in self.group_limbs(limbs_per_group).iter()
+            .zip(&other.group_limbs(limbs_per_group)).enumerate() {
             println!("Round {}:", i);
             let left_limb_value = left_limb.value()?;
             let right_limb_value = right_limb.value()?;
@@ -99,30 +125,30 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
             let carry_value = nat_to_f::<ConstraintF>(
                 &(
-                    (f_to_nat(&left_limb_value) + f_to_nat(&carry_in_value) - f_to_nat(&right_limb_value) + current_word_size.clone())
-                        / target_base.clone()
+                    (f_to_nat(&left_limb_value) + f_to_nat(&carry_in_value) - f_to_nat(&right_limb_value) + grouped_word_size.clone())
+                        / grouped_base.clone()
                 )
             ).unwrap();
             println!("carry: {}", f_to_nat(&carry_value));
             let carry = <FpVar<ConstraintF>>::new_witness(cs.clone(), || Ok(carry_value))?;
 
-            accumulated_extra += current_word_size.clone();
-            println!("accumulated_extra: {}", accumulated_extra.clone());
+            accumulated_extra += grouped_word_size.clone();
 
-            let (tmp_accumulated_extra, remainder) = accumulated_extra.div_rem(target_base.clone());
+            let (tmp_accumulated_extra, remainder) = accumulated_extra.div_rem(grouped_base.clone());
             accumulated_extra = tmp_accumulated_extra;
+            println!("accumulated_extra: {}", accumulated_extra.clone());
             let remainder_limb = nat_to_f::<ConstraintF>(&remainder).unwrap();
 
             let eqn_left: FpVar<ConstraintF> = left_limb
                 + &carry_in - right_limb
-                + nat_to_f::<ConstraintF>(&current_word_size).unwrap();
-            let eqn_right = &carry * nat_to_f::<ConstraintF>(&target_base).unwrap()
+                + nat_to_f::<ConstraintF>(&grouped_word_size).unwrap();
+            let eqn_right = &carry * nat_to_f::<ConstraintF>(&grouped_base).unwrap()
                 + remainder_limb;
             println!("eqn_right: {}, eqn_left: {}, i: {}", f_to_nat(&eqn_right.value().unwrap()), f_to_nat(&eqn_left.value().unwrap()), i);
             eqn_left.enforce_equal(&eqn_right)?;
 
             if i < P::N_LIMBS - 1 {
-                Self::enforce_fits_in_bits(&carry, carry_bits)?;
+                Self::enforce_fits_in_bits(&carry, grouped_carry_bits)?;
             } else {
                 carry.enforce_equal(&FpVar::<ConstraintF>::Constant(nat_to_f::<ConstraintF>(&accumulated_extra).unwrap()))?;
             }
@@ -208,6 +234,7 @@ mod tests {
             word_size: BigNat,
             mode: AllocationMode,
         ) -> Result<BigNatVar<ConstraintF, P>, SynthesisError> {
+            assert_eq!(limbs.len(), P::N_LIMBS);
             let limb_vars = Vec::<FpVar<ConstraintF>>::new_variable(
                 cs,
                 || Ok(&limbs[..]),
