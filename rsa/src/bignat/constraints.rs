@@ -121,6 +121,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
     /// Constrain `result` to be equal to `(self * other) % modulus`.
     //TODO: Assumes constant modulus that is decided at circuit setup
+    //TODO: Allow variable N_LIMBS so as not to need to apply modulus for every mult
     pub fn mult_mod(
         &self,
         other: &Self,
@@ -146,6 +147,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let num_mod_bits = modulus.value()?.significant_bits() as usize;
         let num_quotient_bits = (num_left_bits + num_right_bits).saturating_sub(num_mod_bits);
         let num_quotient_limbs = num_quotient_bits / P::LIMB_WIDTH + 1;
+        println!("num_quotient_limbs: {}, computed_upper_bound: {}", quotient_limbs.len(), num_quotient_limbs);
         assert!(num_quotient_limbs >= quotient_limbs.len());
         quotient_limbs.resize(num_quotient_limbs, <FpVar<ConstraintF>>::zero());
 
@@ -193,7 +195,6 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             for (i, limb) in limbs_to_group.iter().enumerate() {
                 grouped_limb += &(limb * shift.clone());
                 shift *= &limb_block;
-                println!("shift: {}", f_to_nat(&shift.value().unwrap()));
             }
             grouped_limbs.push(grouped_limb);
         }
@@ -531,6 +532,250 @@ mod tests {
             true,
         )
     }
+
+    fn add_equal_test(
+        vec1: Vec<u64>,
+        vec2: Vec<u64>,
+        vec3: Vec<u64>,
+        word_size_1: u64,
+        word_size_2: u64,
+        word_size_3: u64,
+        should_satisfy: bool,
+    ) {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat1"),
+                &vec1,
+                BigNat::from(word_size_1),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat2"),
+                &vec2,
+                BigNat::from(word_size_2),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat3"),
+                &vec3,
+                BigNat::from(word_size_3),
+                AllocationMode::Witness,
+            ).unwrap();
+
+            let sum = nat1var.add(&nat2var).unwrap();
+            nat3var.enforce_equal_when_carried(&sum).unwrap();
+
+            if should_satisfy && !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert_eq!(should_satisfy, cs.is_satisfied().unwrap());
+        })
+    }
+
+    #[test]
+    fn add_equal_trivial_test() {
+        add_equal_test(
+            vec![1,1,1,1],
+            vec![1,1,1,1],
+            vec![2,2,2,2],
+            7,
+            7,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn add_equal_carryover_test() {
+        add_equal_test(
+            vec![1,1,1,6],
+            vec![1,1,1,6],
+            vec![2,2,3,4],
+            7,
+            7,
+            7,
+            true,
+        )
+    }
+
+
+    fn sub_equal_test(
+        vec1: Vec<u64>,
+        vec2: Vec<u64>,
+        vec3: Vec<u64>,
+        word_size_1: u64,
+        word_size_2: u64,
+        word_size_3: u64,
+        should_satisfy: bool,
+    ) {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat1"),
+                &vec1,
+                BigNat::from(word_size_1),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat2"),
+                &vec2,
+                BigNat::from(word_size_2),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat3"),
+                &vec3,
+                BigNat::from(word_size_3),
+                AllocationMode::Witness,
+            ).unwrap();
+
+            let diff = nat1var.sub(&nat2var).unwrap();
+            nat3var.enforce_equal_when_carried(&diff).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if should_satisfy && !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert_eq!(should_satisfy, cs.is_satisfied().unwrap());
+        })
+    }
+
+    #[test]
+    fn sub_equal_trivial_test() {
+        sub_equal_test(
+            vec![2,2,2,2],
+            vec![1,1,1,1],
+            vec![1,1,1,1],
+            7,
+            7,
+            7,
+            true,
+        )
+    }
+
+    #[test]
+    fn sub_equal_carryover_test() {
+        sub_equal_test(
+            vec![2,0,18,2],
+            vec![1,1,1,1],
+            vec![1,1,1,1],
+            21,
+            7,
+            7,
+            true,
+        )
+    }
+
+
+    fn mult_mod_test(
+        vec1: Vec<u64>,
+        vec2: Vec<u64>,
+        vec3: Vec<u64>,
+        modvec: Vec<u64>,
+        word_size_1: u64,
+        word_size_2: u64,
+        word_size_3: u64,
+        mod_word_size: u64,
+        should_satisfy: bool,
+    ) {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat1"),
+                &vec1,
+                BigNat::from(word_size_1),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat2"),
+                &vec2,
+                BigNat::from(word_size_2),
+                AllocationMode::Witness,
+            ).unwrap();
+            let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat3"),
+                &vec3,
+                BigNat::from(word_size_3),
+                AllocationMode::Witness,
+            ).unwrap();
+            let modvar = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "mod"),
+                &modvec,
+                BigNat::from(mod_word_size),
+                AllocationMode::Witness,
+            ).unwrap();
+
+            let prod = nat1var.mult_mod(&nat2var, &modvar).unwrap();
+            nat3var.enforce_equal_when_carried(&prod).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if should_satisfy && !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert_eq!(should_satisfy, cs.is_satisfied().unwrap());
+        })
+    }
+
+    #[test]
+    fn mult_mod_trivial_test() {
+        mult_mod_test(
+            vec![0,0,1,1],
+            vec![0,0,1,1],
+            vec![0,1,2,1],
+            vec![1,1,1,1],
+            7, 7, 7, 7,
+            true,
+        )
+    }
+
+    #[test]
+    fn mult_mod_prod_overflow_test() {
+        mult_mod_test(
+            vec![1,1,1,1], // 585
+            vec![2,2,0,0], // 1152
+            vec![3,2,2,0], // 585 * 1152 = 673920 ; 673920 % 2801 = 1680
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7,
+            true,
+        )
+    }
+
+    #[test]
+    fn mult_mod_large_quotient_test() {
+        mult_mod_test(
+            vec![65,1,1,1], // 33353
+            vec![66,2,0,0], // 33920
+            vec![2,6,6,1], // (33353 * 33920) % 2801 = 1457
+            vec![5,3,6,1], // prime mod = 2801
+            70, 70, 7, 7,
+            true,
+        )
+    }
+
+
+
 
 }
 
