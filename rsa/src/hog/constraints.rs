@@ -139,3 +139,338 @@ impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParam
     }
 
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use algebra::ed_on_bls12_381::{Fq};
+    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use tracing_subscriber::layer::SubscriberExt;
+    use crate::hash_to_prime::{HashRangeParams, Hasher, HasherFromDigest, hash_to_integer};
+
+    pub type H = HasherFromDigest<Fq, blake3::Hasher>;
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsaParams;
+
+    impl RsaGroupParams for TestRsaParams {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "2519590847565789349402718324004839857142928212620403202777713783604366202070\
+                          7595556264018525880784406918290641249515082189298559149176184502808489120072\
+                          8449926873928072877767359714183472702618963750149718246911650776133798590957\
+                          0009733045974880842840179742910064245869181719511874612151517265463228221686\
+                          9987549182422433637259085141865462043576798423387184774447920739934236584823\
+                          8242811981638150106748104516603773060562016196762561338441436038339044149526\
+                          3443219011465754445417842402092461651572335077870774981712577246796292638635\
+                          6373289912154831438167899885040445364023527381951378636564391212010397122822\
+                          120720357";
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa512Params;
+
+    impl RsaGroupParams for TestRsa512Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "11834783464130424096695514462778870280264989938857328737807205623069291535525952722847913694296392927890261736769191982212777933726583565708193466779811767";
+    }
+
+
+    #[derive(Clone)]
+    pub struct BigNatTestParams;
+
+    impl BigNatCircuitParams for BigNatTestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 64;
+    }
+
+    #[derive(Clone)]
+    pub struct BigNat512TestParams;
+
+    impl BigNatCircuitParams for BigNat512TestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 16;
+    }
+
+    pub type Hog = RsaHiddenOrderGroup<TestRsaParams>;
+    pub type HogVar = RsaHogVar<Fq, TestRsaParams, BigNatTestParams>;
+    pub type Hog512 = RsaHiddenOrderGroup<TestRsa512Params>;
+    pub type HogVar512 = RsaHogVar<Fq, TestRsa512Params, BigNatTestParams>;
+    pub type HogVar512All = RsaHogVar<Fq, TestRsa512Params, BigNat512TestParams>;
+
+    #[test]
+    fn valid_inverse_op_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let a = Hog::from_nat(BigNat::from(30));
+            let inv_a = a.inverse().unwrap();
+            let a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let inv_a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "inv_a"),
+                || Ok(&inv_a),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
+            HogVar::enforce_equal(&HogVar::identity().unwrap(), &a_var.op(&inv_a_var, &mod_var).unwrap()).unwrap();
+
+            // Large value a
+            let a = Hog::from_nat(BigNat::from(-30) + TestRsaParams::m());
+            let inv_a = a.inverse().unwrap();
+            let a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let inv_a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "inv_a"),
+                || Ok(&inv_a),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
+            HogVar::enforce_equal(&HogVar::identity().unwrap(), &a_var.op(&inv_a_var, &mod_var).unwrap()).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+    #[test]
+    fn valid_multiple_ops_without_dedup_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let a = Hog::from_nat(BigNat::from(30));
+            let b = Hog::from_nat(BigNat::from(40)).inverse().unwrap();
+            let c = Hog::from_nat(BigNat::from(50)).inverse().unwrap();
+            let d = Hog::from_nat(BigNat::from(60)).inverse().unwrap();
+            let result = a.op(&b).op(&c).op(&d);
+            let a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let b_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "b"),
+                || Ok(&b),
+            ).unwrap();
+            let c_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "c"),
+                || Ok(&c),
+            ).unwrap();
+            let d_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "d"),
+                || Ok(&d),
+            ).unwrap();
+            let result_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "result"),
+                || Ok(&result),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
+            HogVar::enforce_equal(
+                &result_var,
+                &a_var.op_allow_duplicate(&b_var, &mod_var).unwrap()
+                    .op_allow_duplicate(&c_var, &mod_var).unwrap()
+                    .op_allow_duplicate(&d_var, &mod_var).unwrap()
+                    .deduplicate(&mod_var).unwrap()
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+    #[test]
+    fn valid_power_2048_16_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let a = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
+            let exp1 = BigNat::from(450);
+            let result = a.power(&exp1);
+            let a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp1"),
+                || Ok(&exp1),
+            ).unwrap();
+            let result_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "result"),
+                || Ok(&result),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
+            HogVar::enforce_equal(
+                &result_var,
+                &a_var.power(&exp1_var, &mod_var, 16).unwrap()
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test valid_power_2048_256_test --release -- --ignored --nocapture``
+    fn valid_power_2048_256_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let hash_params = HashRangeParams{ n_bits: 256, n_trailing_ones: 0 };
+            let a = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
+            let result = a.power(&exp1);
+            let a_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp1"),
+                || Ok(&exp1),
+            ).unwrap();
+            let result_var = HogVar::new_witness(
+                r1cs_core::ns!(cs, "result"),
+                || Ok(&result),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
+            HogVar::enforce_equal(
+                &result_var,
+                &a_var.power(&exp1_var, &mod_var, 256).unwrap()
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+    #[test]
+    fn valid_power_512_16_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let hash_params = HashRangeParams{ n_bits: 16, n_trailing_ones: 0 };
+            let a = Hog512::from_nat(BigNat::from(30)).inverse().unwrap();
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
+            let result = a.power(&exp1);
+            let a_var = HogVar512::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp1"),
+                || Ok(&exp1),
+            ).unwrap();
+            let result_var = HogVar512::new_witness(
+                r1cs_core::ns!(cs, "result"),
+                || Ok(&result),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsa512Params::m()).unwrap();
+            HogVar512::enforce_equal(
+                &result_var,
+                &a_var.power(&exp1_var, &mod_var, 16).unwrap()
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+    #[test]
+    fn valid_multiple_power_without_dedup_512_16_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let hash_params = HashRangeParams{ n_bits: 16, n_trailing_ones: 0 };
+            let a = Hog512::from_nat(BigNat::from(30)).inverse().unwrap();
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
+            let exp2 = hash_to_integer::<H>(&[Fq::from(2u8)], &hash_params);
+            let exp3 = hash_to_integer::<H>(&[Fq::from(3u8)], &hash_params);
+            let result = a.power(&exp1).power(&exp2).power(&exp3);
+            let a_var = HogVar512All::new_witness(
+                r1cs_core::ns!(cs, "a"),
+                || Ok(&a),
+            ).unwrap();
+            let exp1_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp1"),
+                || Ok(&exp1),
+            ).unwrap();
+            let exp2_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp2"),
+                || Ok(&exp2),
+            ).unwrap();
+            let exp3_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
+                r1cs_core::ns!(cs, "exp3"),
+                || Ok(&exp3),
+            ).unwrap();
+            let result_var = HogVar512All::new_witness(
+                r1cs_core::ns!(cs, "result"),
+                || Ok(&result),
+            ).unwrap();
+            let mod_var = BigNatVar::<Fq, BigNat512TestParams>::constant(&TestRsa512Params::m()).unwrap();
+            HogVar512All::enforce_equal(
+                &result_var,
+                &a_var.power_allow_duplicate(&exp1_var, &mod_var, 16).unwrap()
+                    .power_allow_duplicate(&exp2_var, &mod_var, 16).unwrap()
+                    .power_allow_duplicate(&exp3_var, &mod_var, 16).unwrap()
+                    .deduplicate(&mod_var).unwrap()
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+}
