@@ -148,7 +148,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let num_mod_bits = modulus.value()?.significant_bits() as usize;
         let num_quotient_bits = (num_left_bits + num_right_bits).saturating_sub(num_mod_bits);
         let num_quotient_limbs = num_quotient_bits / P::LIMB_WIDTH + 1;
-        println!("num_quotient_limbs: {}, computed_upper_bound: {}", quotient_limbs.len(), num_quotient_limbs);
+        //println!("num_quotient_limbs: {}, computed_upper_bound: {}", quotient_limbs.len(), num_quotient_limbs);
         assert!(num_quotient_limbs >= quotient_limbs.len());
         quotient_limbs.resize(num_quotient_limbs, <FpVar<ConstraintF>>::zero());
 
@@ -245,9 +245,11 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let cs = ns.cs();
         let debug_bauer_round = exp_chunks.len();
         println!("Round {} of Bauer helper:", debug_bauer_round);
-        if let Some(chunk) = exp_chunks.next_back() {
+        if let Some(chunk) = exp_chunks.next() {
             let chunk_len = chunk.len();
             let base_power = select_index(&base_powers[..(1 << chunk_len)], chunk)?;
+            println!("exp_bits chunk: {:?}", chunk.value());
+            println!("selected base power: {}", limbs_to_nat(&base_power.limbs.value().unwrap(), P::LIMB_WIDTH));
             if exp_chunks.len() > 0 { // If not first chunk, then compute accumulated value
                 let mut acc = Self::bauer_power_helper(
                     cs.clone(),
@@ -951,13 +953,25 @@ mod tests {
     }
 
     #[test]
-    fn pow_mod_trivial_test() {
+    fn pow_mod_trivial1_test() {
+        pow_mod_test(
+            vec![0,0,0,3], // 3
+            vec![0,0,0,6], // 6
+            vec![1,3,3,1], // 3^6 = 729
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7, 3,
+            true,
+        )
+    }
+
+    #[test]
+    fn pow_mod_trivial2_test() {
         pow_mod_test(
             vec![0,0,0,3], // 3
             vec![0,0,0,7], // 7
             vec![4,2,1,3], // 3^7 = 2187
             vec![5,3,6,1], // prime mod = 2801
-            7, 7, 7, 7, 3,
+            7, 7, 7, 7, 4,
             true,
         )
     }
