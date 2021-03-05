@@ -71,6 +71,19 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> R1CSVar<ConstraintF> for B
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> {
 
+    // Create constant without reference to constraint system
+    pub fn constant(nat: &BigNat) -> Result<Self, SynthesisError> {
+        let limbs = nat_to_limbs::<ConstraintF>(nat, P::LIMB_WIDTH, P::N_LIMBS).unwrap();
+        let limb_vars = limbs.iter().map(|l| <FpVar<ConstraintF>>::constant(l.clone()))
+            .collect::<Vec<FpVar<ConstraintF>>>();
+        Ok(BigNatVar{
+            limbs: limb_vars,
+            value: nat.clone(),
+            word_size: (BigNat::from(1) << P::LIMB_WIDTH as u32) - 1,
+            _params: PhantomData,
+        })
+    }
+
     /// Reduce `self` to normal form with word size equal to limb width
     #[tracing::instrument(target = "r1cs", skip(self))]
     pub fn reduce(&self) -> Result<Self, SynthesisError> {
@@ -116,7 +129,6 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         self.enforce_equal_when_carried(&sum)?;
         Ok(diff)
     }
-
 
 
     /// Constrain `result` to be equal to `(self * other) % modulus`.
@@ -438,6 +450,22 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         Ok(bit_vars)
     }
 
+    pub fn min(
+        &self,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        let cs = self.cs().or(other.cs());
+        let is_other_min = <Boolean<ConstraintF>>::new_witness(
+            cs.clone(),
+            || Ok(self.value()? > other.value()?),
+        )?;
+        let lesser = Self::conditionally_select(&is_other_min, other, self)?;
+        let greater = Self::conditionally_select(&is_other_min.not(), self, other)?;
+        let _diff = greater.sub(&lesser)?;
+        Ok(lesser)
+    }
+
+
 }
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> CondSelectGadget<ConstraintF> for BigNatVar<ConstraintF, P> {
@@ -478,7 +506,6 @@ pub fn select_index<ConstraintF: PrimeField, T: CondSelectGadget<ConstraintF>> (
         assert_eq!(v.len(), 2);
         T::conditionally_select(&index_bits[0], &v[1], &v[0])
     } else {
-        //TODO: left and right select AND first or last index bit
         let left = select_index(&v[..(v.len() / 2)], &index_bits[..(index_bits.len() - 1)])?;
         let right = select_index(&v[(v.len() / 2)..], &index_bits[..(index_bits.len() - 1)])?;
         T::conditionally_select(&index_bits.last().unwrap(), &right, &left)

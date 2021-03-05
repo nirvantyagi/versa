@@ -44,9 +44,7 @@ impl<P: RsaGroupParams> Default for RsaHiddenOrderGroup<P> {
 impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     pub fn from_nat(n: BigNat) -> Self {
         let mut a = n;
-        if a < 0 {
-            a += P::m();
-        }
+        assert!(a > 0);
         a %= P::m();
         let mut ma = P::m();
         ma -= &a;
@@ -150,7 +148,7 @@ mod tests {
         let inv_a = a.inverse().unwrap();
         assert_eq!(a.op(&inv_a).n, BigNat::from(1));
 
-        let a = Hog::from_nat(BigNat::from(-30));
+        let a = Hog::from_nat(BigNat::from(-30) + TestRsaParams::m());
         let inv_a = a.inverse().unwrap();
         assert_eq!(a.op(&inv_a).n, BigNat::from(1));
     }
