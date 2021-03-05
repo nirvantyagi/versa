@@ -122,6 +122,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     /// Constrain `result` to be equal to `(self * other) % modulus`.
     //TODO: Assumes constant modulus that is decided at circuit setup
     //TODO: Allow variable N_LIMBS so as not to need to apply modulus for every mult
+    #[tracing::instrument(target = "r1cs", skip(self, other, modulus))]
     pub fn mult_mod(
         &self,
         other: &Self,
@@ -180,8 +181,95 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             &lr_prod_limbs,
             &mqr_prod_limbs,
             &max(lr_word_size, mqr_word_size),
-        );
+        )?;
         Ok(rem)
+    }
+
+
+    /// Constrains `result` to be equal to `self ** exp % modulus`.
+    #[tracing::instrument(target = "r1cs", skip(self, exp, modulus))]
+    pub fn pow_mod(
+        &self,
+        exp: &Self,
+        modulus: &Self,
+        num_exp_bits: usize,
+    ) -> Result<Self, SynthesisError> {
+        if exp.word_size >= (BigNat::from(1) << P::LIMB_WIDTH as u32) {
+            return self.pow_mod(&exp.reduce()?, modulus, num_exp_bits)
+        }
+        let cs = self.cs().or(exp.cs());
+        let exp_bits = exp.enforce_fits_in_bits(num_exp_bits)?;
+
+        // Perform a windowed Bauer exponentiation
+        // Compute the optimal window size
+        let mut k: usize = 1;
+        let window_size = loop {
+            let fk = k as f64;
+            if (num_exp_bits as f64) < (fk * (fk + 1.0) * 2f64.powf(2.0 * fk)) / (2f64.powf(fk + 1.0) - fk - 2.0) + 1.0 {
+                break k;
+            }
+            k += 1;
+        };
+        println!("Chosen window size: {}", window_size);
+
+        // Compute base powers
+        let base_powers = {
+            let mut base_powers = vec![Self::new_constant(cs.clone(), BigNat::from(1))?, self.clone()];
+            for _ in 2..(1 << window_size) {
+                base_powers.push(
+                    base_powers
+                        .last().unwrap()
+                        .mult_mod(self, modulus)?
+                );
+            }
+            base_powers
+        };
+
+        println!("exp_bits: {:?}", exp_bits.value().unwrap());
+        Self::bauer_power_helper(
+            cs.clone(),
+            &base_powers,
+            exp_bits.chunks(window_size),
+            modulus,
+        )
+    }
+
+    #[tracing::instrument(target = "r1cs", skip(cs, base_powers, exp_chunks, modulus))]
+    fn bauer_power_helper(
+        cs: impl Into<Namespace<ConstraintF>>,
+        base_powers: &[Self],
+        mut exp_chunks: std::slice::Chunks<Boolean<ConstraintF>>,
+        modulus: &Self,
+    ) -> Result<Self, SynthesisError> {
+        let ns = cs.into();
+        let cs = ns.cs();
+        let debug_bauer_round = exp_chunks.len();
+        println!("Round {} of Bauer helper:", debug_bauer_round);
+        if let Some(chunk) = exp_chunks.next_back() {
+            let chunk_len = chunk.len();
+            let base_power = select_index(&base_powers[..(1 << chunk_len)], chunk)?;
+            if exp_chunks.len() > 0 { // If not first chunk, then compute accumulated value
+                let mut acc = Self::bauer_power_helper(
+                    cs.clone(),
+                    base_powers,
+                    exp_chunks,
+                    modulus,
+                )?;
+                println!("Value after Bauer round: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
+                for _ in 0..chunk_len { // Square for each bit in the chunk
+                    acc = acc.mult_mod(&acc, &modulus)?
+                }
+                println!("Value after repeated squaring: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
+                println!("Round {} of Bauer helper done [INTERMEDIATE CHUNK]:", debug_bauer_round);
+                Ok(acc.mult_mod(&base_power, &modulus)?)
+            } else {
+                println!("Round {} of Bauer helper done [LAST CHUNK]:", debug_bauer_round);
+                Ok(base_power)
+            }
+        } else {
+            println!("Round {} of Bauer helper done [EMPTY CHUNK]:", debug_bauer_round);
+            Ok(Self::new_constant(cs.clone(), BigNat::from(1))?)
+        }
     }
 
 
@@ -192,7 +280,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         for limbs_to_group in limbs.as_slice().chunks(limbs_per_group) {
             let mut shift = <FpVar<ConstraintF>>::one();
             let mut grouped_limb = <FpVar<ConstraintF>>::zero();
-            for (i, limb) in limbs_to_group.iter().enumerate() {
+            for limb in limbs_to_group.iter() {
                 grouped_limb += &(limb * shift.clone());
                 shift *= &limb_block;
             }
@@ -227,7 +315,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let carry_bits = (((current_word_size.to_f64() * 2.0).log2() - P::LIMB_WIDTH as f64).ceil() + 0.1) as usize;
         let carry_bits2 = (current_word_size.significant_bits() as usize - P::LIMB_WIDTH + 1) as usize;
         assert_eq!(carry_bits, carry_bits2);
-        println!("current_word_size: {}, carry_bits: {}", current_word_size.clone(), carry_bits);
+        //println!("current_word_size: {}, carry_bits: {}", current_word_size.clone(), carry_bits);
 
         // Regroup limbs to take advantage of field size and reduce the amount of carrying
         let limbs_per_group = (<ConstraintF::Params as FpParameters>::CAPACITY as usize - carry_bits ) / P::LIMB_WIDTH;
@@ -244,11 +332,11 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let mut accumulated_extra = BigNat::from(0);
         for (i, (left_limb, right_limb)) in Self::group_limbs(left_limbs, limbs_per_group).iter()
             .zip(Self::group_limbs(right_limbs, limbs_per_group)).enumerate() {
-            println!("Round {}:", i);
+            //println!("Round {}:", i);
             let left_limb_value = left_limb.value()?;
             let right_limb_value = right_limb.value()?;
             let carry_in_value = carry_in.value()?;
-            println!("left: {}, right: {}, carry_in: {}", f_to_nat(&left_limb_value), f_to_nat(&right_limb_value), f_to_nat(&carry_in_value));
+            //println!("left: {}, right: {}, carry_in: {}", f_to_nat(&left_limb_value), f_to_nat(&right_limb_value), f_to_nat(&carry_in_value));
 
             let carry_value = nat_to_f::<ConstraintF>(
                 &(
@@ -256,14 +344,14 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                         / grouped_base.clone()
                 )
             ).unwrap();
-            println!("carry: {}", f_to_nat(&carry_value));
+            //println!("carry: {}", f_to_nat(&carry_value));
             let carry = <FpVar<ConstraintF>>::new_witness(cs.clone(), || Ok(carry_value))?;
 
             accumulated_extra += grouped_word_size.clone();
 
             let (tmp_accumulated_extra, remainder) = accumulated_extra.div_rem(grouped_base.clone());
             accumulated_extra = tmp_accumulated_extra;
-            println!("accumulated_extra: {}", accumulated_extra.clone());
+            //println!("accumulated_extra: {}", accumulated_extra.clone());
             let remainder_limb = nat_to_f::<ConstraintF>(&remainder).unwrap();
 
             let eqn_left: FpVar<ConstraintF> = left_limb
@@ -271,7 +359,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                 + nat_to_f::<ConstraintF>(&grouped_word_size).unwrap();
             let eqn_right = &carry * nat_to_f::<ConstraintF>(&grouped_base).unwrap()
                 + remainder_limb;
-            println!("eqn_right: {}, eqn_left: {}, i: {}", f_to_nat(&eqn_right.value().unwrap()), f_to_nat(&eqn_left.value().unwrap()), i);
+            //println!("eqn_right: {}, eqn_left: {}, i: {}", f_to_nat(&eqn_right.value().unwrap()), f_to_nat(&eqn_left.value().unwrap()), i);
             eqn_left.enforce_equal(&eqn_right)?;
 
             if i < left_limbs.len() - 1 {
@@ -285,30 +373,32 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         Ok(())
     }
 
-    /// Constrains `self` assumed to be in normal form to be of certain bit length
+    /// Constrains `self` assumed to be in normal form to be of certain bit length and returns bit vector
     #[tracing::instrument(target = "r1cs", skip(self, n_bits))]
     fn enforce_fits_in_bits(
         &self,
         n_bits: usize,
-    ) -> Result<(), SynthesisError> {
+    ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
+        let mut bit_vars = vec![];
         let num_limbs = n_bits / P::LIMB_WIDTH;
         for (i, limb) in self.limbs.iter().enumerate() {
             if i < num_limbs {
-                Self::enforce_limb_fits_in_bits(limb, P::LIMB_WIDTH)?;
+                bit_vars.append(&mut Self::enforce_limb_fits_in_bits(limb, P::LIMB_WIDTH)?);
             } else if i == num_limbs {
-                Self::enforce_limb_fits_in_bits(limb, n_bits % P::LIMB_WIDTH)?;
+                bit_vars.append(&mut Self::enforce_limb_fits_in_bits(limb, n_bits % P::LIMB_WIDTH)?);
             } else {
                 limb.enforce_equal(&<FpVar<ConstraintF>>::zero())?;
             }
         }
-        Ok(())
+        Ok(bit_vars)
     }
 
+    /// Constrains that `limb` fits in a bit representation of size `n_bits` and returns bit vector
     #[tracing::instrument(target = "r1cs", skip(limb, n_bits))]
     fn enforce_limb_fits_in_bits(
         limb: &FpVar<ConstraintF>,
         n_bits: usize,
-    ) -> Result<(), SynthesisError> {
+    ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
         let cs = limb.cs();
 
         let n_bits = min(ConstraintF::size_in_bits() - 1, n_bits);
@@ -322,9 +412,9 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             bits.push(b);
         }
 
+        let mut bit_vars = vec![];
         if cs != ConstraintSystemRef::None {
-            let mut bit_vars = vec![];
-            for b in bits {
+            for b in bits.iter().rev() { // Switch to little-endian
                 bit_vars.push(Boolean::<ConstraintF>::new_witness(
                     r1cs_core::ns!(cs, "bit"),
                     || Ok(b),
@@ -332,15 +422,18 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             }
             let mut bit_sum = FpVar::<ConstraintF>::zero();
             let mut coeff = ConstraintF::one();
-            for bit in bit_vars.iter().rev() {
+            for bit in bit_vars.iter() {
                 bit_sum +=
                     <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
                 coeff.double_in_place();
             }
-            println!("bit_sum: {}, limb: {}", f_to_nat(&bit_sum.value().unwrap()), f_to_nat(&limb.value().unwrap()));
             bit_sum.enforce_equal(limb)?;
+        } else {
+            for b in bits.iter().rev() {
+                bit_vars.push(Boolean::<ConstraintF>::constant(*b));
+            }
         }
-        Ok(())
+        Ok(bit_vars)
     }
 
 }
@@ -370,6 +463,23 @@ pub fn log2(x: usize) -> u32 {
         1usize.leading_zeros() - x.leading_zeros()
     } else {
         0usize.leading_zeros() - x.leading_zeros()
+    }
+}
+
+#[tracing::instrument(target = "r1cs", skip(v, index_bits))]
+pub fn select_index<ConstraintF: PrimeField, T: CondSelectGadget<ConstraintF>> (
+    v: &[T],
+    index_bits: &[Boolean<ConstraintF>],
+) -> Result<T, SynthesisError> {
+    debug_assert!(index_bits.len() > 0);
+    if index_bits.len() == 1 {
+        assert_eq!(v.len(), 2);
+        T::conditionally_select(&index_bits[0], &v[1], &v[0])
+    } else {
+        //TODO: left and right select AND first or last index bit
+        let left = select_index(&v[..(v.len() / 2)], &index_bits[..(index_bits.len() - 1)])?;
+        let right = select_index(&v[(v.len() / 2)..], &index_bits[..(index_bits.len() - 1)])?;
+        T::conditionally_select(&index_bits.last().unwrap(), &right, &left)
     }
 }
 
@@ -744,7 +854,7 @@ mod tests {
             vec![0,0,1,1],
             vec![0,0,1,1],
             vec![0,1,2,1],
-            vec![1,1,1,1],
+            vec![0,7,0,0],
             7, 7, 7, 7,
             true,
         )
@@ -774,6 +884,120 @@ mod tests {
         )
     }
 
+
+
+    #[tracing::instrument(target = "r1cs", skip(vec1, vec2, vec3, modvec))]
+    fn pow_mod_test(
+        vec1: Vec<u64>,
+        vec2: Vec<u64>,
+        vec3: Vec<u64>,
+        modvec: Vec<u64>,
+        word_size_1: u64,
+        word_size_2: u64,
+        word_size_3: u64,
+        mod_word_size: u64,
+        num_exp_bits: usize,
+        should_satisfy: bool,
+    ) {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
+            let cs = ConstraintSystem::<Fq>::new_ref();
+            let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat1"),
+                &vec1,
+                BigNat::from(word_size_1),
+                AllocationMode::Witness,
+            ).unwrap();
+            println!("vec1: {}", limbs_to_nat(&nat1var.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
+            let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat2"),
+                &vec2,
+                BigNat::from(word_size_2),
+                AllocationMode::Witness,
+            ).unwrap();
+            println!("vec2: {}", limbs_to_nat(&nat2var.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
+            let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "nat3"),
+                &vec3,
+                BigNat::from(word_size_3),
+                AllocationMode::Witness,
+            ).unwrap();
+            let modvar = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
+                r1cs_core::ns!(cs, "mod"),
+                &modvec,
+                BigNat::from(mod_word_size),
+                AllocationMode::Witness,
+            ).unwrap();
+            println!("modvar: {}", limbs_to_nat(&modvar.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
+
+            let result = nat1var.pow_mod(&nat2var, &modvar, num_exp_bits).unwrap();
+            println!("POW MOD DONE");
+            println!("result: {}", limbs_to_nat(&result.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
+            println!("expected: {}", limbs_to_nat(&nat3var.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
+            nat3var.enforce_equal_when_carried(&result).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if should_satisfy && !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert_eq!(should_satisfy, cs.is_satisfied().unwrap());
+        })
+    }
+
+    #[test]
+    fn pow_mod_trivial_test() {
+        pow_mod_test(
+            vec![0,0,0,3], // 3
+            vec![0,0,0,7], // 7
+            vec![4,2,1,3], // 3^7 = 2187
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7, 3,
+            true,
+        )
+    }
+
+    #[test]
+    fn pow_mod_zero_test() {
+        pow_mod_test(
+            vec![1,1,1,1], // 585
+            vec![0,0,0,0],
+            vec![0,0,0,1],
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7, 3,
+            true,
+        )
+    }
+
+    #[test]
+    fn pow_mod_small_overflow_test() {
+        pow_mod_test(
+            vec![0,0,0,3], // 3
+            vec![0,0,1,0], // 8
+            vec![1,6,7,7], // 3^8 % 2801 = 959
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7, 6,
+            true,
+        )
+    }
+
+
+    #[test]
+    fn pow_mod_full_test() {
+        pow_mod_test(
+            vec![1,1,1,3], // 587
+            vec![0,0,2,1], // 17
+            vec![0,5,7,0], // (587^17) % 2801 = 376
+            vec![5,3,6,1], // prime mod = 2801
+            7, 7, 7, 7, 6,
+            true,
+        )
+    }
 
 
 
