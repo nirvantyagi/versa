@@ -10,7 +10,8 @@ pub mod constraints;
 
 pub fn hash_to_integer<H: Hasher>(inputs: &[H::F], n_bits: usize) -> BigNat {
     let bits_per_hash = <<H::F as PrimeField>::Params as FpParameters>::CAPACITY as usize;
-    let n_hashes = (n_bits - 1) / bits_per_hash + 1;
+    // Fix high bit to 1
+    let n_hashes = (n_bits - 1 - 1) / bits_per_hash + 1;
 
     // Hash the inputs
     let hash = H::hash(inputs);
@@ -24,6 +25,9 @@ pub fn hash_to_integer<H: Hasher>(inputs: &[H::F], n_bits: usize) -> BigNat {
         sum_of_hashes += low_bits << (bits_per_hash * i) as u32;
     }
 
-    low_k_bits(&sum_of_hashes, n_bits)
+    // Set high bit
+    let mut acc = low_k_bits(&sum_of_hashes, n_bits - 1);
+    acc |= BigNat::from(1) << (n_bits - 1) as u32;
+    acc
 }
 

@@ -26,7 +26,7 @@ pub fn check_hash_to_integer<H, HG, ConstraintF, P>(
     P: BigNatCircuitParams,
 {
     let bits_per_hash = <ConstraintF::Params as FpParameters>::CAPACITY as usize;
-    let n_hashes = (n_bits - 1) / bits_per_hash + 1;
+    let n_hashes = (n_bits - 1 - 1) / bits_per_hash + 1;
 
     // Hash the inputs
     let hash = HG::hash(cs.clone(), inputs)?;
@@ -41,6 +41,8 @@ pub fn check_hash_to_integer<H, HG, ConstraintF, P>(
         );
     }
 
+    // Set high bit
+    hash_bits[n_bits - 1] = Boolean::<ConstraintF>::TRUE;
     result.enforce_equals_bits(&hash_bits[..n_bits])
 }
 
