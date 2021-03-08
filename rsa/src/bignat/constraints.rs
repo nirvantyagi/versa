@@ -409,7 +409,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
     /// Constrains that `limb` fits in a bit representation of size `n_bits` and returns bit vector
     #[tracing::instrument(target = "r1cs", skip(limb, n_bits))]
-    fn enforce_limb_fits_in_bits(
+    pub fn enforce_limb_fits_in_bits(
         limb: &FpVar<ConstraintF>,
         n_bits: usize,
     ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
@@ -434,20 +434,53 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                     || Ok(b),
                 )?);
             }
-            let mut bit_sum = FpVar::<ConstraintF>::zero();
-            let mut coeff = ConstraintF::one();
-            for bit in bit_vars.iter() {
-                bit_sum +=
-                    <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
-                coeff.double_in_place();
-            }
-            bit_sum.enforce_equal(limb)?;
+            Self::enforce_limb_equals_bits(limb, &bit_vars)?;
         } else {
             for b in bits.iter().rev() {
                 bit_vars.push(Boolean::<ConstraintF>::constant(*b));
             }
         }
         Ok(bit_vars)
+    }
+
+    /// Constrains `self` assumed to be in normal form to be equal to bit vector `bits`
+    #[tracing::instrument(target = "r1cs", skip(self, bits))]
+    pub fn enforce_equals_bits(
+        &self,
+        bits: &[Boolean<ConstraintF>],
+    ) -> Result<(), SynthesisError> {
+        let num_nonzero_limbs = bits.len() / P::LIMB_WIDTH;
+        for (i, limb) in self.limbs.iter().enumerate() {
+            if i < num_nonzero_limbs {
+                Self::enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..(i+1)*P::LIMB_WIDTH])?;
+            } else if i == num_nonzero_limbs {
+                Self::enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..])?;
+            } else {
+                limb.enforce_equal(&<FpVar<ConstraintF>>::zero())?;
+            }
+        }
+        Ok(())
+    }
+
+
+    /// Constrains that `limb` equals LE bit representation `bits`.
+    #[tracing::instrument(target = "r1cs", skip(limb, bits))]
+    fn enforce_limb_equals_bits(
+        limb: &FpVar<ConstraintF>,
+        bits: &[Boolean<ConstraintF>],
+    ) -> Result<(), SynthesisError> {
+        let cs = limb.cs();
+        if cs != ConstraintSystemRef::None {
+            let mut bit_sum = FpVar::<ConstraintF>::zero();
+            let mut coeff = ConstraintF::one();
+            for bit in bits.iter() {
+                bit_sum +=
+                    <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
+                coeff.double_in_place();
+            }
+            bit_sum.enforce_equal(limb)?;
+        }
+        Ok(())
     }
 
     pub fn min(

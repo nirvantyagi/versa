@@ -40,6 +40,7 @@ impl<F: PrimeField> HasherGadget<PoseidonHasher<F>, F> for PoseidonHasherGadget<
         Ok(sponge.squeeze(1)?[0].clone())
     }
 
+    #[tracing::instrument(target = "r1cs", skip(cs, inputs))]
     fn hash(cs: ConstraintSystemRef<F>, inputs: &[FpVar<F>]) -> Result<FpVar<F>, SynthesisError> {
         let mut sponge = PoseidonSpongeVar::new(cs);
         sponge.absorb(inputs)?;
@@ -52,7 +53,7 @@ impl<F: PrimeField> HasherGadget<PoseidonHasher<F>, F> for PoseidonHasherGadget<
 mod tests {
     use super::*;
     use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use r1cs_core::{ConstraintSystem};
     use rand::{rngs::StdRng, SeedableRng};
 
 
