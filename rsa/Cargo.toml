@@ -23,6 +23,8 @@ blake3 = { version = "0.3" }
 digest = { version = "0.9" }
 tracing = { version = "0.1", default-features = false }
 
+crypto_primitives = { path = "../crypto_primitives" }
+
 [dev-dependencies]
 tracing-subscriber = { version = "0.2" }
 tracing = { version = "0.1", default-features = false }

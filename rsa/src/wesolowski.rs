@@ -1,7 +1,7 @@
 use crate::{
     bignat::{BigNat, fit_nat_to_limbs, constraints::BigNatCircuitParams},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
-    hash_to_prime::{HashRangeParams, Hasher, hash_to_prime, hash_to_integer},
+    hash::{HashRangeParams, Hasher, hash_to_prime, hash_to_integer},
     Error,
 };
 
@@ -129,7 +129,7 @@ impl<P: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> PoKER<P, H, C> {
 mod tests {
     use super::*;
     use algebra::ed_on_bls12_381::{Fq};
-    use crate::hash_to_prime::HasherFromDigest;
+    use crate::hash::{HasherFromDigest, PoseidonHasher};
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsaParams;
@@ -155,8 +155,10 @@ mod tests {
     }
 
     pub type H = HasherFromDigest<Fq, blake3::Hasher>;
+    pub type H2 = PoseidonHasher<Fq>;
     pub type Hog = RsaHiddenOrderGroup<TestRsaParams>;
     pub type TestWesolowski = PoKER<TestRsaParams, H, CircuitParams>;
+    pub type TestWesolowski2 = PoKER<TestRsaParams, H2, CircuitParams>;
 
     #[test]
     fn valid_proof_of_exponentiation_test() {
@@ -224,5 +226,22 @@ mod tests {
         let is_valid = TestWesolowski::verify(&x, &proof).unwrap();
         assert!(!is_valid);
     }
+
+    #[test]
+    fn valid_proof_of_exponentiation_with_poseidon_test() {
+        let u1 = Hog::from_nat(BigNat::from(20));
+        let u2 = Hog::from_nat(BigNat::from(30));
+        let a = BigNat::from(40);
+        let b = BigNat::from(50);
+        let w1 = u1.power(&a).op(&u2.power(&b));
+        let w2 = u2.power(&a);
+        let x = Statement{u1, u2, w1, w2};
+        let w = Witness{a, b};
+
+        let proof = TestWesolowski2::prove(&x, &w).unwrap();
+        let is_valid = TestWesolowski2::verify(&x, &proof).unwrap();
+        assert!(is_valid);
+    }
+
 
 }

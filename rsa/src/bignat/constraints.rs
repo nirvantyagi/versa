@@ -521,6 +521,7 @@ mod tests {
     use r1cs_core::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
 
+
     #[derive(Clone)]
     pub struct BigNatTestParams;
 

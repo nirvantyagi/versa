@@ -7,6 +7,7 @@ use crate::{
     bignat::{BigNat, f_to_nat},
     Error,
 };
+use crypto_primitives::poseidon::{PoseidonSponge, AlgebraicSponge};
 
 use std::{
     fmt::{self, Debug},
@@ -20,6 +21,9 @@ use std::{
 use num_traits::identities::{Zero, One};
 use digest::Digest;
 
+mod constraints;
+mod hash_to_integer;
+mod hash_to_prime;
 
 /// A representation of an integer range to hash to
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -50,6 +54,27 @@ pub trait Hasher: Clone {
     }
 }
 
+/// Wrapper around Poseidon hash function
+#[derive(Clone)]
+pub struct PoseidonHasher<F: PrimeField> {
+    _field: PhantomData<F>,
+}
+
+impl<F: PrimeField> Hasher for PoseidonHasher<F> {
+    type F = F;
+
+    fn hash2(a: Self::F, b: Self::F) -> Self::F {
+        let mut sponge = PoseidonSponge::new();
+        sponge.absorb(&[a, b]);
+        sponge.squeeze(1)[0].clone()
+    }
+
+    fn hash(inputs: &[Self::F]) -> Self::F {
+        let mut sponge = PoseidonSponge::new();
+        sponge.absorb(inputs);
+        sponge.squeeze(1)[0].clone()
+    }
+}
 
 
 

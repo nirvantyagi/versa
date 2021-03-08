@@ -1,7 +1,7 @@
 use crate::{
     bignat::{BigNat, extended_euclidean_gcd, fit_nat_to_limbs, constraints::BigNatCircuitParams},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
-    hash_to_prime::{HashRangeParams, Hasher, hash_to_prime},
+    hash::{HashRangeParams, Hasher, hash_to_prime},
     wesolowski::{PoKER, Statement as PoKERStatement, Witness as PoKERWitness, Proof as PoKERProof},
     Error,
 };
@@ -337,7 +337,7 @@ mod tests {
     use super::*;
     use algebra::ed_on_bls12_381::{Fq};
 
-    use crate::hash_to_prime::HasherFromDigest;
+    use crate::hash::HasherFromDigest;
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsaParams;

@@ -1,13 +1,11 @@
-use algebra::{PrimeField, BitIteratorBE, FpParameters};
+use algebra::{PrimeField};
 use r1cs_core::{SynthesisError, Namespace, ConstraintSystemRef};
 use r1cs_std::{
     prelude::*,
-    fields::fp::FpVar,
 };
 
 use crate::{
     bignat::{
-        BigNat,
         constraints::{BigNatCircuitParams, BigNatVar},
     },
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
@@ -16,7 +14,6 @@ use crate::{
 use std::{
     borrow::Borrow,
     marker::PhantomData,
-    cmp::{min, max},
 };
 
 #[derive(Clone)]
@@ -147,7 +144,10 @@ mod tests {
     use algebra::ed_on_bls12_381::{Fq};
     use r1cs_core::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
-    use crate::hash_to_prime::{HashRangeParams, Hasher, HasherFromDigest, hash_to_integer};
+    use crate::{
+        hash::{HashRangeParams, HasherFromDigest, hash_to_integer},
+        bignat::BigNat,
+    };
 
     pub type H = HasherFromDigest<Fq, blake3::Hasher>;
 
