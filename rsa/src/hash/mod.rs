@@ -52,6 +52,14 @@ pub trait Hasher: Clone {
         }
         acc
     }
+
+    fn hash_to_variable_output(inputs: &[Self::F], output_len: usize) -> Vec<Self::F> {
+        let mut output = vec![Self::hash(inputs)];
+        for _ in 1..output_len {
+            output.push(Self::hash(&[output.last().unwrap().clone()]));
+        }
+        output
+    }
 }
 
 /// Wrapper around Poseidon hash function
@@ -73,6 +81,12 @@ impl<F: PrimeField> Hasher for PoseidonHasher<F> {
         let mut sponge = PoseidonSponge::new();
         sponge.absorb(inputs);
         sponge.squeeze(1)[0].clone()
+    }
+
+    fn hash_to_variable_output(inputs: &[Self::F], output_len: usize) -> Vec<Self::F> {
+        let mut sponge = PoseidonSponge::new();
+        sponge.absorb(inputs);
+        sponge.squeeze(output_len)
     }
 }
 
