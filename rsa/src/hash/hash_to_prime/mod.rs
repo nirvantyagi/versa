@@ -40,7 +40,6 @@ pub struct PlannedExtension {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionCertificate {
     pub plan: PlannedExtension,
-    pub random: BigNat,
     pub nonce: u64,
     pub checking_base: BigNat,
     pub result: BigNat,
@@ -203,7 +202,6 @@ pub fn attempt_pocklington_extension<H: Hasher>(
                 p.extensions.push(
                     ExtensionCertificate {
                         plan: plan.clone(),
-                        random: random_bits.clone(),
                         checking_base: base,
                         result: candidate,
                         nonce,
@@ -233,17 +231,80 @@ pub fn hash_to_pocklington_prime<H: Hasher>(
     );
 
     // Construct Pocklington base
-    let base_random_bits = random_bits.clone() & ((BigNat::from(1) << plan.base_random_bits as u32) - 1);
+    let base_random_bits = random_bits.clone() & ((BigNat::from(1) << plan.base_random_bits as u32) - BigNat::from(1));
     let mut cert = attempt_pocklington_base(&plan, &base_random_bits)?;
     random_bits >>= plan.base_random_bits as u32;
 
     // Perform each extension
     for extension in &plan.extensions {
-        let ext_random_bits = random_bits.clone() & ((BigNat::from(1) << extension.random_bits as u32) - 1);
+        let ext_random_bits = random_bits.clone() & ((BigNat::from(1) << extension.random_bits as u32) - BigNat::from(1));
         cert = attempt_pocklington_extension(cert, extension, &ext_random_bits)?;
         random_bits >>= extension.random_bits as u32;
     }
     Ok(cert)
+}
+
+pub fn check_pocklington_certificate<H: Hasher>(
+    inputs: &[H::F],
+    entropy: usize,
+    cert: &PocklingtonCertificate<H>,
+) -> Result<bool, Error> {
+
+    // Compute needed randomness
+    let bits_per_hash = <<H::F as PrimeField>::Params as FpParameters>::CAPACITY as usize;
+    let n_hashes = (entropy - 1) / bits_per_hash + 1;
+    let mut random_bits = limbs_to_nat(
+        &H::hash_to_variable_output(inputs, n_hashes),
+        bits_per_hash,
+    );
+
+    // Construct Pocklington base
+    let base_random_bits = random_bits.clone() & ((BigNat::from(1) << cert.base_plan.random_bits as u32) - BigNat::from(1));
+    random_bits >>= cert.base_plan.random_bits as u32;
+    let mut base = BigNat::from(1) << (cert.base_plan.nonce_bits + cert.base_plan.random_bits) as u32;
+    base |= (base_random_bits.clone() << cert.base_plan.nonce_bits as u32) + BigNat::from(cert.base_nonce as u32);
+    assert_eq!(cert.base_plan.nonce_bits + cert.base_plan.random_bits, 31);
+    assert_eq!(cert.base_prime.clone(), base.clone());
+    assert!(miller_rabin_32b(&base));
+
+    // Check each extension
+    let mut prime = cert.base_prime.clone();
+    let mut prime_bits = 32_usize; //TODO: remove
+    for (i, extension) in cert.extensions.iter().enumerate() {
+        let ext_random_bits = random_bits.clone() & ((BigNat::from(1) << extension.plan.random_bits as u32) - BigNat::from(1));
+        random_bits >>= extension.plan.random_bits as u32;
+        let extension_term = extension.plan.evaluate(&ext_random_bits, extension.nonce);
+        println!("Round {}: extension_term: {}", i, extension_term.clone());
+
+        let n_less_one = extension_term.clone() * prime.clone();
+        let n = n_less_one.clone() + BigNat::from(1);
+        let part = extension.checking_base.clone().pow_mod(&extension_term, &n).unwrap();
+        let part_less_one = part.clone() - BigNat::from(1);
+        println!("Round {}: n: {}", i, n.clone());
+        println!("Round {}: part: {}", i, part.clone());
+
+        // Enforce coprimality
+        let bezout_s = (part_less_one.clone().gcd_cofactors(n.clone(), BigNat::new()).1 + n.clone()) % n.clone();
+        println!("Round {}: bezout: {}", i, bezout_s.clone());
+        let gcd = (part_less_one.clone() * bezout_s) % n.clone();
+        assert_eq!(gcd, BigNat::from(1));
+
+        // Check Fermat's little theorem
+        let power = part.clone().pow_mod(&prime, &n).unwrap();
+        println!("Round {}: power: {}", i, power.clone());
+        assert_eq!(power, BigNat::from(1));
+
+        println!("prime bits: {}, {}", prime_bits, prime.significant_bits());
+        println!("actual new prime bits: {}", n.significant_bits());
+        println!("extension bits: {}, {}", extension.plan.nonce_bits + extension.plan.random_bits + 1, extension_term.significant_bits());
+        println!("new prime bits: {}", prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1);
+        prime = n;
+        prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
+    }
+    println!("Final: prime: {}", prime.clone());
+    println!("Final: result: {}", cert.result().clone());
+    assert_eq!(prime, cert.result().clone());
+    Ok(true)
 }
 
 
@@ -317,3 +378,26 @@ impl fmt::Display for HashToPrimeError {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
+    use rand::{rngs::StdRng, SeedableRng};
+
+    use crate::hash::{
+        PoseidonHasher,
+    };
+
+    pub type H = PoseidonHasher<Fq>;
+
+    #[test]
+    fn pocklington_prime_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let input = vec![Fq::rand(&mut rng); 12];
+        let h = hash_to_pocklington_prime::<H>(&input, 128).unwrap();
+        println!("Length of prime: {}", h.result().significant_bits());
+        check_pocklington_certificate(&input, 128, &h).unwrap();
+    }
+
+}

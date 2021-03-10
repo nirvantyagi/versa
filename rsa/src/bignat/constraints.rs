@@ -268,7 +268,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             }
             k += 1;
         };
-        println!("Chosen window size: {}", window_size);
+        //println!("Chosen window size: {}", window_size);
 
         // Compute base powers
         let base_powers = {
@@ -283,7 +283,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             base_powers
         };
 
-        println!("exp_bits: {:?}", exp_bits.value().unwrap());
+        //println!("exp_bits: {:?}", exp_bits.value().unwrap());
         Self::bauer_power_helper(
             cs.clone(),
             &base_powers,
@@ -301,13 +301,11 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     ) -> Result<Self, SynthesisError> {
         let ns = cs.into();
         let cs = ns.cs();
-        let debug_bauer_round = exp_chunks.len();
-        println!("Round {} of Bauer helper:", debug_bauer_round);
         if let Some(chunk) = exp_chunks.next() {
             let chunk_len = chunk.len();
             let base_power = select_index(&base_powers[..(1 << chunk_len)], chunk)?;
-            println!("exp_bits chunk: {:?}", chunk.value());
-            println!("selected base power: {}", limbs_to_nat(&base_power.limbs.value().unwrap(), P::LIMB_WIDTH));
+            //println!("exp_bits chunk: {:?}", chunk.value());
+            //println!("selected base power: {}", limbs_to_nat(&base_power.limbs.value().unwrap(), P::LIMB_WIDTH));
             if exp_chunks.len() > 0 { // If not first chunk, then compute accumulated value
                 let mut acc = Self::bauer_power_helper(
                     cs.clone(),
@@ -315,19 +313,19 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                     exp_chunks,
                     modulus,
                 )?;
-                println!("Value after Bauer round: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
+                //println!("Value after Bauer round: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
                 for _ in 0..chunk_len { // Square for each bit in the chunk
                     acc = acc.mult_mod(&acc, &modulus)?
                 }
-                println!("Value after repeated squaring: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
-                println!("Round {} of Bauer helper done [INTERMEDIATE CHUNK]:", debug_bauer_round);
+                //println!("Value after repeated squaring: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
+                //println!("Round {} of Bauer helper done [INTERMEDIATE CHUNK]:", debug_bauer_round);
                 Ok(acc.mult_mod(&base_power, &modulus)?)
             } else {
-                println!("Round {} of Bauer helper done [LAST CHUNK]:", debug_bauer_round);
+                //println!("Round {} of Bauer helper done [LAST CHUNK]:", debug_bauer_round);
                 Ok(base_power)
             }
         } else {
-            println!("Round {} of Bauer helper done [EMPTY CHUNK]:", debug_bauer_round);
+            //println!("Round {} of Bauer helper done [EMPTY CHUNK]:", debug_bauer_round);
             Ok(Self::new_constant(cs.clone(), BigNat::from(1))?)
         }
     }
@@ -593,6 +591,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                 Ok((self.value()?.gcd_cofactors(v.clone(), BigNat::new()).1 + v.clone()) % v.clone())
             },
         )?;
+        println!("\t bezout: {}", bezout_s.value()?);
 
         // Check gcd = 1
         BigNatVar::<ConstraintF, P>::constant(&BigNat::from(1))?.limbs.enforce_equal(
