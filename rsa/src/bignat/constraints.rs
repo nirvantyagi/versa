@@ -591,7 +591,6 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                 Ok((self.value()?.gcd_cofactors(v.clone(), BigNat::new()).1 + v.clone()) % v.clone())
             },
         )?;
-        println!("\t bezout: {}", bezout_s.value()?);
 
         // Check gcd = 1
         BigNatVar::<ConstraintF, P>::constant(&BigNat::from(1))?.limbs.enforce_equal(

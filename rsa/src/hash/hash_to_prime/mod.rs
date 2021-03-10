@@ -244,6 +244,7 @@ pub fn hash_to_pocklington_prime<H: Hasher>(
     Ok(cert)
 }
 
+//TODO: Swap asserts for returns
 pub fn check_pocklington_certificate<H: Hasher>(
     inputs: &[H::F],
     entropy: usize,
@@ -269,7 +270,6 @@ pub fn check_pocklington_certificate<H: Hasher>(
 
     // Check each extension
     let mut prime = cert.base_prime.clone();
-    let mut prime_bits = 32_usize; //TODO: remove
     for (i, extension) in cert.extensions.iter().enumerate() {
         let ext_random_bits = random_bits.clone() & ((BigNat::from(1) << extension.plan.random_bits as u32) - BigNat::from(1));
         random_bits >>= extension.plan.random_bits as u32;
@@ -294,17 +294,9 @@ pub fn check_pocklington_certificate<H: Hasher>(
         println!("Round {}: power: {}", i, power.clone());
         assert_eq!(power, BigNat::from(1));
 
-        println!("prime bits: {}, {}", prime_bits, prime.significant_bits());
-        println!("actual new prime bits: {}", n.significant_bits());
-        println!("extension bits: {}, {}", extension.plan.nonce_bits + extension.plan.random_bits + 1, extension_term.significant_bits());
-        println!("new prime bits: {}", prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1);
         prime = n;
-        prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
     }
-    println!("Final: prime: {}", prime.clone());
-    println!("Final: result: {}", cert.result().clone());
-    assert_eq!(prime, cert.result().clone());
-    Ok(true)
+    Ok(prime == cert.result().clone())
 }
 
 

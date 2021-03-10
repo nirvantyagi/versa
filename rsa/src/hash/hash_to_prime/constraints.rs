@@ -151,7 +151,6 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         .flatten()
         .collect::<Vec<Boolean<ConstraintF>>>();
     let mut random_bits = random_bits_vec.as_slice();
-    println!("Randomness computed");
 
     // Check construction of base prime
     let mut base_prime_bits = vec![];
@@ -161,30 +160,10 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     cert.base_prime.enforce_equals_bits(&base_prime_bits)?;
     random_bits = &random_bits[cert.base_plan.random_bits..];
     assert_eq!(base_prime_bits.len(), 32);
-    println!("Base prime constructed");
-
-    if !cs.is_satisfied().unwrap() {
-        println!("=========================================================");
-        println!("Unsatisfied constraints:");
-        println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-        println!("=========================================================");
-    }
-    assert!(cs.is_satisfied().unwrap());
 
     // Check primality using Miller-Rabin
-    //TODO: SKIPPING FOR DEBUG
-    //miller_rabin_32b(&cert.base_prime, 32)?.enforce_equal(&Boolean::TRUE)?;
-    println!("Base prime checked using Miller-Rabin");
-
-
-    if !cs.is_satisfied().unwrap() {
-        println!("=========================================================");
-        println!("Unsatisfied constraints:");
-        println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-        println!("=========================================================");
-    }
-    assert!(cs.is_satisfied().unwrap());
-
+    miller_rabin_32b(&cert.base_prime, 32)?.enforce_equal(&Boolean::TRUE)?;
+    println!("Base prime checked");
 
     // Check each extension certificate
     let mut prime = cert.base_prime.clone();
@@ -200,15 +179,6 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         println!("Round {}: Extension term constructed", i);
         println!("Round {}: extension_term: {}", i, extension_term.value()?);
 
-        if !cs.is_satisfied().unwrap() {
-            println!("=========================================================");
-            println!("Unsatisfied constraints:");
-            println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-            println!("=========================================================");
-        }
-        assert!(cs.is_satisfied().unwrap());
-
-
         // Compute helper values for pocklington's criterion
         let one = BigNatVar::constant(&BigNat::from(1))?;
         let n_less_one = extension_term.mult(&prime)?;
@@ -221,15 +191,6 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         let part_less_one = part.sub(&one)?;
         println!("Round {}: n: {}", i, n.value()?);
         println!("Round {}: part: {}", i, part.value()?);
-        println!("Round {}: part_less_one: {}", i, part_less_one.value()?);
-
-        if !cs.is_satisfied().unwrap() {
-            println!("=========================================================");
-            println!("Unsatisfied constraints:");
-            println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-            println!("=========================================================");
-        }
-        assert!(cs.is_satisfied().unwrap());
 
         // Check coprimality
         part_less_one.enforce_coprime(&n)?;
@@ -240,34 +201,13 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         )?;
         println!("Round {}: power: {}", i, power.value()?);
 
-        if !cs.is_satisfied().unwrap() {
-            println!("=========================================================");
-            println!("Unsatisfied constraints:");
-            println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-            println!("=========================================================");
-        }
-        assert!(cs.is_satisfied().unwrap());
-
-
         // Check Fermat's little theorem
         power.enforce_equal_when_carried(&one)?;
         println!("Round {}: Extension criterion checked", i);
 
-        if !cs.is_satisfied().unwrap() {
-            println!("=========================================================");
-            println!("Unsatisfied constraints:");
-            println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-            println!("=========================================================");
-        }
-        assert!(cs.is_satisfied().unwrap());
-
-        println!("prime bits: {}", prime_bits);
         prime = n;
         prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
-        println!("new prime bits: {}", prime_bits);
     }
-    println!("Final: prime: {}", prime.value()?);
-    println!("Final: result: {}", cert.result.value()?);
     prime.enforce_equal_when_carried(&cert.result)
 }
 
