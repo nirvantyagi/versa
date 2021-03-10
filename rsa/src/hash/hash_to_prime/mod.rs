@@ -159,7 +159,7 @@ pub fn attempt_pocklington_base<H: Hasher>(
     plan: &PocklingtonPlan,
     random_bits: &BigNat,
 ) -> Result<PocklingtonCertificate<H>, Error> {
-    assert!(random_bits.significant_bits() < plan.base_random_bits as u32);
+    assert!(random_bits.significant_bits() <= plan.base_random_bits as u32);
     for nonce in 0..(1u64 << plan.base_nonce_bits) {
         if (nonce & 0b11) == 0b11 {
             let mut base = BigNat::from(1) << (plan.base_nonce_bits + plan.base_random_bits) as u32;
@@ -244,7 +244,7 @@ pub fn hash_to_pocklington_prime<H: Hasher>(
     Ok(cert)
 }
 
-//TODO: Swap asserts for returns
+//TODO: Swap asserts for returns (used for testing)
 pub fn check_pocklington_certificate<H: Hasher>(
     inputs: &[H::F],
     entropy: usize,
@@ -388,7 +388,6 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let input = vec![Fq::rand(&mut rng); 12];
         let h = hash_to_pocklington_prime::<H>(&input, 128).unwrap();
-        println!("Length of prime: {}", h.result().significant_bits());
         check_pocklington_certificate(&input, 128, &h).unwrap();
     }
 

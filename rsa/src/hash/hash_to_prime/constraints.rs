@@ -279,6 +279,7 @@ mod tests {
     pub type HG = PoseidonHasherGadget<Fq>;
 
     #[test]
+    #[ignore] // Expensive test, run with ``cargo test valid_prime_hash_trivial_test --release -- --ignored --nocapture``
     fn valid_prime_hash_trivial_test() {
         let mut layer = ConstraintLayer::default();
         layer.mode = r1cs_core::TracingMode::OnlyConstraints;

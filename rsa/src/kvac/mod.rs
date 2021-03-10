@@ -66,8 +66,8 @@ impl<P: RsaKVACParams, H: Hasher, C: BigNatCircuitParams> RsaKVAC<P, H, C> {
             counter_dict_exp: BigNat::from(1),
             epoch: 0,
             epoch_updates: vec![],
-            hash_params: HashRangeParams{
-                n_bits: P::KEY_LEN * P::KEY_LEN.next_power_of_two().trailing_zeros() as usize,
+            hash_params: HashRangeParams{ //TODO: Ensure that this is > value space
+                n_bits: P::KEY_LEN + P::KEY_LEN.next_power_of_two().trailing_zeros() as usize,
                 n_trailing_ones: 2
             },
             _hash: PhantomData,

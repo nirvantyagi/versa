@@ -21,9 +21,9 @@ use std::{
 use num_traits::identities::{Zero, One};
 use digest::Digest;
 
-mod constraints;
-mod hash_to_integer;
-mod hash_to_prime;
+pub mod constraints;
+pub mod hash_to_integer;
+pub mod hash_to_prime;
 
 /// A representation of an integer range to hash to
 #[derive(Clone, PartialEq, Eq, Debug)]
