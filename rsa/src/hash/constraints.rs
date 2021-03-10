@@ -24,6 +24,18 @@ where
         }
         Ok(acc)
     }
+
+    fn hash_to_variable_output(
+        cs: ConstraintSystemRef<ConstraintF>,
+        inputs: &[FpVar<ConstraintF>],
+        output_len: usize,
+    ) -> Result<Vec<FpVar<ConstraintF>>, SynthesisError> {
+        let mut output = vec![Self::hash(cs.clone(), inputs)?];
+        for _ in 1..output_len {
+            output.push(Self::hash(cs.clone(), &[output.last().unwrap().clone()])?);
+        }
+        Ok(output)
+    }
 }
 
 /// Wrapper around Poseidon hash function
@@ -45,6 +57,17 @@ impl<F: PrimeField> HasherGadget<PoseidonHasher<F>, F> for PoseidonHasherGadget<
         let mut sponge = PoseidonSpongeVar::new(cs);
         sponge.absorb(inputs)?;
         Ok(sponge.squeeze(1)?[0].clone())
+    }
+
+    #[tracing::instrument(target = "r1cs", skip(cs, inputs, output_len))]
+    fn hash_to_variable_output(
+        cs: ConstraintSystemRef<F>,
+        inputs: &[FpVar<F>],
+        output_len: usize,
+    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let mut sponge = PoseidonSpongeVar::new(cs);
+        sponge.absorb(inputs)?;
+        sponge.squeeze(output_len)
     }
 }
 

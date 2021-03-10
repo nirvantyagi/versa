@@ -16,7 +16,10 @@ use std::{
     cmp::min,
     fmt::{self, Debug},
     error::Error as ErrorTrait,
+    marker::PhantomData,
 };
+
+pub mod constraints;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PocklingtonPlan {
@@ -44,10 +47,12 @@ pub struct ExtensionCertificate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PocklingtonCertificate {
+pub struct PocklingtonCertificate<H: Hasher> {
+    pub base_plan: PlannedExtension,
     pub base_prime: BigNat,
     pub base_nonce: usize,
     pub extensions: Vec<ExtensionCertificate>,
+    _hash: PhantomData<H>,
 }
 
 impl PlannedExtension {
@@ -141,7 +146,7 @@ impl PocklingtonPlan {
     }
 }
 
-impl PocklingtonCertificate {
+impl<H: Hasher> PocklingtonCertificate<H> {
     pub fn result(&self) -> &BigNat {
         if let Some(l) = self.extensions.last() {
             &l.result
@@ -151,10 +156,10 @@ impl PocklingtonCertificate {
     }
 }
 
-pub fn attempt_pocklington_base(
+pub fn attempt_pocklington_base<H: Hasher>(
     plan: &PocklingtonPlan,
     random_bits: &BigNat,
-) -> Result<PocklingtonCertificate, Error> {
+) -> Result<PocklingtonCertificate<H>, Error> {
     assert!(random_bits.significant_bits() < plan.base_random_bits as u32);
     for nonce in 0..(1u64 << plan.base_nonce_bits) {
         if (nonce & 0b11) == 0b11 {
@@ -163,9 +168,14 @@ pub fn attempt_pocklington_base(
             if miller_rabin_32b(&base) {
                 return Ok(
                     PocklingtonCertificate {
+                        base_plan: PlannedExtension{
+                            nonce_bits: plan.base_nonce_bits,
+                            random_bits: plan.base_random_bits,
+                        },
                         base_prime: base,
                         base_nonce: nonce as usize,
                         extensions: Vec::new(),
+                        _hash: PhantomData,
                     }
                 );
             }
@@ -174,12 +184,12 @@ pub fn attempt_pocklington_base(
     Err(Box::new(HashToPrimeError::NoValidNonce))
 }
 
-pub fn attempt_pocklington_extension(
-    mut p: PocklingtonCertificate,
+pub fn attempt_pocklington_extension<H: Hasher>(
+    mut p: PocklingtonCertificate<H>,
     plan: &PlannedExtension,
     random_bits: &BigNat,
-) -> Result<PocklingtonCertificate, Error> {
-    assert!(random_bits.significant_bits() < plan.random_bits as u32);
+) -> Result<PocklingtonCertificate<H>, Error> {
+    assert!(random_bits.significant_bits() <= plan.random_bits as u32);
     for nonce in 0..(1u64 << plan.nonce_bits) {
         let extension = plan.evaluate(random_bits, nonce); // Sets high bit
         let candidate = BigNat::from(p.result() * &extension) + 1;
@@ -210,7 +220,7 @@ pub fn attempt_pocklington_extension(
 pub fn hash_to_pocklington_prime<H: Hasher>(
     inputs: &[H::F],
     entropy: usize,
-) -> Result<PocklingtonCertificate, Error> {
+) -> Result<PocklingtonCertificate<H>, Error> {
     let plan = PocklingtonPlan::new(entropy);
     assert_eq!(plan.entropy(), entropy);
 

@@ -22,7 +22,7 @@ pub trait BigNatCircuitParams: Clone {
 //TODO: Track word_size in number of bits rather than value
 #[derive(Clone)]
 pub struct BigNatVar<ConstraintF: PrimeField, P: BigNatCircuitParams> {
-    limbs: Vec<FpVar<ConstraintF>>,  // Must be of length P::N_LIMBS
+    pub limbs: Vec<FpVar<ConstraintF>>,  // Must be of length P::N_LIMBS
     value: BigNat,
     word_size: BigNat,
     _params: PhantomData<P>,
@@ -88,10 +88,13 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     #[tracing::instrument(target = "r1cs", skip(self))]
     pub fn reduce(&self) -> Result<Self, SynthesisError> {
         let cs = self.cs();
-        //TODO: What to do for constants? ConstraintSystemRef::None?
-        let reduced = Self::new_witness(cs.clone(),  || Ok(self.value()?))?;
-        self.enforce_equal_when_carried(&reduced)?;
-        Ok(reduced)
+        if cs != ConstraintSystemRef::None {
+            let reduced = Self::new_witness(cs.clone(), || Ok(self.value()?))?;
+            self.enforce_equal_when_carried(&reduced)?;
+            Ok(reduced)
+        } else {
+            Ok(Self::constant(&self.value()?)?)
+        }
     }
 
     #[tracing::instrument(target = "r1cs", skip(self, other))]
@@ -130,9 +133,49 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         Ok(diff)
     }
 
+    //TODO: Will panic if 2 values are multiplied to a product larger than fits in N_LIMBS
+    /// Constrain `result` to be equal to `self * other`.
+    #[tracing::instrument(target = "r1cs", skip(self, other))]
+    pub fn mult(
+        &self,
+        other: &Self,
+    ) -> Result<Self, SynthesisError> {
+        let cs = self.cs().or(other.cs());
+
+        // Reduce values so that multiplication doesn't overflow
+        debug_assert!(2 * (P::LIMB_WIDTH as u32) + log2(P::N_LIMBS) <= <ConstraintF::Params as FpParameters>::CAPACITY);
+        if &self.word_size.significant_bits() + &other.word_size.significant_bits() + log2(P::N_LIMBS) > <ConstraintF::Params as FpParameters>::CAPACITY {
+            return self.reduce()?.mult(&other.reduce()?);
+        }
+
+        // Compute and allocate product
+        let product_value = self.value()? * other.value()?;
+        let product = Self::new_witness(cs.clone(),  || Ok(product_value))?;
+
+        // left (self) * right (other)
+        let mut lr_prod_limbs = vec![<FpVar<ConstraintF>>::zero(); 2*P::N_LIMBS - 1];
+        for i in 0..P::N_LIMBS {
+            for j in 0..P::N_LIMBS {
+                lr_prod_limbs[i + j] = &lr_prod_limbs[i + j] + (&self.limbs[i] * &other.limbs[j]);
+            }
+        }
+        let lr_word_size = BigNat::from(&self.word_size * &other.word_size) * BigNat::from(P::N_LIMBS);
+
+        let mut padded_product_limbs = product.limbs.clone();
+        padded_product_limbs.resize(2 * P::N_LIMBS - 1, FpVar::zero());
+
+        Self::enforce_limbs_equal_when_carried(
+            cs.clone(),
+            &lr_prod_limbs,
+            &padded_product_limbs,
+            &max(lr_word_size, product.word_size.clone()),
+        )?;
+        Ok(product)
+    }
+
 
     /// Constrain `result` to be equal to `(self * other) % modulus`.
-    //TODO: Assumes constant modulus that is decided at circuit setup
+    //TODO: Assumes constant modulus bit length
     //TODO: Allow variable N_LIMBS so as not to need to apply modulus for every mult
     #[tracing::instrument(target = "r1cs", skip(self, other, modulus))]
     pub fn mult_mod(
@@ -150,6 +193,9 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
         // Compute and allocate quotient and remainder
         let (quotient_value, rem_value) = (self.value()? * other.value()?).div_rem(modulus.value()?);
+        if cs == ConstraintSystemRef::None {
+            return Ok(Self::constant(&rem_value.clone())?)
+        }
         let rem = Self::new_witness(cs.clone(),  || Ok(rem_value))?;
         // Since quotient may require more than P::N_LIMBS to allocate, we do not allocate it as a BigNatVar
         let quotient_value_limbs = fit_nat_to_limbs(&quotient_value, P::LIMB_WIDTH).unwrap();
@@ -389,7 +435,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
     /// Constrains `self` assumed to be in normal form to be of certain bit length and returns bit vector
     #[tracing::instrument(target = "r1cs", skip(self, n_bits))]
-    fn enforce_fits_in_bits(
+    pub fn enforce_fits_in_bits(
         &self,
         n_bits: usize,
     ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
@@ -471,16 +517,50 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     ) -> Result<(), SynthesisError> {
         let cs = limb.cs();
         if cs != ConstraintSystemRef::None {
-            let mut bit_sum = FpVar::<ConstraintF>::zero();
-            let mut coeff = ConstraintF::one();
-            for bit in bits.iter() {
-                bit_sum +=
-                    <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
-                coeff.double_in_place();
-            }
-            bit_sum.enforce_equal(limb)?;
+            limb.enforce_equal(&Self::limb_from_bits(bits)?)?;
         }
         Ok(())
+    }
+
+    /// Constrains `self` assumed to be in normal form to be equal to bit vector `bits`
+    #[tracing::instrument(target = "r1cs", skip(bits))]
+    pub fn nat_from_bits(
+        bits: &[Boolean<ConstraintF>],
+    ) -> Result<Self, SynthesisError> {
+        let mut limbs = vec![];
+        let num_nonzero_limbs = bits.len() / P::LIMB_WIDTH;
+        for i in 0..num_nonzero_limbs {
+            limbs.push(Self::limb_from_bits(&bits[i * P::LIMB_WIDTH..(i + 1) * P::LIMB_WIDTH])?);
+        }
+        limbs.push(Self::limb_from_bits(&bits[num_nonzero_limbs*P::LIMB_WIDTH..])?);
+        limbs.resize(P::N_LIMBS, FpVar::<ConstraintF>::zero());
+        let value = limbs_to_nat(
+            &limbs.iter().map(|f| f.value())
+                .collect::<Result<Vec<ConstraintF>, SynthesisError>>()?,
+            P::LIMB_WIDTH,
+        );
+        Ok(BigNatVar{
+            limbs,
+            value,
+            word_size: (BigNat::from(1) << P::LIMB_WIDTH as u32) - 1,
+            _params: PhantomData,
+        })
+    }
+
+
+    /// Constrains that `limb` equals LE bit representation `bits`.
+    #[tracing::instrument(target = "r1cs", skip(bits))]
+    pub fn limb_from_bits(
+        bits: &[Boolean<ConstraintF>],
+    ) -> Result<FpVar<ConstraintF>, SynthesisError> {
+        let mut bit_sum = FpVar::<ConstraintF>::zero();
+        let mut coeff = ConstraintF::one();
+        for bit in bits.iter() {
+            bit_sum +=
+                <FpVar<ConstraintF> as From<Boolean<ConstraintF>>>::from((*bit).clone()) * coeff;
+            coeff.double_in_place();
+        }
+        Ok(bit_sum)
     }
 
     pub fn min(
@@ -498,7 +578,27 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         Ok(lesser)
     }
 
+    //TODO: `other` used as modulus meaning must be of constant bit length
+    pub fn enforce_coprime(
+        &self,
+        other: &Self,
+    ) -> Result<(), SynthesisError> {
+        let cs = self.cs().or(other.cs());
+        // Compute Bezout coefficient, s: s * self + t * other = 1
+        // Add `other` in the case that s is negative
+        let bezout_s = BigNatVar::new_witness(
+            cs.clone(),
+            || {
+                let v = other.value()?;
+                Ok((self.value()?.gcd_cofactors(v.clone(), BigNat::new()).1 + v.clone()) % v.clone())
+            },
+        )?;
 
+        // Check gcd = 1
+        BigNatVar::<ConstraintF, P>::constant(&BigNat::from(1))?.limbs.enforce_equal(
+            &self.mult_mod(&bezout_s, other)?.limbs
+        )
+    }
 }
 
 impl<ConstraintF: PrimeField, P: BigNatCircuitParams> CondSelectGadget<ConstraintF> for BigNatVar<ConstraintF, P> {

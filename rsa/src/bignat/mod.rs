@@ -17,6 +17,7 @@ pub type BigNat = Integer;
 
 
 
+//TODO: Replace with BigNat::gcd_cofactors
 pub fn extended_euclidean_gcd(a: &BigNat, b: &BigNat) -> ((BigNat, BigNat), BigNat) {
     let mut prev_r = a.clone();
     let mut r = b.clone();
