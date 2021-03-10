@@ -267,6 +267,7 @@ pub fn check_pocklington_certificate<H: Hasher>(
     assert_eq!(cert.base_plan.nonce_bits + cert.base_plan.random_bits, 31);
     assert_eq!(cert.base_prime.clone(), base.clone());
     assert!(miller_rabin_32b(&base));
+    println!("Base prime: {}", base.clone());
 
     // Check each extension
     let mut prime = cert.base_prime.clone();

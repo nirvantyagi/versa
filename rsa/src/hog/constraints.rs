@@ -18,7 +18,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct RsaHogVar<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParams> {
-    n: BigNatVar<ConstraintF, CircuitP>,
+    pub n: BigNatVar<ConstraintF, CircuitP>,
     _rsa_params: PhantomData<RsaP>,
 }
 
@@ -172,7 +172,11 @@ mod tests {
 
     impl RsaGroupParams for TestRsa512Params {
         const RAW_G: usize = 2;
-        const RAW_M: &'static str = "11834783464130424096695514462778870280264989938857328737807205623069291535525952722847913694296392927890261736769191982212777933726583565708193466779811767";
+        const RAW_M: &'static str = "11834783464130424096695514462778\
+                                     87028026498993885732873780720562\
+                                     30692915355259527228479136942963\
+                                     92927890261736769191982212777933\
+                                     726583565708193466779811767";
     }
 
 

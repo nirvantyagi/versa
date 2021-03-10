@@ -146,8 +146,14 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         n_hashes,
     )?;
     let random_bits_vec = random_hash.iter()
-        .map(|f| BigNatVar::<ConstraintF, P>::enforce_limb_fits_in_bits(f, bits_per_hash))
-        .flatten()
+        .map(|f| f.to_bits_le())
+        .collect::<Result<Vec<Vec<Boolean<ConstraintF>>>, SynthesisError>>()?
+        .iter()
+        .cloned()
+        .map(|mut bits| {
+            bits.resize(bits_per_hash, Boolean::FALSE);
+            bits
+        })
         .flatten()
         .collect::<Vec<Boolean<ConstraintF>>>();
     let mut random_bits = random_bits_vec.as_slice();
@@ -164,6 +170,7 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     // Check primality using Miller-Rabin
     miller_rabin_32b(&cert.base_prime, 32)?.enforce_equal(&Boolean::TRUE)?;
     println!("Base prime checked");
+    println!("Base prime: {}", cert.base_prime.value()?);
 
     // Check each extension certificate
     let mut prime = cert.base_prime.clone();
@@ -304,6 +311,14 @@ mod tests {
                 128,
                 &hvar,
             ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
             assert!(cs.is_satisfied().unwrap());
         })
     }

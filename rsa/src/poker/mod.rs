@@ -1,5 +1,5 @@
 use crate::{
-    bignat::{BigNat, fit_nat_to_limbs, constraints::BigNatCircuitParams},
+    bignat::{BigNat, nat_to_limbs, constraints::BigNatCircuitParams},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
     hash::{
         Hasher,
@@ -12,9 +12,11 @@ use std::{
     marker::PhantomData,
     fmt::Debug,
 };
+use crate::hash::hash_to_prime::check_pocklington_certificate;
+
+pub mod constraints;
 
 pub type Hog<P> = RsaHiddenOrderGroup<P>;
-
 
 // R = { (a, b \in Z); (u1, u2, w1, w2 \in g) : w1 = (u1^a)(u2^b) AND w2 = u2^a }
 
@@ -66,12 +68,12 @@ impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> Po
 
         // Hash to challenge
         let mut hash_input = vec![];
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u1.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u2.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w1.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w2.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_a.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_b.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.u1.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.u2.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.w1.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.w2.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&z_a.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&z_b.n, C::LIMB_WIDTH, C::N_LIMBS)?);
         let cert = hash_to_pocklington_prime::<H>(
             &hash_input,
             P::HASH_TO_PRIME_ENTROPY,
@@ -103,18 +105,19 @@ impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> Po
 
         // Hash to challenge
         let mut hash_input = vec![];
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u1.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.u2.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w1.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&x.w2.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_a.n, C::LIMB_WIDTH)?);
-        hash_input.append(&mut fit_nat_to_limbs::<H::F>(&z_b.n, C::LIMB_WIDTH)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.u1.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.u2.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.w1.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&x.w2.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&z_a.n, C::LIMB_WIDTH, C::N_LIMBS)?);
+        hash_input.append(&mut nat_to_limbs::<H::F>(&z_b.n, C::LIMB_WIDTH, C::N_LIMBS)?);
         // Outside of circuit faster to recompute rather than check certificate
         let cert = hash_to_pocklington_prime::<H>(
             &hash_input,
             P::HASH_TO_PRIME_ENTROPY,
         )?;
         let l = cert.result().clone();
+        //check_pocklington_certificate::<H>(&hash_input, P::HASH_TO_PRIME_ENTROPY, &cert)?;
 
         // Verify proof
         Ok(l == proof.l &&
@@ -132,7 +135,10 @@ impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> Po
 mod tests {
     use super::*;
     use algebra::ed_on_bls12_381::{Fq};
-    use crate::hash::{HasherFromDigest, PoseidonHasher, hash_to_integer::hash_to_integer};
+    use crate::{
+        hash::{HasherFromDigest, PoseidonHasher, hash_to_integer::hash_to_integer},
+        bignat::fit_nat_to_limbs,
+    };
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsaParams;
@@ -149,6 +155,7 @@ mod tests {
                           6373289912154831438167899885040445364023527381951378636564391212010397122822\
                           120720357";
     }
+
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestPokerParams;
@@ -168,6 +175,54 @@ mod tests {
     pub type Hog = RsaHiddenOrderGroup<TestRsaParams>;
     pub type TestWesolowski = PoKER<TestPokerParams, TestRsaParams, H, CircuitParams>;
     pub type TestWesolowski2 = PoKER<TestPokerParams, TestRsaParams, H2, CircuitParams>;
+
+    // Parameters to match up with constraints test (CM = ConstraintMatch)
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa512Params;
+
+    impl RsaGroupParams for TestRsa512Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "11834783464130424096695514462778\
+                                     87028026498993885732873780720562\
+                                     30692915355259527228479136942963\
+                                     92927890261736769191982212777933\
+                                     726583565708193466779811767";
+    }
+
+
+    #[derive(Clone)]
+    pub struct BigNatCM;
+
+    impl BigNatCircuitParams for BigNatCM {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 16;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct PokerParamsCM;
+    impl PoKERParams for PokerParamsCM {
+        const HASH_TO_PRIME_ENTROPY: usize = 64;
+    }
+
+    pub type HogCM = RsaHiddenOrderGroup<TestRsa512Params>;
+    pub type PokerCM = PoKER<PokerParamsCM, TestRsa512Params, H2, BigNatCM>;
+
+    #[test]
+    fn valid_proof_of_exponentiation_match_constraint_test() {
+        let u1 = HogCM::from_nat(BigNat::from(20));
+        let u2 = HogCM::from_nat(BigNat::from(30));
+        let a = BigNat::from(40);
+        let b = BigNat::from(50);
+        let w1 = u1.power(&a).op(&u2.power(&b));
+        let w2 = u2.power(&a);
+        let x = Statement{u1, u2, w1, w2};
+        let w = Witness{a, b};
+
+        let proof = PokerCM::prove(&x, &w).unwrap();
+        let is_valid = PokerCM::verify(&x, &proof).unwrap();
+        assert!(is_valid);
+    }
+
 
     #[test]
     fn valid_proof_of_exponentiation_test() {
