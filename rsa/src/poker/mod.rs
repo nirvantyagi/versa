@@ -12,7 +12,6 @@ use std::{
     marker::PhantomData,
     fmt::Debug,
 };
-use crate::hash::hash_to_prime::check_pocklington_certificate;
 
 pub mod constraints;
 

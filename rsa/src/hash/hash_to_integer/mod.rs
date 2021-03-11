@@ -1,7 +1,7 @@
 use algebra::{PrimeField, FpParameters};
 use crate::{
     bignat::{BigNat, f_to_nat},
-    hash::{Hasher, low_k_bits},
+    hash::{Hasher},
 };
 use std::ops::AddAssign;
 use num_traits::identities::{One};
@@ -31,3 +31,8 @@ pub fn hash_to_integer<H: Hasher>(inputs: &[H::F], n_bits: usize) -> BigNat {
     acc
 }
 
+
+/// Given an integer, returns the integer with its low `k` bits.
+pub fn low_k_bits(n: &BigNat, k: usize) -> BigNat {
+    n.clone().keep_bits(k as u32)
+}

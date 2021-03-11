@@ -8,7 +8,7 @@ such that `p'` is prime.
 use algebra::{PrimeField, FpParameters};
 use crate::{
     bignat::{BigNat, limbs_to_nat},
-    hash::{Hasher},
+    hash::{Hasher, hash_to_integer::hash_to_integer},
     Error,
 };
 
@@ -17,7 +17,10 @@ use std::{
     fmt::{self, Debug},
     error::Error as ErrorTrait,
     marker::PhantomData,
+    ops::AddAssign,
 };
+
+use num_traits::identities::{Zero, One};
 
 pub mod constraints;
 
@@ -349,6 +352,29 @@ pub fn miller_rabin_32b(n: &BigNat) -> bool {
         && miller_rabin_round(n, &BigNat::from(7usize))
         && miller_rabin_round(n, &BigNat::from(61usize))
 }
+
+
+/// Returns `(result, nonce)` for first nonce that passes Miller-Rabin primality check
+pub fn hash_to_prime<H: Hasher>(
+    inputs: &[H::F],
+    n_bits: usize,
+) -> Result<(BigNat, H::F), Error> {
+    let n_rounds = -128f64 * 2f64.ln() / (1f64 - 2f64 / n_bits as f64).ln();
+    let nonce_bits = (n_rounds.log2().ceil() + 0.1) as usize;
+    let mut inputs: Vec<H::F> = inputs.iter().copied().collect();
+    inputs.push(H::F::zero());
+    for _ in 0..(1 << nonce_bits) {
+        let hash = hash_to_integer::<H>(&inputs, n_bits);
+        if miller_rabin(&hash, 30) {
+            // unwrap is safe because of the push above
+            return Ok((hash, inputs.pop().unwrap()));
+        }
+        // unwrap is safe because of the push above
+        inputs.last_mut().unwrap().add_assign(&H::F::one());
+    }
+    Err(Box::new(HashToPrimeError::NoValidNonce))
+}
+
 
 
 #[derive(Debug)]

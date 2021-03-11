@@ -145,7 +145,7 @@ mod tests {
     use r1cs_core::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
     use crate::{
-        hash::{HashRangeParams, HasherFromDigest, hash_to_integer},
+        hash::{HasherFromDigest, hash_to_integer::hash_to_integer},
         bignat::BigNat,
     };
 
@@ -348,9 +348,8 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
-            let hash_params = HashRangeParams{ n_bits: 256, n_trailing_ones: 0 };
             let a = Hog::from_nat(BigNat::from(30)).inverse().unwrap();
-            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], 256);
             let result = a.power(&exp1);
             let a_var = HogVar::new_witness(
                 r1cs_core::ns!(cs, "a"),
@@ -389,9 +388,8 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
-            let hash_params = HashRangeParams{ n_bits: 16, n_trailing_ones: 0 };
             let a = Hog512::from_nat(BigNat::from(30)).inverse().unwrap();
-            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], 16);
             let result = a.power(&exp1);
             let a_var = HogVar512::new_witness(
                 r1cs_core::ns!(cs, "a"),
@@ -430,11 +428,10 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
-            let hash_params = HashRangeParams{ n_bits: 16, n_trailing_ones: 0 };
             let a = Hog512::from_nat(BigNat::from(30)).inverse().unwrap();
-            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], &hash_params);
-            let exp2 = hash_to_integer::<H>(&[Fq::from(2u8)], &hash_params);
-            let exp3 = hash_to_integer::<H>(&[Fq::from(3u8)], &hash_params);
+            let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], 16);
+            let exp2 = hash_to_integer::<H>(&[Fq::from(2u8)], 16);
+            let exp3 = hash_to_integer::<H>(&[Fq::from(3u8)], 16);
             let result = a.power(&exp1).power(&exp2).power(&exp3);
             let a_var = HogVar512All::new_witness(
                 r1cs_core::ns!(cs, "a"),
