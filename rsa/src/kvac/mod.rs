@@ -161,25 +161,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
         // Update commitment
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
-        let (c1, c2) = self.commitment.clone();
-        let c1_new = c1.power(&z).op(&c2.power_integer(&v_delta)?);
-        let c2_new = c2.power(&z);
-        self.commitment = (c1_new, c2_new);
-        self.counter_dict_exp *= z.clone(); //TODO: Defer this expensive computation
-        self.epoch += 1;
-
-        // Prove update append-only
-        let statement = PoKERStatement {
-            u1: Hog::<P>::clone(&c1),
-            u2: Hog::<P>::clone(&c2),
-            w1: self.commitment.0.clone(),
-            w2: self.commitment.1.clone(),
-        };
-        let witness = PoKERWitness {
-            a: z.clone(),
-            b: v_delta.clone(),
-        };
-        let update_proof = PoKER::<PoKParams<P>, RsaParams<P>, CircuitH, C>::prove(&statement, &witness)?;
+        let update_proof = self._update_commitment(&z, &v_delta)?;
         self.epoch_updates.push(vec![(k.clone(), v_delta.clone())]);
 
         Ok((self.commitment.clone(), update_proof))
@@ -203,25 +185,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         }
 
         // Update commitment
-        let (c1, c2) = self.commitment.clone();
-        let c1_new = c1.power(&z_product).op(&c2.power_integer(&delta_sum)?);
-        let c2_new = c2.power(&z_product);
-        self.commitment = (c1_new, c2_new);
-        self.counter_dict_exp *= z_product.clone(); //TODO: Defer this expensive computation
-        self.epoch += 1;
-
-        // Prove update append-only
-        let statement = PoKERStatement {
-            u1: Hog::<P>::clone(&c1),
-            u2: Hog::<P>::clone(&c2),
-            w1: self.commitment.0.clone(),
-            w2: self.commitment.1.clone(),
-        };
-        let witness = PoKERWitness {
-            a: z_product.clone(),
-            b: delta_sum.clone(),
-        };
-        let update_proof = PoKER::<PoKParams<P>, RsaParams<P>, CircuitH, C>::prove(&statement, &witness)?;
+        let update_proof = self._update_commitment(&z_product, &delta_sum)?;
         self.epoch_updates.push(kvs.iter().zip(&delta_vals).map(|((k, _v), d)| (k.clone(), d.clone())).collect());
 
         Ok((self.commitment.clone(), update_proof))
@@ -243,7 +207,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
 
 
-    pub fn _update_value(&mut self, k: BigNat, v: BigNat) -> Result<BigNat, Error> {
+    fn _update_value(&mut self, k: BigNat, v: BigNat) -> Result<BigNat, Error> {
         if v.significant_bits() > P::VALUE_LEN as u32 || v < 0 {
             return Err(Box::new(RsaKVACError::InvalidValue(v)))
         }
@@ -269,6 +233,28 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             // Set u=0 and last_epoch_updated=self.epoch so that future witness update catches other updates in this epoch batch
             Ok(v)
         }
+    }
+
+    fn _update_commitment(&mut self, z: &BigNat, delta: &BigNat) -> Result<UpdateProof<P, CircuitH>, Error> {
+        let (c1, c2) = self.commitment.clone();
+        let c1_new = c1.power(z).op(&c2.power_integer(delta)?);
+        let c2_new = c2.power(z);
+        self.commitment = (c1_new, c2_new);
+        self.counter_dict_exp *= z.clone(); //TODO: Defer this expensive computation
+        self.epoch += 1;
+
+        // Prove update append-only
+        let statement = PoKERStatement {
+            u1: Hog::<P>::clone(&c1),
+            u2: Hog::<P>::clone(&c2),
+            w1: self.commitment.0.clone(),
+            w2: self.commitment.1.clone(),
+        };
+        let witness = PoKERWitness {
+            a: z.clone(),
+            b: delta.clone(),
+        };
+        PoKER::<PoKParams<P>, RsaParams<P>, CircuitH, C>::prove(&statement, &witness)
     }
 
 
