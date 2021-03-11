@@ -61,6 +61,7 @@ pub struct RsaKVAC<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircu
     pub map: HashMap<BigNat, (BigNat, WitnessWrapper<P>, usize)>, // key -> (value, witness, last_epoch_witness_updated)
     pub commitment: Commitment<P>,
     pub counter_dict_exp: BigNat,
+    pub deferred_counter_dict_exp_updates: Vec<BigNat>,
     pub epoch: usize,
     pub epoch_updates: Vec<Vec<(BigNat, BigNat)>>,
     _hash: PhantomData<H>,
@@ -77,12 +78,21 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                 Hog::<P>::generator(),
             ),
             counter_dict_exp: BigNat::from(1),
+            deferred_counter_dict_exp_updates: vec![],
             epoch: 0,
             epoch_updates: vec![],
             _hash: PhantomData,
             _circuit_hash: PhantomData,
             _circuit_params: PhantomData,
         }
+    }
+
+    pub fn get_counter_dict_exp(&mut self) -> &BigNat {
+        let mut deferred_updates = vec![];
+        deferred_updates.append(&mut self.deferred_counter_dict_exp_updates);
+        assert_eq!(self.deferred_counter_dict_exp_updates, Vec::<BigNat>::new());
+        self.counter_dict_exp = deferred_updates.into_iter().fold(self.counter_dict_exp.clone(), |exp, z| exp * z);
+        &self.counter_dict_exp
     }
 
     pub fn lookup(&mut self, k: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error> {
@@ -101,7 +111,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
                         let z_u = z.clone().pow(updated_incomplete_witness.u as u32);
                         let ((a, b), gcd) = extended_euclidean_gcd(
-                            &BigNat::from(self.counter_dict_exp.div_exact_ref(&z_u)),
+                            &BigNat::from(self.get_counter_dict_exp().div_exact_ref(&z_u)),
                             &z,
                         );
                         assert_eq!(gcd, 1);
@@ -115,7 +125,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             },
             None => {
                 let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
-                let ((a, b), gcd) = extended_euclidean_gcd(&self.counter_dict_exp, &z);
+                let ((a, b), gcd) = extended_euclidean_gcd(&self.get_counter_dict_exp(), &z);
                 assert_eq!(gcd, 1);
                 Ok((
                        None,
@@ -240,7 +250,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         let c1_new = c1.power(z).op(&c2.power_integer(delta)?);
         let c2_new = c2.power(z);
         self.commitment = (c1_new, c2_new);
-        self.counter_dict_exp *= z.clone(); //TODO: Defer this expensive computation
+        self.deferred_counter_dict_exp_updates.push(z.clone());
         self.epoch += 1;
 
         // Prove update append-only
