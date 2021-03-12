@@ -55,6 +55,33 @@ for RsaHogVar<ConstraintF, RsaP, CircuitP> {
     }
 }
 
+impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParams> CondSelectGadget<ConstraintF>
+for RsaHogVar<ConstraintF, RsaP, CircuitP> {
+    fn conditionally_select(cond: &Boolean<ConstraintF>, true_value: &Self, false_value: &Self) -> Result<Self, SynthesisError> {
+        Ok(RsaHogVar {
+            n: BigNatVar::conditionally_select(cond, &true_value.n, &false_value.n)?,
+            _rsa_params: PhantomData,
+        })
+    }
+}
+
+impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParams> EqGadget<ConstraintF>
+for RsaHogVar<ConstraintF, RsaP, CircuitP> {
+    fn is_eq(&self, other: &Self) -> Result<Boolean<ConstraintF>, SynthesisError> {
+        self.n.is_eq(&other.n)
+    }
+
+    fn conditional_enforce_equal(&self, other: &Self, should_enforce: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
+        self.n.conditional_enforce_equal(&other.n, should_enforce)
+    }
+}
+
+impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParams> ToBytesGadget<ConstraintF>
+for RsaHogVar<ConstraintF, RsaP, CircuitP> {
+    fn to_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
+        self.n.to_bytes()
+    }
+}
 
 impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParams> RsaHogVar<ConstraintF, RsaP, CircuitP> {
 

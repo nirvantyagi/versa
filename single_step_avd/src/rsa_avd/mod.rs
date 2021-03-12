@@ -17,6 +17,8 @@ use std::{
     convert::TryInto,
 };
 
+pub mod constraints;
+
 pub struct RsaAVD<P, H, CircuitH, C>
     where
         P: RsaKVACParams,

@@ -8,13 +8,12 @@ use zexe_cp::crh::FixedLengthCRHGadget;
 
 use crate::{
     constraints::SingleStepAVDGadget,
-    merkle_tree_avd::{MerkleTreeAVDParameters, UpdateProof},
+    merkle_tree_avd::{MerkleTreeAVD, MerkleTreeAVDParameters, UpdateProof},
 };
 use crypto_primitives::sparse_merkle_tree::{
     constraints::MerkleTreePathVar, MerkleTreeParameters,
 };
 
-use crate::merkle_tree_avd::MerkleTreeAVD;
 use std::{borrow::Borrow, marker::PhantomData, convert::{TryFrom}};
 
 pub struct UpdateProofVar<P, HGadget, ConstraintF>

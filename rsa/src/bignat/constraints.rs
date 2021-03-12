@@ -616,6 +616,26 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> CondSelectGadget<Constrain
     }
 }
 
+impl<ConstraintF: PrimeField, P: BigNatCircuitParams> EqGadget<ConstraintF> for BigNatVar<ConstraintF, P> {
+    fn is_eq(&self, other: &Self) -> Result<Boolean<ConstraintF>, SynthesisError> {
+        self.limbs.is_eq(&other.limbs)
+    }
+
+    fn conditional_enforce_equal(&self, other: &Self, should_enforce: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
+        self.limbs.conditional_enforce_equal(&other.limbs, should_enforce)
+    }
+}
+
+impl<ConstraintF: PrimeField, P: BigNatCircuitParams> ToBytesGadget<ConstraintF> for BigNatVar<ConstraintF, P> {
+    fn to_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
+        let mut bits = self.enforce_fits_in_bits(P::LIMB_WIDTH * P::N_LIMBS)?;
+        bits.resize((((bits.len() - 1) / 8) + 1) * 8, Boolean::FALSE);
+        Ok(bits.chunks(8)
+            .map(|byte| UInt8::from_bits_le(byte))
+            .collect::<Vec<UInt8<ConstraintF>>>())
+    }
+}
+
 // Helper methods
 pub fn log2(x: usize) -> u32 {
     if x == 0 {

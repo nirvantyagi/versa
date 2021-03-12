@@ -186,7 +186,7 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         println!("Round {}: Extension term constructed", i);
         println!("Round {}: extension_term: {}", i, extension_term.value()?);
 
-        // Compute helper values for pocklington's criterion
+        // Compute helper values for Pocklington's criterion
         let one = BigNatVar::constant(&BigNat::from(1))?;
         let n_less_one = extension_term.mult(&prime)?;
         let n = n_less_one.add(&one)?;

@@ -52,7 +52,8 @@ impl<P: RsaGroupParams> Hash for RsaHiddenOrderGroup<P> {
 
 impl<P: RsaGroupParams> ToBytes for RsaHiddenOrderGroup<P> {
     fn write<W: Write>(&self, mut writer: W) -> IoResult<()> {
-        let digits = self.n.to_digits::<u64>(Order::LsfLe);
+        //TODO: Must match ToBytesGadget in BigNatVar
+        let digits = self.n.to_digits::<u64>(Order::MsfBe);
         digits.write(&mut writer)
     }
 }
