@@ -401,7 +401,7 @@ mod tests {
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c1.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c1, &witness).unwrap();
         assert!(b);
 
         let k2 = BigNat::from(200);
@@ -414,18 +414,18 @@ mod tests {
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c3, &witness).unwrap();
         assert!(b);
 
         let (v, witness) = kvac.lookup(&k2).unwrap();
         assert_eq!(v.clone().unwrap(), v2);
-        let b = Kvac::verify_witness(&k2, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k2, &v, &c3, &witness).unwrap();
         assert!(b);
 
         let k4 = BigNat::from(400);
         let (v, witness) = kvac.lookup(&k4).unwrap();
         assert!(v.is_none());
-        let b = Kvac::verify_witness(&k4, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k4, &v, &c3, &witness).unwrap();
         assert!(b);
     }
 
@@ -441,7 +441,7 @@ mod tests {
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c1.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c1, &witness).unwrap();
         assert!(b);
         let b = Kvac::verify_update_append_only(&c0, &c1, &update1).unwrap();
         assert!(b);
@@ -461,7 +461,7 @@ mod tests {
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_new);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c3, &witness).unwrap();
         assert!(b);
         let b = Kvac::verify_update_append_only(&c2, &c3, &update3).unwrap();
         assert!(b);
@@ -472,7 +472,7 @@ mod tests {
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_neg);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c4.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c4, &witness).unwrap();
         assert!(b);
         let b = Kvac::verify_update_append_only(&c3, &c4, &update4).unwrap();
         assert!(b);
@@ -514,7 +514,7 @@ mod tests {
         assert!(b);
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1_4);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c5.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c5, &witness).unwrap();
         assert!(b);
     }
 
@@ -539,7 +539,7 @@ mod tests {
         // Lookup k3
         let (v, witness) = kvac.lookup(&k3).unwrap();
         assert_eq!(v.clone().unwrap(), kvs1[2].1);
-        let b = Kvac::verify_witness(&k3, v.as_ref(), c1.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k3, &v, &c1, &witness).unwrap();
         assert!(b);
 
         // Update (k1, k2, k3)
@@ -554,12 +554,12 @@ mod tests {
         // Lookup k3
         let (v, witness) = kvac.lookup(&k3).unwrap();
         assert_eq!(v.clone().unwrap(), kvs2[2].1);
-        let b = Kvac::verify_witness(&k3, v.as_ref(), c2.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k3, &v, &c2, &witness).unwrap();
         assert!(b);
         // Lookup k1
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), kvs2[0].1);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c2.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c2, &witness).unwrap();
         assert!(b);
 
         // Update (k1, k2) (repeat k1)
@@ -574,12 +574,12 @@ mod tests {
         // Lookup k2
         let (v, witness) = kvac.lookup(&k2).unwrap();
         assert_eq!(v.clone().unwrap(), kvs3[1].1);
-        let b = Kvac::verify_witness(&k2, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k2, &v, &c3, &witness).unwrap();
         assert!(b);
         // Lookup k1
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), kvs3[2].1);
-        let b = Kvac::verify_witness(&k1, v.as_ref(), c3.clone(), witness).unwrap();
+        let b = Kvac::verify_witness(&k1, &v, &c3, &witness).unwrap();
         assert!(b);
     }
 
