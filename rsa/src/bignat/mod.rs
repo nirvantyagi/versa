@@ -1,4 +1,4 @@
-use rug::{Integer, integer::Order};
+use rug::{Integer, integer::Order as BitOrder};
 use algebra::{
     fields::{PrimeField, FpParameters},
     biginteger::BigInteger,
@@ -14,6 +14,7 @@ use crate::Error;
 
 pub mod constraints;
 pub type BigNat = Integer;
+pub type Order = BitOrder;
 
 
 

@@ -4,6 +4,7 @@ use std::{error::Error as ErrorTrait, hash::Hash};
 
 pub mod constraints;
 pub mod merkle_tree_avd;
+pub mod rsa_avd;
 
 pub type Error = Box<dyn ErrorTrait>;
 
@@ -20,7 +21,7 @@ pub trait SingleStepAVD: Sized {
     fn digest(&self) -> Result<Self::Digest, Error>;
 
     fn lookup(
-        &self,
+        &mut self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 

@@ -1,14 +1,17 @@
+use algebra::bytes::ToBytes;
 use crate::bignat::{
-    BigNat,
+    BigNat, Order,
     extended_euclidean_gcd,
 };
 
 use std::{
+    hash::{Hash, Hasher as StdHasher},
     error::Error as ErrorTrait,
     marker::PhantomData,
     cmp::min,
     str::FromStr,
     fmt::{self, Debug},
+    io::{Result as IoResult, Write},
 };
 
 use crate::Error;
@@ -40,6 +43,20 @@ impl<P: RsaGroupParams> Default for RsaHiddenOrderGroup<P> {
         Self::from_nat(BigNat::from(2))
     }
 }
+
+impl<P: RsaGroupParams> Hash for RsaHiddenOrderGroup<P> {
+    fn hash<H: StdHasher>(&self, state: &mut H) {
+        self.n.hash(state)
+    }
+}
+
+impl<P: RsaGroupParams> ToBytes for RsaHiddenOrderGroup<P> {
+    fn write<W: Write>(&self, mut writer: W) -> IoResult<()> {
+        let digits = self.n.to_digits::<u64>(Order::LsfLe);
+        digits.write(&mut writer)
+    }
+}
+
 
 impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     pub fn from_nat(n: BigNat) -> Self {

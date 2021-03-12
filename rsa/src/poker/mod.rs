@@ -49,14 +49,14 @@ pub struct Witness {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Proof<P: RsaGroupParams, H: Hasher> {
-    v_a: Hog<P>,
-    v_b: Hog<P>,
-    v_1: Hog<P>,
-    v_2: Hog<P>,
-    r_a: BigNat,
-    r_b: BigNat,
-    l: BigNat,
-    cert: PocklingtonCertificate<H>,
+    pub v_a: Hog<P>,
+    pub v_b: Hog<P>,
+    pub v_1: Hog<P>,
+    pub v_2: Hog<P>,
+    pub r_a: BigNat,
+    pub r_b: BigNat,
+    pub l: BigNat,
+    pub cert: PocklingtonCertificate<H>,
 }
 
 impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> PoKER<P, RsaP, H, C> {

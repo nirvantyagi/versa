@@ -19,3 +19,4 @@ rand = { version = "0.7" }
 sha3 = { version = "0.9" }
 
 crypto_primitives = { path = "../crypto_primitives" }
+rsa = { path = "../rsa" }

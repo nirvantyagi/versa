@@ -44,7 +44,7 @@ pub struct MembershipWitness<P: RsaKVACParams> {
     pi_3: Hog<P>,
     a: BigNat,
     b: Hog<P>,
-    u: usize,
+    pub u: usize,
 }
 
 // Helper wrapper to allow for deferring expensive witness operations
@@ -143,9 +143,9 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     pub fn verify_witness(
         k: &BigNat,
-        v: Option<&BigNat>,
-        c: Commitment<P>,
-        witness: MembershipWitness<P>,
+        v: &Option<BigNat>,
+        c: &Commitment<P>,
+        witness: &MembershipWitness<P>,
     ) -> Result<bool, Error> {
         let (c1, c2) = c;
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
@@ -157,8 +157,8 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
             let z_u1 = z.clone().pow(witness.u as u32 - 1);
             let z_u = BigNat::from(&z_u1 * &z);
-            let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.unwrap() * &z_u1))) == c1;
-            let b_2 = witness.pi_3.power(&z_u) == c2;
+            let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.as_ref().unwrap() * &z_u1))) == c1.clone();
+            let b_2 = witness.pi_3.power(&z_u) == c2.clone();
             let b_3 = witness.pi_3.power_integer(&witness.a)?.op(&witness.b.power(&z)) == Hog::<P>::generator();
             Ok(b_1 && b_2 && b_3)
         }

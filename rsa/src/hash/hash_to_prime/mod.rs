@@ -24,7 +24,7 @@ use num_traits::identities::{Zero, One};
 
 pub mod constraints;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PocklingtonPlan {
     /// Number of nonce bits in the base prime
     pub base_nonce_bits: usize,
@@ -34,7 +34,7 @@ pub struct PocklingtonPlan {
 }
 
 /// Stores one extension: the size of `r` and `n`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PlannedExtension {
     pub nonce_bits: usize,
     pub random_bits: usize,
@@ -154,6 +154,18 @@ impl<H: Hasher> PocklingtonCertificate<H> {
             &l.result
         } else {
             &self.base_prime
+        }
+    }
+}
+
+impl<H: Hasher> Default for PocklingtonCertificate<H> {
+    fn default() -> Self {
+        Self {
+            base_plan: Default::default(),
+            base_prime: Default::default(),
+            base_nonce: Default::default(),
+            extensions: vec![],
+            _hash: PhantomData,
         }
     }
 }

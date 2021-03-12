@@ -107,7 +107,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
     }
 
     fn lookup(
-        &self,
+        &mut self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (probe, lookup_value) = match self.key_d.get(key) {
