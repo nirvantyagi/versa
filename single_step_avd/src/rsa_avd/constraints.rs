@@ -12,7 +12,7 @@ use rsa::{
     kvac::{RsaKVACParams},
     hash::{Hasher, constraints::HasherGadget},
     bignat::{constraints::BigNatCircuitParams},
-    poker::constraints::ProofVar,
+    poker::constraints::{ProofVar, StatementVar, enforce_poker_valid},
 };
 
 use std::{
@@ -168,8 +168,18 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
     type DigestVar = DigestVar<ConstraintF, P, C>;
     type UpdateProofVar = UpdateProofVar<ConstraintF, P, C, CircuitH, CircuitHG>;
 
-    fn check_update_proof(pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar) -> Result<(), SynthesisError> {
-        unimplemented!()
+    fn check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar) -> Result<(), SynthesisError> {
+        let statement = StatementVar {
+            u1: prev_digest.c0.clone(),
+            u2: prev_digest.c1.clone(),
+            w1: new_digest.c0.clone(),
+            w2: new_digest.c1.clone(),
+        };
+        enforce_poker_valid::<_, P::PoKERParams, P::RsaGroupParams, _, _, _>(
+            prev_digest.cs().or(new_digest.cs()),
+            &statement,
+            &proof.proof,
+        )
     }
 
     fn conditional_check_update_proof(pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
@@ -186,3 +196,129 @@ impl<ConstraintF: PrimeField> AllocVar<(), ConstraintF> for EmptyVar {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use algebra::{ed_on_bls12_381::{Fq}};
+    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    use rsa::{
+        poker::{PoKER, PoKERParams},
+        hog::{RsaGroupParams},
+        hash::{
+            HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
+        },
+    };
+    use crate::SingleStepAVD;
+
+    use rand::{SeedableRng, rngs::StdRng};
+
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa512Params;
+
+    impl RsaGroupParams for TestRsa512Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "11834783464130424096695514462778\
+                                     87028026498993885732873780720562\
+                                     30692915355259527228479136942963\
+                                     92927890261736769191982212777933\
+                                     726583565708193466779811767";
+    }
+
+
+    #[derive(Clone)]
+    pub struct BigNatTestParams;
+    impl BigNatCircuitParams for BigNatTestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 16;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestPokerParams;
+    impl PoKERParams for TestPokerParams {
+        const HASH_TO_PRIME_ENTROPY: usize = 64;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestKVACParams;
+    impl RsaKVACParams for TestKVACParams {
+        const KEY_LEN: usize = 256;
+        const VALUE_LEN: usize = 256;
+        const PRIME_LEN: usize = 264;
+        type RsaGroupParams = TestRsa512Params;
+        type PoKERParams = TestPokerParams;
+    }
+
+    pub type H = PoseidonHasher<Fq>;
+    pub type HG = PoseidonHasherGadget<Fq>;
+
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonHasher<Fq>,
+        BigNatTestParams,
+    >;
+
+    pub type TestRsaAVDGadget = RsaAVDGadget<
+        Fq,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonHasher<Fq>,
+        HG,
+        BigNatTestParams,
+    >;
+
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test valid_rsa_avd_update_trivial_test --release -- --ignored --nocapture``
+    fn valid_rsa_avd_update_trivial_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let mut rng = StdRng::seed_from_u64(0_u64);
+            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
+            let digest_0 = avd.digest().unwrap();
+            let (digest_1, proof) = avd.batch_update(&vec![
+                ([1_u8; 32], [2_u8; 32]),
+                ([1_u8; 32], [3_u8; 32]),
+                ([10_u8; 32], [11_u8; 32]),
+            ]).unwrap();
+
+            let cs = ConstraintSystem::<Fq>::new_ref();
+
+            let prev_digest_var = <DigestVar<Fq, TestKVACParams, BigNatTestParams>>::new_witness(
+                cs.clone(),
+                || Ok(&digest_0),
+            ).unwrap();
+            let new_digest_var = <DigestVar<Fq, TestKVACParams, BigNatTestParams>>::new_witness(
+                cs.clone(),
+                || Ok(&digest_1),
+            ).unwrap();
+            let proof_var = <UpdateProofVar<Fq, TestKVACParams, BigNatTestParams, H, HG>>::new_witness(
+                cs.clone(),
+                || Ok(&proof),
+            ).unwrap();
+
+            TestRsaAVDGadget::check_update_proof(
+                &EmptyVar,
+                &prev_digest_var,
+                &new_digest_var,
+                &proof_var,
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+}
