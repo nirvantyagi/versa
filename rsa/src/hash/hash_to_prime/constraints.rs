@@ -123,13 +123,29 @@ impl<ConstraintF, P> AllocVar<ExtensionCertificate, ConstraintF> for ExtensionCe
     }
 }
 
-
 #[tracing::instrument(target = "r1cs", skip(cs, inputs, entropy, cert))]
 pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     cs: ConstraintSystemRef<ConstraintF>,
     inputs: &[FpVar<ConstraintF>],
     entropy: usize,
     cert: &PocklingtonCertificateVar<ConstraintF, P, H, HG>,
+) -> Result<(), SynthesisError>
+    where
+        H: Hasher<F = ConstraintF>,
+        HG: HasherGadget<H, ConstraintF>,
+        ConstraintF: PrimeField,
+        P: BigNatCircuitParams,
+{
+    conditional_check_hash_to_pocklington_prime(cs, inputs, entropy, cert, &Boolean::TRUE)
+}
+
+#[tracing::instrument(target = "r1cs", skip(cs, inputs, entropy, cert, condition))]
+pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
+    cs: ConstraintSystemRef<ConstraintF>,
+    inputs: &[FpVar<ConstraintF>],
+    entropy: usize,
+    cert: &PocklingtonCertificateVar<ConstraintF, P, H, HG>,
+    condition: &Boolean<ConstraintF>,
 ) -> Result<(), SynthesisError>
     where
         H: Hasher<F = ConstraintF>,
@@ -163,12 +179,12 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     base_prime_bits.extend(cert.base_nonce_as_bits.iter().cloned());
     base_prime_bits.extend(random_bits.iter().take(cert.base_plan.random_bits).cloned());
     base_prime_bits.push(Boolean::TRUE);
-    cert.base_prime.enforce_equals_bits(&base_prime_bits)?;
+    cert.base_prime.conditional_enforce_equals_bits(&base_prime_bits, condition)?;
     random_bits = &random_bits[cert.base_plan.random_bits..];
     assert_eq!(base_prime_bits.len(), 32);
 
     // Check primality using Miller-Rabin
-    miller_rabin_32b(&cert.base_prime, 32)?.enforce_equal(&Boolean::TRUE)?;
+    miller_rabin_32b(&cert.base_prime, 32)?.conditional_enforce_equal(&Boolean::TRUE, condition)?;
     println!("Base prime checked");
     println!("Base prime: {}", cert.base_prime.value()?);
 
@@ -200,7 +216,7 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         println!("Round {}: part: {}", i, part.value()?);
 
         // Check coprimality
-        part_less_one.enforce_coprime(&n)?;
+        part_less_one.conditional_enforce_coprime(&n, condition)?;
         let power = part.pow_mod(
             &prime,
             &n,
@@ -209,13 +225,15 @@ pub fn check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         println!("Round {}: power: {}", i, power.value()?);
 
         // Check Fermat's little theorem
-        power.enforce_equal_when_carried(&one)?;
+        //TODO: Exact comparison since power and one are both in normal form
+        power.conditional_enforce_equal(&one, condition)?;
         println!("Round {}: Extension criterion checked", i);
 
         prime = n;
         prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
     }
-    prime.enforce_equal_when_carried(&cert.result)
+    //TODO: conditional
+    prime.conditional_enforce_equal_when_carried(&cert.result, condition)
 }
 
 

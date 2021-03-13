@@ -355,7 +355,23 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     ) -> Result<(), SynthesisError> {
         let cs = self.cs().or(other.cs());
         let current_word_size = max(&self.word_size, &other.word_size);
-        Self::enforce_limbs_equal_when_carried(cs, &self.limbs, &other.limbs, current_word_size)
+        Self::conditional_enforce_limbs_equal_when_carried(
+            cs, &self.limbs, &other.limbs, current_word_size, &Boolean::TRUE,
+        )
+    }
+
+    /// Constrain `self` to be equal to `other`, after carrying both.
+    #[tracing::instrument(target = "r1cs", skip(self, other, condition))]
+    pub fn conditional_enforce_equal_when_carried(
+        &self,
+        other: &Self,
+        condition: &Boolean<ConstraintF>,
+    ) -> Result<(), SynthesisError> {
+        let cs = self.cs().or(other.cs());
+        let current_word_size = max(&self.word_size, &other.word_size);
+        Self::conditional_enforce_limbs_equal_when_carried(
+            cs, &self.limbs, &other.limbs, current_word_size, condition,
+        )
     }
 
     /// Constrain `limbs` to be equal to `other_limbs`, after carrying both.
@@ -366,12 +382,27 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         right_limbs: &Vec<FpVar<ConstraintF>>,
         current_word_size: &BigNat,
     ) -> Result<(), SynthesisError> {
+        Self::conditional_enforce_limbs_equal_when_carried(
+            cs, left_limbs, right_limbs, current_word_size, &Boolean::TRUE,
+        )
+    }
+
+    /// Constrain `limbs` to be equal to `other_limbs`, after carrying both.
+    #[tracing::instrument(target = "r1cs", skip(cs, left_limbs, right_limbs, current_word_size, condition))]
+    fn conditional_enforce_limbs_equal_when_carried(
+        cs: impl Into<Namespace<ConstraintF>>,
+        left_limbs: &Vec<FpVar<ConstraintF>>,
+        right_limbs: &Vec<FpVar<ConstraintF>>,
+        current_word_size: &BigNat,
+        condition: &Boolean<ConstraintF>,
+    ) -> Result<(), SynthesisError> {
         assert_eq!(left_limbs.len(), right_limbs.len());
         let ns = cs.into();
         let cs = ns.cs();
 
         let carry_bits = (((current_word_size.to_f64() * 2.0).log2() - P::LIMB_WIDTH as f64).ceil() + 0.1) as usize;
         let carry_bits2 = (current_word_size.significant_bits() as usize - P::LIMB_WIDTH + 1) as usize;
+        //TODO: Replace carry_bits with carry_bits2
         assert_eq!(carry_bits, carry_bits2);
         //println!("current_word_size: {}, carry_bits: {}", current_word_size.clone(), carry_bits);
 
@@ -418,12 +449,15 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             let eqn_right = &carry * nat_to_f::<ConstraintF>(&grouped_base).unwrap()
                 + remainder_limb;
             //println!("eqn_right: {}, eqn_left: {}, i: {}", f_to_nat(&eqn_right.value().unwrap()), f_to_nat(&eqn_left.value().unwrap()), i);
-            eqn_left.enforce_equal(&eqn_right)?;
+            eqn_left.conditional_enforce_equal(&eqn_right, condition)?;
 
             if i < left_limbs.len() - 1 {
-                Self::enforce_limb_fits_in_bits(&carry, grouped_carry_bits)?;
+                Self::conditional_enforce_limb_fits_in_bits(&carry, grouped_carry_bits, condition)?;
             } else {
-                carry.enforce_equal(&FpVar::<ConstraintF>::Constant(nat_to_f::<ConstraintF>(&accumulated_extra).unwrap()))?;
+                carry.conditional_enforce_equal(
+                    &FpVar::<ConstraintF>::Constant(nat_to_f::<ConstraintF>(&accumulated_extra).unwrap()),
+                    condition,
+                )?;
             }
 
             carry_in = carry.clone();
@@ -457,6 +491,16 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         limb: &FpVar<ConstraintF>,
         n_bits: usize,
     ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
+        Self::conditional_enforce_limb_fits_in_bits(limb, n_bits, &Boolean::TRUE)
+    }
+
+    /// Constrains that `limb` fits in a bit representation of size `n_bits` and returns bit vector
+    #[tracing::instrument(target = "r1cs", skip(limb, n_bits, condition))]
+    pub fn conditional_enforce_limb_fits_in_bits(
+        limb: &FpVar<ConstraintF>,
+        n_bits: usize,
+        condition: &Boolean<ConstraintF>,
+    ) -> Result<Vec<Boolean<ConstraintF>>, SynthesisError> {
         let cs = limb.cs();
 
         let n_bits = min(ConstraintF::size_in_bits() - 1, n_bits);
@@ -478,7 +522,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                     || Ok(b),
                 )?);
             }
-            Self::enforce_limb_equals_bits(limb, &bit_vars)?;
+            Self::conditional_enforce_limb_equals_bits(limb, &bit_vars, condition)?;
         } else {
             for b in bits.iter().rev() {
                 bit_vars.push(Boolean::<ConstraintF>::constant(*b));
@@ -493,19 +537,27 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         &self,
         bits: &[Boolean<ConstraintF>],
     ) -> Result<(), SynthesisError> {
+        self.conditional_enforce_equals_bits(bits, &Boolean::TRUE)
+    }
+
+    #[tracing::instrument(target = "r1cs", skip(self, bits, condition))]
+    pub fn conditional_enforce_equals_bits(
+        &self,
+        bits: &[Boolean<ConstraintF>],
+        condition: &Boolean<ConstraintF>,
+    ) -> Result<(), SynthesisError> {
         let num_nonzero_limbs = bits.len() / P::LIMB_WIDTH;
         for (i, limb) in self.limbs.iter().enumerate() {
             if i < num_nonzero_limbs {
-                Self::enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..(i+1)*P::LIMB_WIDTH])?;
+                Self::conditional_enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..(i+1)*P::LIMB_WIDTH], condition)?;
             } else if i == num_nonzero_limbs {
-                Self::enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..])?;
+                Self::conditional_enforce_limb_equals_bits(limb, &bits[i*P::LIMB_WIDTH..], condition)?;
             } else {
-                limb.enforce_equal(&<FpVar<ConstraintF>>::zero())?;
+                limb.conditional_enforce_equal(&<FpVar<ConstraintF>>::zero(), condition)?;
             }
         }
         Ok(())
     }
-
 
     /// Constrains that `limb` equals LE bit representation `bits`.
     #[tracing::instrument(target = "r1cs", skip(limb, bits))]
@@ -513,9 +565,18 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         limb: &FpVar<ConstraintF>,
         bits: &[Boolean<ConstraintF>],
     ) -> Result<(), SynthesisError> {
+        Self::conditional_enforce_limb_equals_bits(limb, bits, &Boolean::TRUE)
+    }
+
+    #[tracing::instrument(target = "r1cs", skip(limb, bits, condition))]
+    fn conditional_enforce_limb_equals_bits(
+        limb: &FpVar<ConstraintF>,
+        bits: &[Boolean<ConstraintF>],
+        condition: &Boolean<ConstraintF>,
+    ) -> Result<(), SynthesisError> {
         let cs = limb.cs();
         if cs != ConstraintSystemRef::None {
-            limb.enforce_equal(&Self::limb_from_bits(bits)?)?;
+            limb.conditional_enforce_equal(&Self::limb_from_bits(bits)?, condition)?;
         }
         Ok(())
     }
@@ -577,9 +638,19 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     }
 
     //TODO: `other` used as modulus meaning must be of constant bit length
+    #[tracing::instrument(target = "r1cs", skip(self, other))]
     pub fn enforce_coprime(
         &self,
         other: &Self,
+    ) -> Result<(), SynthesisError> {
+        self.conditional_enforce_coprime(other, &Boolean::TRUE)
+    }
+
+    #[tracing::instrument(target = "r1cs", skip(self, other, condition))]
+    pub fn conditional_enforce_coprime(
+        &self,
+        other: &Self,
+        condition: &Boolean<ConstraintF>,
     ) -> Result<(), SynthesisError> {
         let cs = self.cs().or(other.cs());
         // Compute Bezout coefficient, s: s * self + t * other = 1
@@ -593,8 +664,9 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         )?;
 
         // Check gcd = 1
-        BigNatVar::<ConstraintF, P>::constant(&BigNat::from(1))?.limbs.enforce_equal(
-            &self.mult_mod(&bezout_s, other)?.limbs
+        Self::constant(&BigNat::from(1))?.conditional_enforce_equal(
+            &self.mult_mod(&bezout_s, other)?,
+            condition,
         )
     }
 }

@@ -1,8 +1,7 @@
-use algebra::{Field, PrimeField};
+use algebra::{PrimeField};
 use r1cs_core::{SynthesisError, Namespace, ConstraintSystemRef};
 use r1cs_std::{
     prelude::*,
-    uint64::UInt64,
 };
 
 use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, UpdateProofWrapper}};
@@ -12,7 +11,7 @@ use rsa::{
     kvac::{RsaKVACParams},
     hash::{Hasher, constraints::HasherGadget},
     bignat::{constraints::BigNatCircuitParams},
-    poker::constraints::{ProofVar, StatementVar, enforce_poker_valid},
+    poker::constraints::{ProofVar, StatementVar, conditional_enforce_poker_valid},
 };
 
 use std::{
@@ -168,22 +167,19 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
     type DigestVar = DigestVar<ConstraintF, P, C>;
     type UpdateProofVar = UpdateProofVar<ConstraintF, P, C, CircuitH, CircuitHG>;
 
-    fn check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar) -> Result<(), SynthesisError> {
+    fn conditional_check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
         let statement = StatementVar {
             u1: prev_digest.c0.clone(),
             u2: prev_digest.c1.clone(),
             w1: new_digest.c0.clone(),
             w2: new_digest.c1.clone(),
         };
-        enforce_poker_valid::<_, P::PoKERParams, P::RsaGroupParams, _, _, _>(
+        conditional_enforce_poker_valid::<_, P::PoKERParams, P::RsaGroupParams, _, _, _>(
             prev_digest.cs().or(new_digest.cs()),
             &statement,
             &proof.proof,
+            condition,
         )
-    }
-
-    fn conditional_check_update_proof(pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
-        unimplemented!()
     }
 }
 
@@ -205,7 +201,7 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     use rsa::{
-        poker::{PoKER, PoKERParams},
+        poker::{PoKERParams},
         hog::{RsaGroupParams},
         hash::{
             HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
@@ -308,6 +304,58 @@ mod tests {
                 &prev_digest_var,
                 &new_digest_var,
                 &proof_var,
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test conditional_invalid_rsa_avd_update_test --release -- --ignored --nocapture``
+    fn conditional_invalid_rsa_avd_update_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let mut rng = StdRng::seed_from_u64(0_u64);
+            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
+            let digest_0 = avd.digest().unwrap();
+            let (digest_1, _proof) = avd.batch_update(&vec![
+                ([1_u8; 32], [2_u8; 32]),
+                ([1_u8; 32], [3_u8; 32]),
+                ([10_u8; 32], [11_u8; 32]),
+            ]).unwrap();
+            let invalid_proof = Default::default();
+
+            let cs = ConstraintSystem::<Fq>::new_ref();
+
+            let prev_digest_var = <DigestVar<Fq, TestKVACParams, BigNatTestParams>>::new_witness(
+                cs.clone(),
+                || Ok(&digest_0),
+            ).unwrap();
+            let new_digest_var = <DigestVar<Fq, TestKVACParams, BigNatTestParams>>::new_witness(
+                cs.clone(),
+                || Ok(&digest_1),
+            ).unwrap();
+            let proof_var = <UpdateProofVar<Fq, TestKVACParams, BigNatTestParams, H, HG>>::new_witness(
+                cs.clone(),
+                || Ok(&invalid_proof),
+            ).unwrap();
+
+            TestRsaAVDGadget::conditional_check_update_proof(
+                &EmptyVar,
+                &prev_digest_var,
+                &new_digest_var,
+                &proof_var,
+                &Boolean::FALSE,
             ).unwrap();
 
             println!("Number of constraints: {}", cs.num_constraints());

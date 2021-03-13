@@ -162,7 +162,7 @@ impl<H: Hasher> Default for PocklingtonCertificate<H> {
     fn default() -> Self {
         Self {
             base_plan: Default::default(),
-            base_prime: Default::default(),
+            base_prime: BigNat::from(3),
             base_nonce: Default::default(),
             extensions: vec![],
             _hash: PhantomData,

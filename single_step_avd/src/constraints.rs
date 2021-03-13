@@ -21,7 +21,11 @@ pub trait SingleStepAVDGadget<AVD: SingleStepAVD, ConstraintF: Field>: Sized {
         prev_digest: &Self::DigestVar,
         new_digest: &Self::DigestVar,
         proof: &Self::UpdateProofVar,
-    ) -> Result<(), SynthesisError>;
+    ) -> Result<(), SynthesisError> {
+        Self::conditional_check_update_proof(
+           pp, prev_digest, new_digest, proof, &Boolean::TRUE,
+        )
+    }
 
     fn conditional_check_update_proof(
         pp: &Self::PublicParametersVar,

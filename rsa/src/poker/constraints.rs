@@ -18,7 +18,7 @@ use crate::{
             PocklingtonPlan,
             constraints::{
                 PocklingtonCertificateVar,
-                check_hash_to_pocklington_prime,
+                conditional_check_hash_to_pocklington_prime,
             }
         },
     },
@@ -166,10 +166,31 @@ impl<ConstraintF, RsaP, CircuitP, H, HG> AllocVar<Proof<RsaP, H>, ConstraintF> f
 }
 
 
+#[tracing::instrument(target = "r1cs", skip(cs, x, proof))]
 pub fn enforce_poker_valid<ConstraintF, P, RsaP, CircuitP, H, HG>(
     cs: ConstraintSystemRef<ConstraintF>,
     x: &StatementVar<ConstraintF, RsaP, CircuitP>,
     proof: &ProofVar<ConstraintF, RsaP, CircuitP, H, HG>,
+) -> Result<(), SynthesisError>
+    where
+        ConstraintF: PrimeField,
+        H: Hasher<F = ConstraintF>,
+        HG: HasherGadget<H, ConstraintF>,
+        P: PoKERParams,
+        RsaP: RsaGroupParams,
+        CircuitP: BigNatCircuitParams,
+{
+    conditional_enforce_poker_valid::<ConstraintF, P, RsaP, CircuitP, H, HG>(
+        cs, x, proof, &Boolean::TRUE,
+    )
+}
+
+#[tracing::instrument(target = "r1cs", skip(cs, x, proof, condition))]
+pub fn conditional_enforce_poker_valid<ConstraintF, P, RsaP, CircuitP, H, HG>(
+    cs: ConstraintSystemRef<ConstraintF>,
+    x: &StatementVar<ConstraintF, RsaP, CircuitP>,
+    proof: &ProofVar<ConstraintF, RsaP, CircuitP, H, HG>,
+    condition: &Boolean<ConstraintF>,
 ) -> Result<(), SynthesisError>
 where
     ConstraintF: PrimeField,
@@ -198,26 +219,29 @@ where
     hash_input.extend(x.w2.n.limbs.iter().cloned());
     hash_input.extend(z_a.n.limbs.iter().cloned());
     hash_input.extend(z_b.n.limbs.iter().cloned());
-    check_hash_to_pocklington_prime::<H, HG, ConstraintF, CircuitP>(
+    conditional_check_hash_to_pocklington_prime::<H, HG, ConstraintF, CircuitP>(
         cs.clone(),
         &hash_input,
         P::HASH_TO_PRIME_ENTROPY,
         &proof.cert,
+        condition,
     )?;
 
     // Verify proof
-    x.w1.n.limbs.enforce_equal(
+    x.w1.n.limbs.conditional_enforce_equal(
         &proof.v_1.power_allow_duplicate(&proof.cert.result, &m, l_bits)?
             .op_allow_duplicate(&x.u1.power_allow_duplicate(&proof.r_a, &m, l_bits)?, &m)?
             .op_allow_duplicate(&x.u2.power_allow_duplicate(&proof.r_b, &m, l_bits)?, &m)?
             .deduplicate(&m)?
-            .n.limbs
+            .n.limbs,
+        condition,
     )?;
-    x.w2.n.limbs.enforce_equal(
+    x.w2.n.limbs.conditional_enforce_equal(
         &proof.v_2.power_allow_duplicate(&proof.cert.result, &m, l_bits)?
             .op_allow_duplicate(&x.u2.power_allow_duplicate(&proof.r_a, &m, l_bits)?, &m)?
             .deduplicate(&m)?
-            .n.limbs
+            .n.limbs,
+        condition,
     )?;
     Ok(())
 }

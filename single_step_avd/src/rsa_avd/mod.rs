@@ -5,7 +5,7 @@ use crate::{Error, SingleStepAVD};
 
 use rsa::{
     kvac::{RsaKVAC, RsaKVACParams, Commitment, MembershipWitness, UpdateProof},
-    hash::{Hasher, hash_to_prime::{PocklingtonCertificate, PocklingtonPlan, ExtensionCertificate}},
+    hash::{Hasher, hash_to_prime::{PocklingtonCertificate, PocklingtonPlan, ExtensionCertificate, PlannedExtension}},
     bignat::{BigNat, Order, constraints::BigNatCircuitParams},
     poker::PoKERParams,
 };
@@ -50,10 +50,14 @@ impl<P: RsaKVACParams, H: Hasher> Default for UpdateProofWrapper<P, H> {
     fn default() -> Self {
         let plan = PocklingtonPlan::new(P::PoKERParams::HASH_TO_PRIME_ENTROPY);
         let mut cert = PocklingtonCertificate::<H>::default();
+        cert.base_plan = PlannedExtension {
+            nonce_bits: plan.base_nonce_bits,
+            random_bits: plan.base_random_bits,
+        };
         for i in 0..plan.extensions.len() {
             cert.extensions.push(ExtensionCertificate{
                 plan: plan.extensions[i].clone(),
-                checking_base: Default::default(),
+                checking_base: BigNat::from(2),
                 result: Default::default(),
                 nonce: Default::default(),
             });
