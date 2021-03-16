@@ -40,9 +40,10 @@ pub struct UpdateProofWrapper<P, H>
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct DigestWrapper<P: RsaKVACParams> {
+pub struct DigestWrapper<P: RsaKVACParams, C: BigNatCircuitParams> {
     digest: Commitment<P>,
     _params: PhantomData<P>,
+    _circuit_params: PhantomData<C>,
 
 }
 
@@ -78,26 +79,33 @@ impl<P: RsaKVACParams, H: Hasher> Default for UpdateProofWrapper<P, H> {
     }
 }
 
-impl<P: RsaKVACParams> Default for DigestWrapper<P> {
+impl<P: RsaKVACParams, C: BigNatCircuitParams> Default for DigestWrapper<P, C> {
     fn default() -> Self {
         Self {
             digest: (Default::default(), Default::default()),
             _params: PhantomData,
+            _circuit_params: PhantomData,
         }
     }
 }
 
-impl<P: RsaKVACParams> Hash for DigestWrapper<P> {
+impl<P: RsaKVACParams, C: BigNatCircuitParams> Hash for DigestWrapper<P, C> {
     fn hash<H: StdHasher>(&self, state: &mut H) {
         self.digest.0.hash(state);
         self.digest.1.hash(state);
     }
 }
 
-impl<P: RsaKVACParams> ToBytes for DigestWrapper<P> {
+impl<P: RsaKVACParams, C: BigNatCircuitParams> ToBytes for DigestWrapper<P, C> {
     fn write<W: Write>(&self, mut writer: W) -> IoResult<()> {
-        self.digest.0.write(&mut writer)?;
-        self.digest.1.write(&mut writer)
+        let num_bytes_per_bignat = ((C::N_LIMBS * C::LIMB_WIDTH - 1) / 8) + 1;
+        //Must match ToBytesGadget in BigNatVar
+        let mut c0_bytes = self.digest.0.n.to_digits::<u8>(Order::LsfBe);
+        c0_bytes.resize(num_bytes_per_bignat, 0);
+        c0_bytes.write(&mut writer)?;
+        let mut c1_bytes = self.digest.1.n.to_digits::<u8>(Order::LsfBe);
+        c1_bytes.resize(num_bytes_per_bignat, 0);
+        c1_bytes.write(&mut writer)
     }
 }
 
@@ -109,7 +117,7 @@ where
     CircuitH: Hasher,
     C: BigNatCircuitParams,
 {
-    type Digest = DigestWrapper<P>;
+    type Digest = DigestWrapper<P, C>;
     type PublicParameters = ();
     type LookupProof = MembershipWitness<P>;
     type UpdateProof = UpdateProofWrapper<P, CircuitH>;
@@ -190,8 +198,8 @@ impl<P, H, CircuitH, C> RsaAVD<P, H, CircuitH, C>
         CircuitH: Hasher,
         C: BigNatCircuitParams,
 {
-    fn wrap_digest(d: Commitment<P>) -> DigestWrapper<P> {
-        DigestWrapper { digest: d, _params: PhantomData }
+    fn wrap_digest(d: Commitment<P>) -> DigestWrapper<P, C> {
+        DigestWrapper { digest: d, _params: PhantomData, _circuit_params: PhantomData }
     }
 
     fn wrap_proof(proof: UpdateProof<P, CircuitH>) -> UpdateProofWrapper<P, CircuitH> {

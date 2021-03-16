@@ -205,7 +205,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         Ok(self.history_ssavd.digest())
     }
 
-    fn lookup(&self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
+    fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (value, proof) = self.history_ssavd.lookup(key)?;
         Ok((value, self.digest()?, proof))
     }
@@ -429,8 +429,21 @@ mod test {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
         },
+        rsa_avd::{
+            RsaAVD, constraints::RsaAVDGadget,
+        }
     };
     use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use rsa::{
+        bignat::constraints::BigNatCircuitParams,
+        kvac::RsaKVACParams,
+        poker::{PoKERParams},
+        hog::{RsaGroupParams},
+        hash::{
+            HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
+        },
+    };
+
     use std::time::Instant;
 
     #[derive(Clone)]
@@ -481,9 +494,72 @@ mod test {
         Blake2b,
     >;
 
+
+
+    // Parameters for RSA AVD
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa64Params;
+    impl RsaGroupParams for TestRsa64Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "17839761582542106619";
+    }
+
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct BigNatTestParams;
+    impl BigNatCircuitParams for BigNatTestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 2;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestPokerParams;
+    impl PoKERParams for TestPokerParams {
+        const HASH_TO_PRIME_ENTROPY: usize = 32;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestKVACParams;
+    impl RsaKVACParams for TestKVACParams {
+        const KEY_LEN: usize = 64;
+        const VALUE_LEN: usize = 64;
+        const PRIME_LEN: usize = 72;
+        type RsaGroupParams = TestRsa64Params;
+        type PoKERParams = TestPokerParams;
+    }
+
+    pub type PoseidonH = PoseidonHasher<Fq>;
+    pub type PoseidonHG = PoseidonHasherGadget<Fq>;
+
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+    >;
+
+    pub type TestRsaAVDGadget = RsaAVDGadget<
+        Fq,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        PoseidonHG,
+        BigNatTestParams,
+    >;
+    type TestRsaAggregatedFHAVD = AggregatedFullHistoryAVD<
+        AggregatedFHAVDTestParameters,
+        TestRsaAVD,
+        TestRsaAVDGadget,
+        MerkleTreeTestParameters,
+        HG,
+        Bls12_381,
+        Blake2b,
+    >;
+
+
     #[test]
-    #[ignore] // Expensive test, run with ``cargo test update_and_verify_aggregated_full_history_test --release -- --ignored --nocapture``
-    fn update_and_verify_aggregated_full_history_test() {
+    #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_aggregated_full_history_test --release -- --ignored --nocapture``
+    fn mt_update_and_verify_aggregated_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = TestAggregatedFHAVD::setup(&mut rng).unwrap();
@@ -568,6 +644,104 @@ mod test {
 
         let start = Instant::now();
         let verify5 = TestAggregatedFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 5 verification time: {} s", bench);
+        assert!(verify5);
+    }
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test rsa_update_and_verify_aggregated_full_history_test --release -- --ignored --nocapture``
+    fn rsa_update_and_verify_aggregated_full_history_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let start = Instant::now();
+        let pp = TestRsaAggregatedFHAVD::setup(&mut rng).unwrap();
+        let mut avd = TestRsaAggregatedFHAVD::new(&mut rng, &pp).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        fn u8_to_array(n: u8) -> [u8; 32] {
+            let mut arr = [0_u8; 32];
+            arr[31] = n;
+            arr
+        }
+
+        let epoch1_update = &vec![
+            (u8_to_array(1), u8_to_array(2)),
+            (u8_to_array(11), u8_to_array(12)),
+            (u8_to_array(21), u8_to_array(22)),
+        ];
+        let epoch2_update = &vec![
+            (u8_to_array(1), u8_to_array(3)),
+            (u8_to_array(11), u8_to_array(13)),
+            (u8_to_array(21), u8_to_array(23)),
+        ];
+        let epoch3_update = &vec![
+            (u8_to_array(1), u8_to_array(4)),
+            (u8_to_array(11), u8_to_array(14)),
+            (u8_to_array(21), u8_to_array(24)),
+        ];
+        let epoch4_update = &vec![
+            (u8_to_array(1), u8_to_array(5)),
+            (u8_to_array(11), u8_to_array(15)),
+            (u8_to_array(31), u8_to_array(35)),
+        ];
+        let epoch5_update = &vec![
+            (u8_to_array(1), u8_to_array(6)),
+            (u8_to_array(11), u8_to_array(16)),
+            (u8_to_array(31), u8_to_array(36)),
+        ];
+
+        let start = Instant::now();
+        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 1 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify1 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 1 verification time: {} s", bench);
+        assert!(verify1);
+
+        let start = Instant::now();
+        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 2 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify2 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 2 verification time: {} s", bench);
+        assert!(verify2);
+
+        let start = Instant::now();
+        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 3 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify3 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 3 verification time: {} s", bench);
+        assert!(verify3);
+
+        let start = Instant::now();
+        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 4 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify4 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 4 verification time: {} s", bench);
+        assert!(verify4);
+
+        let start = Instant::now();
+        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 5 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify5 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 verification time: {} s", bench);
         assert!(verify5);

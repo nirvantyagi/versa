@@ -185,8 +185,8 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
 
     // Check primality using Miller-Rabin
     miller_rabin_32b(&cert.base_prime, 32)?.conditional_enforce_equal(&Boolean::TRUE, condition)?;
-    println!("Base prime checked");
-    println!("Base prime: {}", cert.base_prime.value()?);
+    //println!("Base prime checked");
+    //println!("Base prime: {}", cert.base_prime.value.clone());
 
     // Check each extension certificate
     let mut prime = cert.base_prime.clone();
@@ -199,8 +199,8 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         extension_term_bits.push(Boolean::TRUE);
         let extension_term = BigNatVar::nat_from_bits(&extension_term_bits[..])?;
         random_bits = &random_bits[extension.plan.random_bits..];
-        println!("Round {}: Extension term constructed", i);
-        println!("Round {}: extension_term: {}", i, extension_term.value()?);
+        //println!("Round {}: Extension term constructed", i);
+        //println!("Round {}: extension_term: {}", i, extension_term.value.clone());
 
         // Compute helper values for Pocklington's criterion
         let one = BigNatVar::constant(&BigNat::from(1))?;
@@ -212,8 +212,8 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
             extension.plan.nonce_bits + extension.plan.random_bits + 1,
         )?;
         let part_less_one = part.sub(&one)?;
-        println!("Round {}: n: {}", i, n.value()?);
-        println!("Round {}: part: {}", i, part.value()?);
+        //println!("Round {}: n: {}", i, n.value.clone());
+        //println!("Round {}: part: {}", i, part.value.clone());
 
         // Check coprimality
         part_less_one.conditional_enforce_coprime(&n, condition)?;
@@ -222,12 +222,12 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
             &n,
             prime_bits,
         )?;
-        println!("Round {}: power: {}", i, power.value()?);
+        //println!("Round {}: power: {}", i, power.value.clone());
 
         // Check Fermat's little theorem
         //TODO: Exact comparison since power and one are both in normal form
         power.conditional_enforce_equal(&one, condition)?;
-        println!("Round {}: Extension criterion checked", i);
+        //println!("Round {}: Extension criterion checked", i);
 
         prime = n;
         prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
@@ -292,7 +292,7 @@ mod tests {
         hash_to_prime::hash_to_pocklington_prime,
     };
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
 
     impl BigNatCircuitParams for BigNatTestParams {

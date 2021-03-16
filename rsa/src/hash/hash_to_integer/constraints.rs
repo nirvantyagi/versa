@@ -59,7 +59,7 @@ mod tests {
         hash_to_integer::hash_to_integer,
     };
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
 
     impl BigNatCircuitParams for BigNatTestParams {

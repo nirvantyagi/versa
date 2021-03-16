@@ -23,7 +23,7 @@ pub trait FullHistoryAVD: Sized {
     fn digest(&self) -> Result<Self::Digest, Error>;
 
     fn lookup(
-        &self,
+        &mut self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 

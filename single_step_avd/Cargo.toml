@@ -24,5 +24,4 @@ rsa = { path = "../rsa" }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.2" }
-tracing = { version = "0.1", default-features = false }
 blake3 = { version = "0.3" }

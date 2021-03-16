@@ -7,6 +7,7 @@ use r1cs_core::{ConstraintSystemRef, SynthesisError, Namespace};
 use std::{
     borrow::Borrow,
 };
+use bench_utils::{end_timer, start_timer};
 
 use crate::{
     bignat::{constraints::{BigNatCircuitParams, BigNatVar},},
@@ -204,14 +205,17 @@ where
     let m = BigNatVar::<ConstraintF, CircuitP>::constant(&RsaP::m())?;
     let l_bits = PocklingtonPlan::new(P::HASH_TO_PRIME_ENTROPY).max_bits();
 
+    let check = start_timer!(|| "Compute z values");
     let z_a = proof.v_a.power_allow_duplicate(&proof.cert.result, &m, l_bits)?
         .op_allow_duplicate(&g.power_allow_duplicate(&proof.r_a, &m, l_bits)?, &m)?
         .deduplicate(&m)?;
     let z_b = proof.v_b.power_allow_duplicate(&proof.cert.result, &m, l_bits)?
         .op_allow_duplicate(&g.power_allow_duplicate(&proof.r_b, &m, l_bits)?, &m)?
         .deduplicate(&m)?;
+    end_timer!(check);
 
     // Check hash challenge
+    let check = start_timer!(|| "Check hash");
     let mut hash_input = vec![];
     hash_input.extend(x.u1.n.limbs.iter().cloned());
     hash_input.extend(x.u2.n.limbs.iter().cloned());
@@ -226,6 +230,7 @@ where
         &proof.cert,
         condition,
     )?;
+    end_timer!(check);
 
     // Verify proof
     x.w1.n.limbs.conditional_enforce_equal(
@@ -277,7 +282,7 @@ mod tests {
     }
 
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
 
     impl BigNatCircuitParams for BigNatTestParams {

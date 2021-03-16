@@ -8,12 +8,8 @@ use crate::history_tree::SingleStepUpdateProof;
 use algebra::fields::{Field, PrimeField};
 use r1cs_core::{SynthesisError, Namespace};
 use r1cs_std::{
-    alloc::{AllocVar, AllocationMode},
-    bits::ToBytesGadget,
-    eq::EqGadget,
-    uint8::UInt8,
+    prelude::*,
     uint64::UInt64,
-    boolean::Boolean,
 };
 use zexe_cp::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 use std::{
@@ -115,6 +111,7 @@ SingleStepUpdateProofVar<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
 {
     //TODO: Should be able to reuse this for recursive solution
     //TODO: Don't need conditional is_genesis checks for aggregation solution
+    #[tracing::instrument(target = "r1cs", skip(self, ssavd_pp, history_tree_pp, condition))]
     pub fn conditional_check_single_step_with_history_update(
         &self,
         ssavd_pp: &SSAVDGadget::PublicParametersVar,
@@ -168,6 +165,7 @@ SingleStepUpdateProofVar<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
 }
 
 
+#[tracing::instrument(target = "r1cs", skip(parameters, ssavd_digest, history_tree_digest, epoch))]
 pub fn hash_to_final_digest_var<SSAVD, SSAVDGadget, H, HGadget, ConstraintF>(
     parameters: &HGadget::ParametersVar,
     ssavd_digest: &SSAVDGadget::DigestVar,
@@ -198,12 +196,13 @@ pub fn hash_to_final_digest_var<SSAVD, SSAVDGadget, H, HGadget, ConstraintF>(
 mod test {
     use super::*;
     use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub, Fq};
-    use r1cs_core::ConstraintSystem;
+    use r1cs_core::{ConstraintSystem, ConstraintLayer};
     use r1cs_std::{ed_on_bls12_381::EdwardsVar};
     use rand::{rngs::StdRng, SeedableRng};
     use zexe_cp::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
+    use tracing_subscriber::layer::SubscriberExt;
 
     use single_step_avd::{
         merkle_tree_avd::{
@@ -211,11 +210,22 @@ mod test {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
         },
+        rsa_avd::{RsaAVD, constraints::RsaAVDGadget},
     };
     use crypto_primitives::sparse_merkle_tree::MerkleDepth;
     use crate::{
         history_tree::SingleStepAVDWithHistory,
     };
+    use rsa::{
+        bignat::constraints::BigNatCircuitParams,
+        kvac::RsaKVACParams,
+        poker::{PoKERParams},
+        hog::{RsaGroupParams},
+        hash::{
+            HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
+        },
+    };
+
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -255,6 +265,65 @@ mod test {
         HG,
         Fq,
     >;
+
+
+    // Parameters for RSA AVD
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa64Params;
+    impl RsaGroupParams for TestRsa64Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "17839761582542106619";
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct BigNatTestParams;
+    impl BigNatCircuitParams for BigNatTestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 2;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestPokerParams;
+    impl PoKERParams for TestPokerParams {
+        const HASH_TO_PRIME_ENTROPY: usize = 32;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestKVACParams;
+    impl RsaKVACParams for TestKVACParams {
+        const KEY_LEN: usize = 64;
+        const VALUE_LEN: usize = 64;
+        const PRIME_LEN: usize = 72;
+        type RsaGroupParams = TestRsa64Params;
+        type PoKERParams = TestPokerParams;
+    }
+
+    pub type PoseidonH = PoseidonHasher<Fq>;
+    pub type PoseidonHG = PoseidonHasherGadget<Fq>;
+
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+    >;
+    pub type TestRsaAVDGadget = RsaAVDGadget<
+        Fq,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        PoseidonHG,
+        BigNatTestParams,
+    >;
+    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters>;
+    type TestRsaUpdateVar = SingleStepUpdateProofVar<
+        TestRsaAVD,
+        TestRsaAVDGadget,
+        MerkleTreeTestParameters,
+        HG,
+        Fq,
+    >;
+
 
     #[test]
     fn update_and_verify_test() {
@@ -326,5 +395,61 @@ mod test {
         ).unwrap();
 
         assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn history_tree_rsa_batch_update_and_verify_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let mut rng = StdRng::seed_from_u64(0_u64);
+            let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
+            let mut avd = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+            fn u8_to_array(n: u8) -> [u8; 32] {
+                let mut arr = [0_u8; 32];
+                arr[31] = n;
+                arr
+            }
+            let updates = vec![
+                (u8_to_array(1), u8_to_array(2)),
+                (u8_to_array(1), u8_to_array(3)),
+                (u8_to_array(10), u8_to_array(11)),
+            ];
+            let proof = avd.batch_update(&updates).unwrap();
+
+            let cs = ConstraintSystem::<Fq>::new_ref();
+
+            // Allocate proof variables
+            let proof_var = TestRsaUpdateVar::new_input(
+                r1cs_core::ns!(cs, "alloc_proof"),
+                || Ok(proof),
+            ).unwrap();
+
+            let ssavd_pp_gadget = <TestRsaAVDGadget as SingleStepAVDGadget<TestRsaAVD, Fq>>::PublicParametersVar::new_constant(
+                r1cs_core::ns!(cs, "ssavd_pp"),
+                &ssavd_pp,
+            ).unwrap();
+            let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+                r1cs_core::ns!(cs, "history_tree_pp"),
+                &crh_pp,
+            ).unwrap();
+
+            proof_var.conditional_check_single_step_with_history_update(
+                &ssavd_pp_gadget,
+                &crh_pp_gadget,
+                &Boolean::constant(true),
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
     }
 }

@@ -17,6 +17,7 @@ use r1cs_std::{
     pairing::PairingVar,
     ToConstraintFieldGadget,
 };
+use bench_utils::{end_timer, start_timer};
 
 use rand::{Rng};
 
@@ -150,7 +151,9 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         > as NIZK>::Proof;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
+        println!("Starting setup");
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
+        println!("Starting inner blank circuit setup");
         let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
             &ssavd_pp,
             &history_tree_pp,
@@ -167,6 +170,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
             InnerSingleStepProofVerifierInput<HTParams>,
         >::setup(inner_blank_circuit, rng)?;
+        println!("Starting outer blank circuit setup");
         let outer_blank_circuit = OuterCircuit::blank(
             inner_groth16_pp.vk.clone(),
         );
@@ -218,7 +222,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         Ok(self.history_ssavd.digest())
     }
 
-    fn lookup(&self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
+    fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (value, proof) = self.history_ssavd.lookup(key)?;
         Ok((value, self.digest()?, proof))
     }
@@ -232,6 +236,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
     fn batch_update<R: Rng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
         // Compute new step proof
+        println!("Starting batch update");
         let prev_digest = self.history_ssavd.digest();
         let update = self.history_ssavd.batch_update(kvs)?;
         self._update(rng, update, prev_digest)
@@ -306,6 +311,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             InnerSingleStepProofVerifierInput<HTParams>,
         > as NIZK>::Proof), Error> {
         // Compute outer proof of previous inner proof
+        let check = start_timer!(|| "Compute outer proof");
         let outer_proof = Groth16::<
             Cycle::E2,
             OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
@@ -322,7 +328,9 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             ),
             rng,
         )?;
+        end_timer!(check);
         // Compute new inner proof
+        let check = start_timer!(|| "Compute inner proof");
         let new_inner_proof = Groth16::<
             Cycle::E1,
             InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
@@ -339,6 +347,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             ),
             rng,
         )?;
+        end_timer!(check);
         self.inner_proof = new_inner_proof.clone();
         Ok((self.digest()?, new_inner_proof))
     }
@@ -368,9 +377,24 @@ mod test {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
         },
+        rsa_avd::{
+            RsaAVD, constraints::RsaAVDGadget,
+        }
     };
     use crypto_primitives::sparse_merkle_tree::MerkleDepth;
-    use std::time::Instant;
+    use rsa::{
+        bignat::constraints::BigNatCircuitParams,
+        kvac::RsaKVACParams,
+        poker::{PoKERParams},
+        hog::{RsaGroupParams},
+        hash::{
+            HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
+        },
+    };
+
+    use std::{
+        time::Instant,
+    };
 
     #[derive(Clone, Copy, Debug)]
     pub struct MNT298Cycle;
@@ -420,6 +444,68 @@ mod test {
         MNT4PairingVar,
         MNT6PairingVar,
     >;
+
+    // Parameters for RSA AVD
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestRsa64Params;
+    impl RsaGroupParams for TestRsa64Params {
+        const RAW_G: usize = 2;
+        const RAW_M: &'static str = "17839761582542106619";
+    }
+
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct BigNatTestParams;
+    impl BigNatCircuitParams for BigNatTestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 2;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestPokerParams;
+    impl PoKERParams for TestPokerParams {
+        const HASH_TO_PRIME_ENTROPY: usize = 32;
+    }
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct TestKVACParams;
+    impl RsaKVACParams for TestKVACParams {
+        const KEY_LEN: usize = 64;
+        const VALUE_LEN: usize = 64;
+        const PRIME_LEN: usize = 72;
+        type RsaGroupParams = TestRsa64Params;
+        type PoKERParams = TestPokerParams;
+    }
+
+    pub type PoseidonH = PoseidonHasher<Fq>;
+    pub type PoseidonHG = PoseidonHasherGadget<Fq>;
+
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+    >;
+
+    pub type TestRsaAVDGadget = RsaAVDGadget<
+        Fq,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        PoseidonHG,
+        BigNatTestParams,
+    >;
+
+    type TestRecursionRsaFHAVD = RecursionFullHistoryAVD<
+        TestRsaAVD,
+        TestRsaAVDGadget,
+        MerkleTreeTestParameters,
+        HG,
+        MNT298Cycle,
+        MNT4PairingVar,
+        MNT6PairingVar,
+    >;
+
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
@@ -508,6 +594,104 @@ mod test {
 
         let start = Instant::now();
         let verify5 = TestRecursionFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 5 verification time: {} s", bench);
+        assert!(verify5);
+    }
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test update_and_verify_rsa_recursion_full_history_test --release -- --ignored --nocapture``
+    fn update_and_verify_rsa_recursion_full_history_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let start = Instant::now();
+        let pp = TestRecursionRsaFHAVD::setup(&mut rng).unwrap();
+        let mut avd  = TestRecursionRsaFHAVD::new(&mut rng, &pp).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        fn u8_to_array(n: u8) -> [u8; 32] {
+            let mut arr = [0_u8; 32];
+            arr[31] = n;
+            arr
+        }
+
+        let epoch1_update = &vec![
+            (u8_to_array(1), u8_to_array(2)),
+            (u8_to_array(11), u8_to_array(12)),
+            (u8_to_array(21), u8_to_array(22)),
+        ];
+        let epoch2_update = &vec![
+            (u8_to_array(1), u8_to_array(3)),
+            (u8_to_array(11), u8_to_array(13)),
+            (u8_to_array(21), u8_to_array(23)),
+        ];
+        let epoch3_update = &vec![
+            (u8_to_array(1), u8_to_array(4)),
+            (u8_to_array(11), u8_to_array(14)),
+            (u8_to_array(21), u8_to_array(24)),
+        ];
+        let epoch4_update = &vec![
+            (u8_to_array(1), u8_to_array(5)),
+            (u8_to_array(11), u8_to_array(15)),
+            (u8_to_array(31), u8_to_array(35)),
+        ];
+        let epoch5_update = &vec![
+            (u8_to_array(1), u8_to_array(6)),
+            (u8_to_array(11), u8_to_array(16)),
+            (u8_to_array(31), u8_to_array(36)),
+        ];
+
+        let start = Instant::now();
+        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 1 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify1 = TestRecursionRsaFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 1 verification time: {} s", bench);
+        assert!(verify1);
+
+        let start = Instant::now();
+        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 2 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify2 = TestRecursionRsaFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 2 verification time: {} s", bench);
+        assert!(verify2);
+
+        let start = Instant::now();
+        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 3 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify3 = TestRecursionRsaFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 3 verification time: {} s", bench);
+        assert!(verify3);
+
+        let start = Instant::now();
+        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 4 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify4 = TestRecursionRsaFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 4 verification time: {} s", bench);
+        assert!(verify4);
+
+        let start = Instant::now();
+        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 5 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let verify5 = TestRecursionRsaFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 verification time: {} s", bench);
         assert!(verify5);

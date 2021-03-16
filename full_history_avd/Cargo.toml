@@ -13,6 +13,7 @@ ff_fft = {git = "https://github.com/nirvantyagi/zexe/", package = "ff-fft", bran
 groth16 = {git = "https://github.com/nirvantyagi/zexe/", package = "groth16", branch = "int-condselect" }
 r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core", branch = "int-condselect" }
 r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381", "mnt4_298", "mnt6_298", "ed_on_mnt4_298" ], branch = "int-condselect" }
+bench_utils = {git = "https://github.com/nirvantyagi/zexe/", package = "bench-utils", branch = "int-condselect" }
 ip_proofs = {git = "https://github.com/nirvantyagi/ripp/", package = "ip_proofs", branch = "forked-zexe-dependency" }
 dh_commitments = {git = "https://github.com/nirvantyagi/ripp/", package = "dh_commitments", branch = "forked-zexe-dependency" }
 inner_products = {git = "https://github.com/nirvantyagi/ripp/", package = "inner_products", branch = "forked-zexe-dependency" }
@@ -20,6 +21,15 @@ rand = { version = "0.7" }
 digest = { version = "0.9" }
 num-traits = { version = "0.2" }
 blake2 = { version = "0.9" }
+tracing = { version = "0.1", default-features = false }
 
 crypto_primitives = { path = "../crypto_primitives" }
+rsa = { path = "../rsa" }
 single_step_avd = { path = "../single_step_avd" }
+
+[dev-dependencies]
+blake3 = { version = "0.3" }
+tracing-subscriber = { version = "0.2" }
+
+[features]
+print-trace = [ "bench_utils/print-trace" ]

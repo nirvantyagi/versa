@@ -74,6 +74,20 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Default for SingleSte
     }
 }
 
+impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for SingleStepUpdateProof<SSAVD, HTParams>{
+    fn clone(&self) -> Self {
+        Self {
+            ssavd_proof: self.ssavd_proof.clone(),
+            history_tree_proof: self.history_tree_proof.clone(),
+            prev_ssavd_digest: self.prev_ssavd_digest.clone(),
+            new_ssavd_digest: self.new_ssavd_digest.clone(),
+            prev_digest: self.prev_digest.clone(),
+            new_digest: self.new_digest.clone(),
+            prev_epoch: self.prev_epoch,
+        }
+    }
+}
+
 pub struct SingleStepAVDWithHistory<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters>{
     pub ssavd: SSAVD,
     pub history_tree: HistoryTree<HTParams, <HTParams::H as FixedLengthCRH>::Output>,
@@ -223,7 +237,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     }
 
     pub fn lookup(
-        &self,
+        &mut self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error>{
         let (result, ssavd_digest, ssavd_proof) = self.ssavd.lookup(key)?;

@@ -207,7 +207,7 @@ mod tests {
     }
 
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
 
     impl BigNatCircuitParams for BigNatTestParams {
@@ -215,7 +215,7 @@ mod tests {
         const N_LIMBS: usize = 64;
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNat512TestParams;
 
     impl BigNatCircuitParams for BigNat512TestParams {

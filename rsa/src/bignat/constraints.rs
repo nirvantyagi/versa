@@ -11,10 +11,11 @@ use std::{
     borrow::Borrow,
     marker::PhantomData,
     cmp::{min, max},
+    fmt::Debug,
 };
 
 
-pub trait BigNatCircuitParams: Clone {
+pub trait BigNatCircuitParams: Clone + Debug + Eq + PartialEq {
     const LIMB_WIDTH: usize;
     const N_LIMBS: usize;
 }
@@ -23,7 +24,7 @@ pub trait BigNatCircuitParams: Clone {
 #[derive(Clone)]
 pub struct BigNatVar<ConstraintF: PrimeField, P: BigNatCircuitParams> {
     pub limbs: Vec<FpVar<ConstraintF>>,  // Must be of length P::N_LIMBS
-    value: BigNat,
+    pub value: BigNat,
     word_size: BigNat,
     _params: PhantomData<P>,
 }
@@ -89,11 +90,11 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     pub fn reduce(&self) -> Result<Self, SynthesisError> {
         let cs = self.cs();
         if cs != ConstraintSystemRef::None {
-            let reduced = Self::new_witness(cs.clone(), || Ok(self.value()?))?;
+            let reduced = Self::new_witness(cs.clone(), || Ok(&self.value))?;
             self.enforce_equal_when_carried(&reduced)?;
             Ok(reduced)
         } else {
-            Ok(Self::constant(&self.value()?)?)
+            Ok(Self::constant(&self.value)?)
         }
     }
 
@@ -110,7 +111,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                 }).collect::<Vec<FpVar<ConstraintF>>>();
             Ok(Self {
                 limbs: limbs,
-                value: self.value()? + other.value()?,
+                value: BigNat::from(&self.value + &other.value),
                 word_size: word_size,
                 _params: PhantomData,
             })
@@ -127,7 +128,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let cs = self.cs().or(other.cs());
         //TODO: What to do for constants? ConstraintSystemRef::None?
         //TODO: Optimization: compute diff directly: https://github.com/arkworks-rs/nonnative/blob/master/src/allocated_nonnative_field_var.rs#L181
-        let diff = Self::new_witness(cs.clone(),  || Ok(self.value()? - other.value()?))?;
+        let diff = Self::new_witness(cs.clone(),  || Ok(BigNat::from(&self.value - &other.value)))?;
         let sum = other.add(&diff)?;
         self.enforce_equal_when_carried(&sum)?;
         Ok(diff)
@@ -149,8 +150,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         }
 
         // Compute and allocate product
-        let product_value = self.value()? * other.value()?;
-        let product = Self::new_witness(cs.clone(),  || Ok(product_value))?;
+        let product_value = BigNat::from(&self.value * &other.value);
+        let product = Self::new_witness(cs.clone(), || Ok(product_value))?;
 
         // left (self) * right (other)
         let mut lr_prod_limbs = vec![<FpVar<ConstraintF>>::zero(); 2*P::N_LIMBS - 1];
@@ -192,7 +193,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         }
 
         // Compute and allocate quotient and remainder
-        let (quotient_value, rem_value) = (self.value()? * other.value()?).div_rem(modulus.value()?);
+        let (quotient_value, rem_value) = (BigNat::from(&self.value * &other.value)).div_rem(modulus.value.clone());
         if cs == ConstraintSystemRef::None {
             return Ok(Self::constant(&rem_value.clone())?)
         }
@@ -203,7 +204,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         // Compute deterministic upper bound on number of quotient limbs and pad to it
         let num_left_bits = P::LIMB_WIDTH * (P::N_LIMBS - 1) + (self.word_size.significant_bits() as usize) + 1; //TODO: +1 differs from bellman-bignat
         let num_right_bits = P::LIMB_WIDTH * (P::N_LIMBS - 1) + (other.word_size.significant_bits() as usize) + 1;
-        let num_mod_bits = modulus.value()?.significant_bits() as usize;
+        let num_mod_bits = modulus.value.significant_bits() as usize;
         let num_quotient_bits = (num_left_bits + num_right_bits).saturating_sub(num_mod_bits);
         let num_quotient_limbs = num_quotient_bits / P::LIMB_WIDTH + 1;
         //println!("num_quotient_limbs: {}, computed_upper_bound: {}", quotient_limbs.len(), num_quotient_limbs);
@@ -283,7 +284,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             base_powers
         };
 
-        //println!("exp_bits: {:?}", exp_bits.value().unwrap());
+        //println!("exp_bits: {:?}", exp_bits.value.clone());
         Self::bauer_power_helper(
             cs.clone(),
             &base_powers,
@@ -304,8 +305,6 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         if let Some(chunk) = exp_chunks.next() {
             let chunk_len = chunk.len();
             let base_power = select_index(&base_powers[..(1 << chunk_len)], chunk)?;
-            //println!("exp_bits chunk: {:?}", chunk.value());
-            //println!("selected base power: {}", limbs_to_nat(&base_power.limbs.value().unwrap(), P::LIMB_WIDTH));
             if exp_chunks.len() > 0 { // If not first chunk, then compute accumulated value
                 let mut acc = Self::bauer_power_helper(
                     cs.clone(),
@@ -313,12 +312,9 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
                     exp_chunks,
                     modulus,
                 )?;
-                //println!("Value after Bauer round: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
                 for _ in 0..chunk_len { // Square for each bit in the chunk
                     acc = acc.mult_mod(&acc, &modulus)?
                 }
-                //println!("Value after repeated squaring: {}", limbs_to_nat(&acc.limbs.value().unwrap(), P::LIMB_WIDTH));
-                //println!("Round {} of Bauer helper done [INTERMEDIATE CHUNK]:", debug_bauer_round);
                 Ok(acc.mult_mod(&base_power, &modulus)?)
             } else {
                 //println!("Round {} of Bauer helper done [LAST CHUNK]:", debug_bauer_round);
@@ -422,9 +418,9 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         for (i, (left_limb, right_limb)) in Self::group_limbs(left_limbs, limbs_per_group).iter()
             .zip(Self::group_limbs(right_limbs, limbs_per_group)).enumerate() {
             //println!("Round {}:", i);
-            let left_limb_value = left_limb.value()?;
-            let right_limb_value = right_limb.value()?;
-            let carry_in_value = carry_in.value()?;
+            let left_limb_value = left_limb.value().unwrap_or_default();
+            let right_limb_value = right_limb.value().unwrap_or_default();
+            let carry_in_value = carry_in.value().unwrap_or_default();
             //println!("left: {}, right: {}, carry_in: {}", f_to_nat(&left_limb_value), f_to_nat(&right_limb_value), f_to_nat(&carry_in_value));
 
             let carry_value = nat_to_f::<ConstraintF>(
@@ -505,7 +501,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
 
         let n_bits = min(ConstraintF::size_in_bits() - 1, n_bits);
         let mut bits = Vec::with_capacity(n_bits);
-        let limb_value = limb.value()?;
+        let limb_value = limb.value().unwrap_or_default();
 
         for b in BitIteratorBE::new(limb_value.into_repr()).skip(
             <<ConstraintF as PrimeField>::Params as FpParameters>::REPR_SHAVE_BITS as usize
@@ -594,8 +590,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         limbs.push(Self::limb_from_bits(&bits[num_nonzero_limbs*P::LIMB_WIDTH..])?);
         limbs.resize(P::N_LIMBS, FpVar::<ConstraintF>::zero());
         let value = limbs_to_nat(
-            &limbs.iter().map(|f| f.value())
-                .collect::<Result<Vec<ConstraintF>, SynthesisError>>()?,
+            &limbs.iter().map(|f| f.value().unwrap_or_default())
+                .collect::<Vec<ConstraintF>>(),
             P::LIMB_WIDTH,
         );
         Ok(BigNatVar{
@@ -629,7 +625,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let cs = self.cs().or(other.cs());
         let is_other_min = <Boolean<ConstraintF>>::new_witness(
             cs.clone(),
-            || Ok(self.value()? > other.value()?),
+            || Ok(self.value > other.value),
         )?;
         let lesser = Self::conditionally_select(&is_other_min, other, self)?;
         let greater = Self::conditionally_select(&is_other_min.not(), self, other)?;
@@ -658,8 +654,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let bezout_s = BigNatVar::new_witness(
             cs.clone(),
             || {
-                let v = other.value()?;
-                Ok((self.value()?.gcd_cofactors(v.clone(), BigNat::new()).1 + v.clone()) % v.clone())
+                let v = other.value.clone();
+                Ok((self.value.clone().gcd_cofactors(v.clone(), BigNat::new()).1 + v.clone()) % v.clone())
             },
         )?;
 
@@ -677,11 +673,11 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> CondSelectGadget<Constrain
             .map(|(true_limb, false_limb)| {
                 cond.select(true_limb, false_limb)
             }).collect::<Result<Vec<FpVar<ConstraintF>>, SynthesisError>>()?;
-        let cond_bool = cond.value()?;
+        let cond_bool = cond.value().unwrap_or_default();
         let selected_nat = if cond_bool { true_value } else { false_value };
         Ok(Self {
             limbs: selected_limbs,
-            value: selected_nat.value()?,
+            value: selected_nat.value.clone(),
             word_size: max(true_value.word_size.clone(), false_value.word_size.clone()),
             _params: PhantomData,
         })
@@ -744,13 +740,43 @@ mod tests {
     use r1cs_core::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
 
+    use algebra::ToBytes;
 
-    #[derive(Clone)]
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
 
     impl BigNatCircuitParams for BigNatTestParams {
         const LIMB_WIDTH: usize = 3;
         const N_LIMBS: usize = 4;
+    }
+
+
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    pub struct BigNat512TestParams;
+
+    impl BigNatCircuitParams for BigNat512TestParams {
+        const LIMB_WIDTH: usize = 32;
+        const N_LIMBS: usize = 16;
+    }
+
+
+    #[test]
+    fn bignat_to_bytes_test() {
+        let bignat = BigNat::from(5000);
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        let bignat_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
+            cs.clone(),
+            || Ok(&bignat),
+        ).unwrap();
+        let bytes_val = bignat_var.to_bytes().unwrap().iter()
+            .map(|b| b.value().unwrap())
+            .collect::<Vec<u8>>();
+        assert_eq!(bytes_val.len(), 64);
+        let mut buffer = [0u8; 64];
+        let mut writer = std::io::Cursor::new(&mut buffer[..]);
+        bignat.to_digits::<u8>(crate::bignat::Order::LsfBe).write(&mut writer).unwrap();
+        assert_eq!(bytes_val, buffer.to_vec());
     }
 
 

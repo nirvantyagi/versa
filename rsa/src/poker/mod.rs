@@ -189,7 +189,7 @@ mod tests {
     }
 
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatCM;
 
     impl BigNatCircuitParams for BigNatCM {

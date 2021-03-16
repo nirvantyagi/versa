@@ -12,6 +12,7 @@ zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primi
 algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
 r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core", branch = "int-condselect" }
 r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
+bench_utils = {git = "https://github.com/nirvantyagi/zexe/", package = "bench-utils", branch = "int-condselect" }
 #zexe_cp = {git = "https://github.com/scipr-lab/zexe/", package = "crypto-primitives", rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
 #algebra = {git = "https://github.com/scipr-lab/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ], rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
 #r1cs_core = {git = "https://github.com/scipr-lab/zexe/", package = "r1cs-core", rev = "85cac1770dddd4da79e9993c5d1dcb5732db08f5" }
@@ -27,4 +28,6 @@ crypto_primitives = { path = "../crypto_primitives" }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.2" }
-tracing = { version = "0.1", default-features = false }
+
+[features]
+print-trace = [ "bench_utils/print-trace" ]

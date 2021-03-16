@@ -26,8 +26,8 @@ pub struct DigestVar<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuit
     _params: PhantomData<P>,
 }
 
-impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> AllocVar<DigestWrapper<P>, ConstraintF> for DigestVar<ConstraintF, P, C> {
-    fn new_variable<T: Borrow<DigestWrapper<P>>>(
+impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> AllocVar<DigestWrapper<P, C>, ConstraintF> for DigestVar<ConstraintF, P, C> {
+    fn new_variable<T: Borrow<DigestWrapper<P, C>>>(
         cs: impl Into<Namespace<ConstraintF>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
@@ -54,7 +54,7 @@ impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> AllocVar
 }
 
 impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> R1CSVar<ConstraintF> for DigestVar<ConstraintF, P, C> {
-    type Value = DigestWrapper<P>;
+    type Value = DigestWrapper<P, C>;
 
     fn cs(&self) -> ConstraintSystemRef<ConstraintF> {
         self.c0.cs().or(self.c1.cs())
@@ -64,6 +64,7 @@ impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> R1CSVar<
         Ok(DigestWrapper {
             digest: (self.c0.value()?, self.c1.value()?),
             _params: PhantomData,
+            _circuit_params: PhantomData,
         })
     }
 }
@@ -225,7 +226,7 @@ mod tests {
     }
 
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
     impl BigNatCircuitParams for BigNatTestParams {
         const LIMB_WIDTH: usize = 32;

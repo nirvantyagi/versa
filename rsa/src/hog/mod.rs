@@ -1,6 +1,5 @@
-use algebra::bytes::ToBytes;
 use crate::bignat::{
-    BigNat, Order,
+    BigNat,
     extended_euclidean_gcd,
 };
 
@@ -11,7 +10,6 @@ use std::{
     cmp::min,
     str::FromStr,
     fmt::{self, Debug},
-    io::{Result as IoResult, Write},
 };
 
 use crate::Error;
@@ -49,15 +47,6 @@ impl<P: RsaGroupParams> Hash for RsaHiddenOrderGroup<P> {
         self.n.hash(state)
     }
 }
-
-impl<P: RsaGroupParams> ToBytes for RsaHiddenOrderGroup<P> {
-    fn write<W: Write>(&self, mut writer: W) -> IoResult<()> {
-        //TODO: Must match ToBytesGadget in BigNatVar
-        let digits = self.n.to_digits::<u64>(Order::MsfBe);
-        digits.write(&mut writer)
-    }
-}
-
 
 impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
     pub fn from_nat(n: BigNat) -> Self {

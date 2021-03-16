@@ -12,7 +12,7 @@ pub trait SingleStepAVD: Sized {
     type Digest: ToBytes + Clone + Eq + Hash + Default;
     type PublicParameters: Clone + Default;
     type LookupProof;
-    type UpdateProof: Default;
+    type UpdateProof: Clone + Default;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
