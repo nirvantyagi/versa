@@ -1,9 +1,9 @@
-use algebra::{PrimeField};
-use r1cs_std::{
+use ark_ff::{PrimeField};
+use ark_r1cs_std::{
     prelude::*,
     fields::fp::FpVar,
 };
-use r1cs_core::{ConstraintSystemRef, SynthesisError};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 
 use std::marker::PhantomData;
 
@@ -75,8 +75,9 @@ impl<F: PrimeField> HasherGadget<PoseidonHasher<F>, F> for PoseidonHasherGadget<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
-    use r1cs_core::{ConstraintSystem};
+    use ark_ff::{UniformRand};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem};
     use rand::{rngs::StdRng, SeedableRng};
 
 
@@ -90,11 +91,11 @@ mod tests {
         let input = vec![Fq::rand(&mut rng); 12];
         let h = H::hash(&input);
         let inputvar = Vec::<FpVar<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "input"),
+            ark_relations::ns!(cs, "input"),
             || Ok(&input[..]),
         ).unwrap();
         let hvar = <FpVar<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "h"),
+            ark_relations::ns!(cs, "h"),
             || Ok(&h),
         ).unwrap();
         let result = HG::hash(

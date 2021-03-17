@@ -1,9 +1,9 @@
-use algebra::{PrimeField, FpParameters, BitIteratorLE};
-use r1cs_std::{
+use ark_ff::{PrimeField, FpParameters, BitIteratorLE};
+use ark_r1cs_std::{
     prelude::*,
     fields::fp::FpVar,
 };
-use r1cs_core::{ConstraintSystemRef, SynthesisError, Namespace};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError, Namespace};
 
 use std::{
     borrow::Borrow,
@@ -282,8 +282,9 @@ pub fn miller_rabin_32b<ConstraintF: PrimeField, P: BigNatCircuitParams>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use ark_ff::{UniformRand};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
     use rand::{rngs::StdRng, SeedableRng};
 
@@ -307,7 +308,7 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test valid_prime_hash_trivial_test --release -- --ignored --nocapture``
     fn valid_prime_hash_trivial_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0u64);
@@ -316,11 +317,11 @@ mod tests {
             let h = hash_to_pocklington_prime::<H>(&input, 128).unwrap();
             println!("Length of prime: {}", h.result().significant_bits());
             let inputvar = Vec::<FpVar<Fq>>::new_witness(
-                r1cs_core::ns!(cs, "input"),
+                ark_relations::ns!(cs, "input"),
                 || Ok(&input[..]),
             ).unwrap();
             let hvar = PocklingtonCertificateVar::<Fq, BigNatTestParams, H, HG>::new_witness(
-                r1cs_core::ns!(cs, "h"),
+                ark_relations::ns!(cs, "h"),
                 || Ok(&h),
             ).unwrap();
             check_hash_to_pocklington_prime::<H, HG, _, _>(

@@ -5,13 +5,13 @@ use crypto_primitives::sparse_merkle_tree::{
 use single_step_avd::{SingleStepAVD, constraints::SingleStepAVDGadget};
 use crate::history_tree::SingleStepUpdateProof;
 
-use algebra::fields::{Field, PrimeField};
-use r1cs_core::{SynthesisError, Namespace};
-use r1cs_std::{
+use ark_ff::fields::{Field, PrimeField};
+use ark_relations::r1cs::{SynthesisError, Namespace};
+use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-use zexe_cp::crh::{FixedLengthCRH, FixedLengthCRHGadget};
+use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 use std::{
     borrow::Borrow,
 };
@@ -54,37 +54,37 @@ for SingleStepUpdateProofVar<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
         let cs = ns.cs();
         let f_out = f()?;
         let ssavd_proof = SSAVDGadget::UpdateProofVar::new_variable(
-            r1cs_core::ns!(cs, "ssavd_proof"),
+            ark_relations::ns!(cs, "ssavd_proof"),
             || Ok(&f_out.borrow().ssavd_proof),
             mode,
         )?;
         let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, ConstraintF>>::new_variable(
-            r1cs_core::ns!(cs, "history_tree_proof"),
+            ark_relations::ns!(cs, "history_tree_proof"),
             || Ok(&f_out.borrow().history_tree_proof),
             mode,
         )?;
         let prev_ssavd_digest = SSAVDGadget::DigestVar::new_variable(
-            r1cs_core::ns!(cs, "prev_ssavd_digest"),
+            ark_relations::ns!(cs, "prev_ssavd_digest"),
             || Ok(&f_out.borrow().prev_ssavd_digest),
             mode,
         )?;
         let new_ssavd_digest = SSAVDGadget::DigestVar::new_variable(
-            r1cs_core::ns!(cs, "new_ssavd_digest"),
+            ark_relations::ns!(cs, "new_ssavd_digest"),
             || Ok(&f_out.borrow().new_ssavd_digest),
             mode,
         )?;
         let prev_digest = HGadget::OutputVar::new_variable(
-            r1cs_core::ns!(cs, "prev_digest"),
+            ark_relations::ns!(cs, "prev_digest"),
             || Ok(&f_out.borrow().prev_digest),
             mode,
         )?;
         let new_digest = HGadget::OutputVar::new_variable(
-            r1cs_core::ns!(cs, "new_digest"),
+            ark_relations::ns!(cs, "new_digest"),
             || Ok(&f_out.borrow().new_digest),
             mode,
         )?;
         let prev_epoch = <UInt64<ConstraintF>>::new_variable(
-            r1cs_core::ns!(cs, "prev_epoch"),
+            ark_relations::ns!(cs, "prev_epoch"),
             || Ok(&f_out.borrow().prev_epoch),
             mode,
         )?;
@@ -193,13 +193,12 @@ pub fn hash_to_final_digest_var<SSAVD, SSAVDGadget, H, HGadget, ConstraintF>(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub, Fq};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
-    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
+    use ark_ed_on_bls12_381::{EdwardsProjective as JubJub, Fq, constraints::EdwardsVar};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
     use tracing_subscriber::layer::SubscriberExt;
@@ -336,16 +335,16 @@ mod test {
 
         // Allocate proof variables
         let proof_var = TestHistoryUpdateVar::new_input(
-            r1cs_core::ns!(cs, "alloc_proof"),
+            ark_relations::ns!(cs, "alloc_proof"),
             || Ok(proof),
         ).unwrap();
 
         let ssavd_pp_gadget = <TestMerkleTreeAVDGadget as SingleStepAVDGadget<TestMerkleTreeAVD, Fq>>::PublicParametersVar::new_constant(
-            r1cs_core::ns!(cs, "ssavd_pp"),
+            ark_relations::ns!(cs, "ssavd_pp"),
             &ssavd_pp,
         ).unwrap();
         let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "history_tree_pp"),
+            ark_relations::ns!(cs, "history_tree_pp"),
             &crh_pp,
         ).unwrap();
 
@@ -375,16 +374,16 @@ mod test {
 
         // Allocate proof variables
         let proof_var = TestHistoryUpdateVar::new_input(
-            r1cs_core::ns!(cs, "alloc_proof"),
+            ark_relations::ns!(cs, "alloc_proof"),
             || Ok(proof),
         ).unwrap();
 
         let ssavd_pp_gadget = <TestMerkleTreeAVDGadget as SingleStepAVDGadget<TestMerkleTreeAVD, Fq>>::PublicParametersVar::new_constant(
-            r1cs_core::ns!(cs, "ssavd_pp"),
+            ark_relations::ns!(cs, "ssavd_pp"),
             &ssavd_pp,
         ).unwrap();
         let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "history_tree_pp"),
+            ark_relations::ns!(cs, "history_tree_pp"),
             &crh_pp,
         ).unwrap();
 
@@ -401,7 +400,7 @@ mod test {
     #[ignore]
     fn history_tree_rsa_batch_update_and_verify_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
@@ -423,16 +422,16 @@ mod test {
 
             // Allocate proof variables
             let proof_var = TestRsaUpdateVar::new_input(
-                r1cs_core::ns!(cs, "alloc_proof"),
+                ark_relations::ns!(cs, "alloc_proof"),
                 || Ok(proof),
             ).unwrap();
 
             let ssavd_pp_gadget = <TestRsaAVDGadget as SingleStepAVDGadget<TestRsaAVD, Fq>>::PublicParametersVar::new_constant(
-                r1cs_core::ns!(cs, "ssavd_pp"),
+                ark_relations::ns!(cs, "ssavd_pp"),
                 &ssavd_pp,
             ).unwrap();
             let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-                r1cs_core::ns!(cs, "history_tree_pp"),
+                ark_relations::ns!(cs, "history_tree_pp"),
                 &crh_pp,
             ).unwrap();
 

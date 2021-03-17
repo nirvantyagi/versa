@@ -1,10 +1,10 @@
-use algebra::{Field, PrimeField};
-use r1cs_core::{SynthesisError, Namespace};
-use r1cs_std::{
+use ark_ff::{Field, PrimeField};
+use ark_relations::r1cs::{SynthesisError, Namespace};
+use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-use zexe_cp::crh::FixedLengthCRHGadget;
+use ark_crypto_primitives::crh::FixedLengthCRHGadget;
 
 use crate::{
     constraints::SingleStepAVDGadget,
@@ -52,12 +52,12 @@ where
         let cs = ns.cs();
         let f_out = f()?;
         let paths = Vec::<MerkleTreePathVar<P::MerkleTreeParameters, HGadget, ConstraintF>>::new_variable(
-            r1cs_core::ns!(cs, "merkle_paths"),
+            ark_relations::ns!(cs, "merkle_paths"),
             || Ok(&f_out.borrow().paths[..]),
             mode,
         )?;
         let indices = Vec::<UInt64<ConstraintF>>::new_variable(
-            r1cs_core::ns!(cs, "indices"),
+            ark_relations::ns!(cs, "indices"),
             ||  Ok(&f_out.borrow().indices[..]),
             mode,
         )?;
@@ -65,7 +65,7 @@ where
             .enumerate()
             .map(|(_i, v)| {
                 Vec::<UInt8<ConstraintF>>::new_variable(
-                    r1cs_core::ns!(cs, format!("keys_{}", _i)),
+                    cs.clone(),
                     || Ok(&v[..]),
                     mode,
                 )
@@ -74,7 +74,7 @@ where
             .map(|v| <&[UInt8<ConstraintF>; 32] as TryFrom<&[UInt8<ConstraintF>]>>::try_from(v.as_slice()).unwrap().clone())
             .collect::<Vec<[UInt8<ConstraintF>; 32]>>();
         let versions = Vec::<UInt64<ConstraintF>>::new_variable(
-            r1cs_core::ns!(cs, "versions"),
+            ark_relations::ns!(cs, "versions"),
             || Ok(&f_out.borrow().versions[..]),
             mode,
         )?;
@@ -82,7 +82,7 @@ where
             .enumerate()
             .map(|(_i, v)| {
                 Vec::<UInt8<ConstraintF>>::new_variable(
-                    r1cs_core::ns!(cs, format!("prev_values_{}", _i)),
+                    cs.clone(),
                     || Ok(&v[..]),
                     mode,
                 )
@@ -94,7 +94,7 @@ where
             .enumerate()
             .map(|(_i, v)| {
                 Vec::<UInt8<ConstraintF>>::new_variable(
-                    r1cs_core::ns!(cs, format!("new_values_{}", _i)),
+                    cs.clone(),
                     || Ok(&v[..]),
                     mode,
                 )
@@ -225,13 +225,12 @@ fn concat_leaf_var<ConstraintF: Field>(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub, Fq};
-    use r1cs_core::ConstraintSystem;
-    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
+    use ark_ed_on_bls12_381::{EdwardsProjective as JubJub, Fq, constraints::EdwardsVar};
+    use ark_relations::r1cs::ConstraintSystem;
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
         FixedLengthCRH, FixedLengthCRHGadget,
     };
@@ -282,24 +281,24 @@ mod test {
 
         // Allocate hash parameters
         let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "parameters"),
+            ark_relations::ns!(cs, "parameters"),
             &crh_parameters,
         )
             .unwrap();
 
         // Allocate digest parameters
         let prev_digest_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "prev_digest"),
+            ark_relations::ns!(cs, "prev_digest"),
             || Ok(digest_0.clone()),
         ).unwrap();
         let new_digest_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "new_digest"),
+            ark_relations::ns!(cs, "new_digest"),
             || Ok(digest_1.clone()),
         ).unwrap();
 
         // Allocate proof parameters
         let proof_var = UpdateProofVar::new_witness(
-            r1cs_core::ns!(cs, "proof"),
+            ark_relations::ns!(cs, "proof"),
             || Ok(proof.clone())
             ).unwrap();
 

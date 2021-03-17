@@ -3,7 +3,7 @@ This implementation of Poseidon is taken almost entirely from arkworks:
 https://github.com/arkworks-rs/marlin/blob/constraints/src/fiat_shamir/poseidon/mod.rs
  */
 
-use algebra::{PrimeField};
+use ark_ff::{PrimeField};
 use rand::{rngs::StdRng, SeedableRng};
 
 /// constraints for Poseidon

@@ -1,7 +1,7 @@
 use crate::SingleStepAVD;
-use algebra::Field;
-use r1cs_core::{SynthesisError};
-use r1cs_std::prelude::*;
+use ark_ff::Field;
+use ark_relations::r1cs::{SynthesisError};
+use ark_r1cs_std::prelude::*;
 
 pub trait SingleStepAVDGadget<AVD: SingleStepAVD, ConstraintF: Field>: Sized {
     type PublicParametersVar: AllocVar<AVD::PublicParameters, ConstraintF> + Clone;

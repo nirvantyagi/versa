@@ -4,20 +4,25 @@ use single_step_avd::{
 };
 use crypto_primitives::sparse_merkle_tree::{MerkleTreeParameters};
 
-use zexe_cp::{
+use ark_crypto_primitives::{
     crh::{FixedLengthCRH, FixedLengthCRHGadget},
-    nizk::{groth16::Groth16, NIZK},
+    snark::{SNARK},
 };
-use groth16::verifier::prepare_verifying_key;
-use algebra::{
-    curves::PairingEngine,
+use ark_groth16::{
+    Groth16,
+    verifier::prepare_verifying_key,
+};
+use ark_ff::{
     ToConstraintField,
 };
-use ip_proofs::{
+use ark_ec:: {
+    PairingEngine,
+};
+use ark_ip_proofs::{
     tipa::{SRS},
 };
 
-use rand::{Rng, rngs::mock::StepRng};
+use rand::{Rng, CryptoRng, rngs::mock::StepRng};
 
 use digest::Digest as HashDigest;
 use std::{
@@ -62,56 +67,39 @@ where
     <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
     history_ssavd: SingleStepAVDWithHistory<SSAVD, HTParams>,
-    proofs: Vec<
-        <Groth16<
-            Pairing,
-            SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-            SingleStepProofVerifierInput<HTParams>,
-            > as NIZK
-        >::Proof
-    >,
+    proofs: Vec<<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof>,
     aggregated_proofs: Vec<AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>>,
     digests: Vec<<<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output>,
     digest_openings: Vec<(SSAVD::Digest, <HTParams::H as FixedLengthCRH>::Output)>,
     ssavd_pp: SSAVD::PublicParameters,
-    groth16_pp: <Groth16<
-        Pairing,
-        SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-        SingleStepProofVerifierInput<HTParams>,
-    > as NIZK>::ProvingParameters,
+    groth16_pp: <Groth16<Pairing> as SNARK<Pairing::Fr>>::ProvingKey,
     ip_pp: SRS<Pairing>,
     _params: PhantomData<Params>,
+    _ssavd_gadget: PhantomData<SSAVDGadget>,
+    _hash_gadget: PhantomData<HGadget>,
 }
 
 
 //TODO: Can separate out verification parameters
 //TODO: Can add genesis digest as constant to parameters instead of recalculating on verify
 //TODO: Optimization: Groth16 and Inner Product public parameters may be shared
-pub struct PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing>
+pub struct PublicParameters<SSAVD, HTParams, Pairing>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
         HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
     ssavd_pp: SSAVD::PublicParameters,
     history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
-    groth16_pp: <Groth16<
-        Pairing,
-        SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-        SingleStepProofVerifierInput<HTParams>,
-    > as NIZK>::ProvingParameters,
+    groth16_pp: <Groth16<Pairing> as SNARK<Pairing::Fr>>::ProvingKey,
     ip_pp: SRS<Pairing>,
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing> Clone for PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing>
+impl<SSAVD, HTParams, Pairing> Clone for PublicParameters<SSAVD, HTParams, Pairing>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
         HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
@@ -125,23 +113,16 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing> Clone for PublicParameters<
     }
 }
 
-pub struct DigestProof<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
+pub struct DigestProof<SSAVD, HTParams, Pairing, FastH>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
         HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         FastH: HashDigest,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
     aggregated_proofs: Vec<AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>>,
-    base_proof: Option<
-        <Groth16<
-            Pairing,
-            SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-            SingleStepProofVerifierInput<HTParams>,
-        > as NIZK>::Proof>,
+    base_proof: Option<<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof>,
 }
 
 
@@ -159,22 +140,20 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
     type Digest = Digest<HTParams>;
-    type PublicParameters = PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing>;
+    type PublicParameters = PublicParameters<SSAVD, HTParams, Pairing>;
     type LookupProof = LookupProof<SSAVD, HTParams>;
     type HistoryProof = HistoryProof<SSAVD, HTParams>;
-    type DigestProof = DigestProof<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>;
+    type DigestProof = DigestProof<SSAVD, HTParams, Pairing, FastH>;
 
-    fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
+    fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
         let blank_circuit = SingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>::blank(
             &ssavd_pp,
             &history_tree_pp,
         );
-        let (groth16_pp, _) = Groth16::<
-            Pairing,
-            SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-            SingleStepProofVerifierInput<HTParams>,
-        >::setup(blank_circuit, rng)?;
+        let (groth16_pp, _) = Groth16::<Pairing>::circuit_specific_setup::<
+                SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>, _
+            >(blank_circuit, rng)?;
         let ip_pp = Self::setup_inner_product(rng, (1_u64 << (Params::MAX_EPOCH_LOG_2 as u64)) as usize)?;
         Ok(PublicParameters {
             ssavd_pp,
@@ -184,7 +163,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         })
     }
 
-    fn new<R: Rng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
         let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp)?;
         let digests = vec![history_ssavd.digest().digest];
         let digest_openings = vec![(history_ssavd.ssavd.digest()?, history_ssavd.history_tree.tree.root.clone())];
@@ -198,6 +177,8 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             groth16_pp: pp.groth16_pp.clone(),
             ip_pp: pp.ip_pp.clone(),
             _params: PhantomData,
+            _ssavd_gadget: PhantomData,
+            _hash_gadget: PhantomData,
         })
     }
 
@@ -210,7 +191,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         Ok((value, self.digest()?, proof))
     }
 
-    fn update<R: Rng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
         if self.digest()?.epoch >= 1_u64 << (Params::MAX_EPOCH_LOG_2 as u64) {
             return Err(Box::new(AggregatedFullHistoryAVDError::MaxEpochExceeded));
         }
@@ -219,7 +200,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         self._update(rng, update)
     }
 
-    fn batch_update<R: Rng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
         if self.digest()?.epoch >= 1_u64 << (Params::MAX_EPOCH_LOG_2 as u64) {
             return Err(Box::new(AggregatedFullHistoryAVDError::MaxEpochExceeded));
         }
@@ -268,16 +249,12 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         let valid_last_epoch = if (epoch & 1) == 1 {
             let base_proof = proof.base_proof.as_ref().ok_or(Box::new(AggregatedFullHistoryAVDError::Verification))?;
             (epoch - 1 == prev_epoch) &&
-                Groth16::<
-                    Pairing,
-                    SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-                    SingleStepProofVerifierInput<HTParams>,
-                >::verify(
+                Groth16::<Pairing>::verify_with_processed_vk(
                     &prepare_verifying_key(&pp.groth16_pp.vk),
-                    &SingleStepProofVerifierInput{
+                    &SingleStepProofVerifierInput::<HTParams>{
                         prev_digest: prev_digest,
                         new_digest: digest.digest.clone(),
-                    },
+                    }.to_field_elements().unwrap(),
                     base_proof,
                 )?
         } else {
@@ -325,13 +302,9 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         FastH: HashDigest,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
-    fn _update<R: Rng>(&mut self, rng: &mut R, update: SingleStepUpdateProof<SSAVD, HTParams>)
-        -> Result<(Digest<HTParams>, DigestProof<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>), Error> {
-        let groth16_proof = Groth16::<
-            Pairing,
-            SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>,
-            SingleStepProofVerifierInput<HTParams>,
-        >::prove(
+    fn _update<R: Rng + CryptoRng>(&mut self, rng: &mut R, update: SingleStepUpdateProof<SSAVD, HTParams>)
+        -> Result<(Digest<HTParams>, DigestProof<SSAVD, HTParams, Pairing, FastH>), Error> {
+        let groth16_proof = Groth16::<Pairing>::prove(
             &self.groth16_pp,
             SingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>::new(
                 &self.ssavd_pp, &self.history_ssavd.history_tree.tree.hash_parameters, update,
@@ -410,15 +383,12 @@ impl Display for AggregatedFullHistoryAVDError {
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::{
-        ed_on_bls12_381::{EdwardsProjective as JubJub, Fq},
-        bls12_381::Bls12_381,
-    };
-    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
+    use ark_ed_on_bls12_381::{EdwardsProjective as JubJub, Fq, constraints::EdwardsVar};
+    use ark_bls12_381::Bls12_381;
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::{
+    use ark_crypto_primitives::{
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
     };
     use blake2::Blake2b;

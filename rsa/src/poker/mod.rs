@@ -133,7 +133,7 @@ impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> Po
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{Fq};
+    use ark_ed_on_bls12_381::{Fq};
     use crate::{
         hash::{HasherFromDigest, PoseidonHasher, hash_to_integer::hash_to_integer},
         bignat::fit_nat_to_limbs,

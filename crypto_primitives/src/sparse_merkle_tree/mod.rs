@@ -1,7 +1,13 @@
-use algebra::bytes::ToBytes;
-use zexe_cp::crh::FixedLengthCRH;
+use ark_ff::bytes::ToBytes;
+use ark_crypto_primitives::crh::FixedLengthCRH;
 
-use std::{collections::HashMap, error::Error as ErrorTrait, fmt, io::Cursor, marker::PhantomData};
+use std::{
+    collections::HashMap,
+    error::Error as ErrorTrait,
+    fmt,
+    io::Cursor,
+    marker::PhantomData,
+};
 
 use crate::Error;
 
@@ -225,9 +231,9 @@ impl fmt::Display for MerkleTreeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::EdwardsProjective as JubJub;
+    use ark_ed_on_bls12_381::EdwardsProjective as JubJub;
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
         FixedLengthCRH,
     };

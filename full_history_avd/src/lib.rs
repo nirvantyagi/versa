@@ -1,6 +1,7 @@
-use algebra::bytes::ToBytes;
-use rand::Rng;
+use ark_ff::bytes::ToBytes;
 use std::{error::Error as ErrorTrait};
+
+use rand::{Rng, CryptoRng};
 
 pub mod history_tree;
 pub mod aggregation;
@@ -16,9 +17,9 @@ pub trait FullHistoryAVD: Sized {
     type DigestProof;
     type HistoryProof;
 
-    fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
+    fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 
@@ -27,14 +28,14 @@ pub trait FullHistoryAVD: Sized {
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error>;
 
-    fn update<R: Rng>(
+    fn update<R: Rng + CryptoRng>(
         &mut self,
         rng: &mut R,
         key: &[u8; 32],
         value: &[u8; 32],
     ) -> Result<(Self::Digest, Self::DigestProof), Error>;
 
-    fn batch_update<R: Rng>(
+    fn batch_update<R: Rng + CryptoRng>(
         &mut self,
         rng: &mut R,
         kvs: &Vec<([u8; 32], [u8; 32])>,

@@ -1,4 +1,4 @@
-use algebra::bytes::ToBytes;
+use ark_ff::bytes::ToBytes;
 use rand::Rng;
 use std::{error::Error as ErrorTrait, hash::Hash};
 

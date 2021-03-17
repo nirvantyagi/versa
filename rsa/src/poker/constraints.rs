@@ -1,8 +1,8 @@
-use algebra::{PrimeField};
-use r1cs_std::{
+use ark_ff::{PrimeField};
+use ark_r1cs_std::{
     prelude::*,
 };
-use r1cs_core::{ConstraintSystemRef, SynthesisError, Namespace};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError, Namespace};
 
 use std::{
     borrow::Borrow,
@@ -255,8 +255,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
 
     use crate::{
@@ -305,7 +305,7 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test valid_poker_proof_trivial_test --release -- --ignored --nocapture``
     fn valid_poker_proof_trivial_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -320,11 +320,11 @@ mod tests {
             let proof = Poker::prove(&x, &w).unwrap();
 
             let x_var= StatementVar::<Fq, TestRsa512Params, BigNatTestParams>::new_witness(
-                r1cs_core::ns!(cs, "x"),
+                ark_relations::ns!(cs, "x"),
                 || Ok(&x),
             ).unwrap();
             let proof_var = ProofVar::<Fq, TestRsa512Params, BigNatTestParams, H, HG>::new_witness(
-                r1cs_core::ns!(cs, "proof"),
+                ark_relations::ns!(cs, "proof"),
                 || Ok(&proof),
             ).unwrap();
             enforce_poker_valid::<Fq, TestPokerParams, _, _, H, HG>(

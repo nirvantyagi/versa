@@ -340,7 +340,7 @@ impl fmt::Display for RsaKVACError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{Fq};
+    use ark_ed_on_bls12_381::{Fq};
 
     use crate::hash::{HasherFromDigest, PoseidonHasher};
 

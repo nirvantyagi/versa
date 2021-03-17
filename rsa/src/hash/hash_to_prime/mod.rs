@@ -5,7 +5,7 @@ p' = p * (1 || r || n) + 1
 such that `p'` is prime.
 */
 
-use algebra::{PrimeField, FpParameters};
+use ark_ff::{PrimeField, FpParameters};
 use crate::{
     bignat::{BigNat, limbs_to_nat},
     hash::{Hasher, hash_to_integer::hash_to_integer},
@@ -413,7 +413,8 @@ impl fmt::Display for HashToPrimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
+    use ark_ff::{UniformRand};
+    use ark_ed_on_bls12_381::{Fq};
     use rand::{rngs::StdRng, SeedableRng};
 
     use crate::hash::{

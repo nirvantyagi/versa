@@ -1,6 +1,6 @@
 use rand::Rng;
 use sha3::{digest::Digest, Sha3_256};
-use zexe_cp::crh::FixedLengthCRH;
+use ark_crypto_primitives::crh::FixedLengthCRH;
 
 use std::{collections::HashMap, error::Error as ErrorTrait, fmt};
 
@@ -388,11 +388,11 @@ impl fmt::Display for MerkleTreeAVDError {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::EdwardsProjective as JubJub;
+    use ark_ed_on_bls12_381::EdwardsProjective as JubJub;
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
         FixedLengthCRH,
     };

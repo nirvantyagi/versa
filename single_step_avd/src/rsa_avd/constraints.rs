@@ -1,6 +1,6 @@
-use algebra::{PrimeField};
-use r1cs_core::{SynthesisError, Namespace, ConstraintSystemRef};
-use r1cs_std::{
+use ark_ff::{PrimeField};
+use ark_relations::r1cs::{SynthesisError, Namespace, ConstraintSystemRef};
+use ark_r1cs_std::{
     prelude::*,
 };
 
@@ -197,8 +197,8 @@ impl<ConstraintF: PrimeField> AllocVar<(), ConstraintF> for EmptyVar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
 
     use rsa::{
@@ -273,7 +273,7 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test valid_rsa_avd_update_trivial_test --release -- --ignored --nocapture``
     fn valid_rsa_avd_update_trivial_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
@@ -323,7 +323,7 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test conditional_invalid_rsa_avd_update_test --release -- --ignored --nocapture``
     fn conditional_invalid_rsa_avd_update_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);

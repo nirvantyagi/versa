@@ -7,22 +7,20 @@ use crypto_primitives::sparse_merkle_tree::{
     constraints::MerkleTreePathVar,
 };
 
-use algebra::{
+use ark_ff::{
     ToConstraintField,
     fields::{PrimeField},
 };
-use r1cs_core::{
+use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystemRef, SynthesisError,
 };
-use r1cs_std::{
-    alloc::AllocVar,
+use ark_r1cs_std::{
+    prelude::*,
     uint64::UInt64,
-    boolean::Boolean,
 };
-use zexe_cp::crh::{FixedLengthCRH, FixedLengthCRHGadget};
+use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 
 use crate::{
-    Error,
     history_tree::{
         SingleStepUpdateProof,
         constraints::SingleStepUpdateProofVar,
@@ -68,44 +66,44 @@ where
     ) -> Result<(), SynthesisError> {
         // Allocate constants
         let ssavd_pp = SSAVDGadget::PublicParametersVar::new_constant(
-            r1cs_core::ns!(cs, "ssavd_pp"),
+            ark_relations::ns!(cs, "ssavd_pp"),
             &self.ssavd_pp,
         )?;
         let history_tree_pp = HGadget::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "history_tree_pp"),
+            ark_relations::ns!(cs, "history_tree_pp"),
             &self.history_tree_pp,
         )?;
 
         // Allocate public inputs
         //TODO: Testing: Switch back to inputs
-        let prev_digest = HGadget::OutputVar::new_witness(
-            r1cs_core::ns!(cs, "prev_digest"),
+        let prev_digest = HGadget::OutputVar::new_input(
+            ark_relations::ns!(cs, "prev_digest"),
             || Ok(&self.proof.prev_digest),
         )?;
-        let new_digest = HGadget::OutputVar::new_witness(
-            r1cs_core::ns!(cs, "new_digest"),
+        let new_digest = HGadget::OutputVar::new_input(
+            ark_relations::ns!(cs, "new_digest"),
             || Ok(&self.proof.new_digest),
         )?;
 
         // Allocate witness inputs
         let ssavd_proof = SSAVDGadget::UpdateProofVar::new_witness(
-            r1cs_core::ns!(cs, "ssavd_proof"),
+            ark_relations::ns!(cs, "ssavd_proof"),
             || Ok(&self.proof.ssavd_proof),
         )?;
         let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, ConstraintF>>::new_witness(
-            r1cs_core::ns!(cs, "history_tree_proof"),
+            ark_relations::ns!(cs, "history_tree_proof"),
             || Ok(&self.proof.history_tree_proof),
         )?;
         let prev_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            r1cs_core::ns!(cs, "prev_ssavd_digest"),
+            ark_relations::ns!(cs, "prev_ssavd_digest"),
             || Ok(&self.proof.prev_ssavd_digest),
         )?;
         let new_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            r1cs_core::ns!(cs, "new_ssavd_digest"),
+            ark_relations::ns!(cs, "new_ssavd_digest"),
             || Ok(&self.proof.new_ssavd_digest),
         )?;
         let prev_epoch = UInt64::new_witness(
-            r1cs_core::ns!(cs, "prev_epoch"),
+            ark_relations::ns!(cs, "prev_epoch"),
             || Ok(&self.proof.prev_epoch),
         )?;
 
@@ -173,34 +171,31 @@ HTParams: MerkleTreeParameters,
 ConstraintF: PrimeField,
 <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<ConstraintF>,
 {
-    fn to_field_elements(&self) -> Result<Vec<ConstraintF>, Error> {
+    fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
-        v.extend_from_slice(&self.prev_digest.to_field_elements()?);
-        v.extend_from_slice(&self.new_digest.to_field_elements()?);
+        v.extend_from_slice(&self.prev_digest.to_field_elements().unwrap_or_default());
+        v.extend_from_slice(&self.new_digest.to_field_elements().unwrap_or_default());
         println!("Public input length: {}", v.len());
         let a = v.iter().map(|f| rsa::bignat::f_to_nat(f)).collect::<Vec<rsa::bignat::BigNat>>();
         println!("Public inputs: {:?}", a);
         println!("Public inputs as fields: {:?}", v.clone());
-        //Ok(v)
-        Ok(vec![])
+        Some(v)
     }
 }
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::{
-        ed_on_bls12_381::{EdwardsProjective as JubJub, Fq},
-        bls12_381::Bls12_381,
-    };
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
-    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
+    use ark_ed_on_bls12_381::{EdwardsProjective as JubJub, Fq, constraints::EdwardsVar};
+    use ark_bls12_381::Bls12_381;
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::{
+    use ark_crypto_primitives::{
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
-        nizk::{groth16::Groth16, NIZK},
+        snark::SNARK,
     };
+    use ark_groth16::Groth16;
     use tracing_subscriber::layer::SubscriberExt;
 
     use single_step_avd::{
@@ -355,7 +350,7 @@ mod test {
             &crh_pp,
         );
         let parameters =
-            Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::setup(blank_circuit, &mut rng).unwrap();
+            Groth16::<Bls12_381>::circuit_specific_setup::<TestCircuit, _>(blank_circuit, &mut rng).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -363,7 +358,7 @@ mod test {
         // Generate proof
         println!("Generating proof...");
         let start = Instant::now();
-        let circuit_proof = Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::prove(
+        let circuit_proof = Groth16::<Bls12_381>::prove(
             &parameters.0,
             TestCircuit::new(&ssavd_pp, &crh_pp, proof),
             &mut rng,
@@ -372,15 +367,15 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify proof
-        let result = Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::verify(
-            &parameters.1,
-            &verifier_input,
+        let result = Groth16::<Bls12_381>::verify_with_processed_vk(
+            &Groth16::process_vk(&parameters.1).unwrap(),
+            &verifier_input.to_field_elements().unwrap(),
             &circuit_proof,
         ).unwrap();
         assert!(result);
-        let result2 = Groth16::<Bls12_381, TestCircuit, TestVerifierInput>::verify(
-            &parameters.1,
-            &TestVerifierInput{prev_digest: Default::default(), new_digest: Default::default()},
+        let result2 = Groth16::<Bls12_381>::verify_with_processed_vk(
+            &Groth16::process_vk(&parameters.1).unwrap(),
+            &TestVerifierInput{prev_digest: Default::default(), new_digest: Default::default()}.to_field_elements().unwrap(),
             &circuit_proof,
         ).unwrap();
         assert!(!result2);
@@ -417,7 +412,7 @@ mod test {
 
         // Generate proof circuit
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -437,8 +432,7 @@ mod test {
             &ssavd_pp,
             &crh_pp,
         );
-        let parameters =
-            Groth16::<Bls12_381, TestRsaCircuit, TestVerifierInput>::setup(blank_circuit, &mut rng).unwrap();
+        let parameters = Groth16::<Bls12_381>::circuit_specific_setup(blank_circuit, &mut rng).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -446,7 +440,7 @@ mod test {
         // Generate proof
         println!("Generating proof...");
         let start = Instant::now();
-        let circuit_proof = Groth16::<Bls12_381, TestRsaCircuit, TestVerifierInput>::prove(
+        let circuit_proof = Groth16::<Bls12_381>::prove(
             &parameters.0,
             TestRsaCircuit::new(&ssavd_pp, &crh_pp, proof),
             &mut rng,
@@ -455,15 +449,15 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify proof
-        let result = Groth16::<Bls12_381, TestRsaCircuit, TestVerifierInput>::verify(
-            &parameters.1,
-            &verifier_input,
+        let result = Groth16::<Bls12_381>::verify_with_processed_vk(
+            &Groth16::process_vk(&parameters.1).unwrap(),
+            &verifier_input.to_field_elements().unwrap(),
             &circuit_proof,
         ).unwrap();
         assert!(result);
-        let result2 = Groth16::<Bls12_381, TestRsaCircuit, TestVerifierInput>::verify(
-            &parameters.1,
-            &TestVerifierInput{prev_digest: Default::default(), new_digest: Default::default()},
+        let result2 = Groth16::<Bls12_381>::verify_with_processed_vk(
+            &Groth16::process_vk(&parameters.1).unwrap(),
+            &TestVerifierInput{prev_digest: Default::default(), new_digest: Default::default()}.to_field_elements().unwrap(),
             &circuit_proof,
         ).unwrap();
         assert!(!result2);

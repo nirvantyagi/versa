@@ -1,5 +1,5 @@
 use rand::Rng;
-use algebra::bytes::ToBytes;
+use ark_ff::bytes::ToBytes;
 
 use crate::{Error, SingleStepAVD};
 

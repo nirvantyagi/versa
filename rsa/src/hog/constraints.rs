@@ -1,6 +1,6 @@
-use algebra::{PrimeField};
-use r1cs_core::{SynthesisError, Namespace, ConstraintSystemRef};
-use r1cs_std::{
+use ark_ff::{PrimeField};
+use ark_relations::r1cs::{SynthesisError, Namespace, ConstraintSystemRef};
+use ark_r1cs_std::{
     prelude::*,
 };
 
@@ -168,8 +168,8 @@ impl<ConstraintF: PrimeField, RsaP: RsaGroupParams, CircuitP: BigNatCircuitParam
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{Fq};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
     use crate::{
         hash::{HasherFromDigest, hash_to_integer::hash_to_integer},
@@ -232,18 +232,18 @@ mod tests {
     #[test]
     fn valid_inverse_op_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
             let a = Hog::from_nat(BigNat::from(30));
             let inv_a = a.inverse().unwrap();
             let a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let inv_a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "inv_a"),
+                ark_relations::ns!(cs, "inv_a"),
                 || Ok(&inv_a),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
@@ -253,11 +253,11 @@ mod tests {
             let a = Hog::from_nat(BigNat::from(-30) + TestRsaParams::m());
             let inv_a = a.inverse().unwrap();
             let a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let inv_a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "inv_a"),
+                ark_relations::ns!(cs, "inv_a"),
                 || Ok(&inv_a),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn valid_multiple_ops_without_dedup_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -288,23 +288,23 @@ mod tests {
             let d = Hog::from_nat(BigNat::from(60)).inverse().unwrap();
             let result = a.op(&b).op(&c).op(&d);
             let a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let b_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "b"),
+                ark_relations::ns!(cs, "b"),
                 || Ok(&b),
             ).unwrap();
             let c_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "c"),
+                ark_relations::ns!(cs, "c"),
                 || Ok(&c),
             ).unwrap();
             let d_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "d"),
+                ark_relations::ns!(cs, "d"),
                 || Ok(&d),
             ).unwrap();
             let result_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "result"),
+                ark_relations::ns!(cs, "result"),
                 || Ok(&result),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn valid_power_2048_16_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -338,15 +338,15 @@ mod tests {
             let exp1 = BigNat::from(450);
             let result = a.power(&exp1);
             let a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp1"),
+                ark_relations::ns!(cs, "exp1"),
                 || Ok(&exp1),
             ).unwrap();
             let result_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "result"),
+                ark_relations::ns!(cs, "result"),
                 || Ok(&result),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
@@ -371,7 +371,7 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test valid_power_2048_256_test --release -- --ignored --nocapture``
     fn valid_power_2048_256_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -379,15 +379,15 @@ mod tests {
             let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], 256);
             let result = a.power(&exp1);
             let a_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp1"),
+                ark_relations::ns!(cs, "exp1"),
                 || Ok(&exp1),
             ).unwrap();
             let result_var = HogVar::new_witness(
-                r1cs_core::ns!(cs, "result"),
+                ark_relations::ns!(cs, "result"),
                 || Ok(&result),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsaParams::m()).unwrap();
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     fn valid_power_512_16_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -419,15 +419,15 @@ mod tests {
             let exp1 = hash_to_integer::<H>(&[Fq::from(1u8)], 16);
             let result = a.power(&exp1);
             let a_var = HogVar512::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let exp1_var = BigNatVar::<Fq, BigNatTestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp1"),
+                ark_relations::ns!(cs, "exp1"),
                 || Ok(&exp1),
             ).unwrap();
             let result_var = HogVar512::new_witness(
-                r1cs_core::ns!(cs, "result"),
+                ark_relations::ns!(cs, "result"),
                 || Ok(&result),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNatTestParams>::constant(&TestRsa512Params::m()).unwrap();
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn valid_multiple_power_without_dedup_512_16_test() {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
@@ -461,23 +461,23 @@ mod tests {
             let exp3 = hash_to_integer::<H>(&[Fq::from(3u8)], 16);
             let result = a.power(&exp1).power(&exp2).power(&exp3);
             let a_var = HogVar512All::new_witness(
-                r1cs_core::ns!(cs, "a"),
+                ark_relations::ns!(cs, "a"),
                 || Ok(&a),
             ).unwrap();
             let exp1_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp1"),
+                ark_relations::ns!(cs, "exp1"),
                 || Ok(&exp1),
             ).unwrap();
             let exp2_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp2"),
+                ark_relations::ns!(cs, "exp2"),
                 || Ok(&exp2),
             ).unwrap();
             let exp3_var = BigNatVar::<Fq, BigNat512TestParams>::new_witness(
-                r1cs_core::ns!(cs, "exp3"),
+                ark_relations::ns!(cs, "exp3"),
                 || Ok(&exp3),
             ).unwrap();
             let result_var = HogVar512All::new_witness(
-                r1cs_core::ns!(cs, "result"),
+                ark_relations::ns!(cs, "result"),
                 || Ok(&result),
             ).unwrap();
             let mod_var = BigNatVar::<Fq, BigNat512TestParams>::constant(&TestRsa512Params::m()).unwrap();

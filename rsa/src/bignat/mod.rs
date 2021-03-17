@@ -1,5 +1,5 @@
 use rug::{Integer, integer::Order as BitOrder};
-use algebra::{
+use ark_ff::{
     fields::{PrimeField, FpParameters},
     biginteger::BigInteger,
 };
@@ -156,8 +156,8 @@ impl fmt::Display for BigNatError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::UniformRand;
-    use algebra::ed_on_bls12_381::{Fq};
+    use ark_ff::UniformRand;
+    use ark_ed_on_bls12_381::{Fq};
     use std::str::FromStr;
     use rand::{rngs::StdRng, SeedableRng};
 

@@ -1,6 +1,6 @@
-use algebra::{PrimeField, BitIteratorBE, FpParameters};
-use r1cs_core::{SynthesisError, Namespace, ConstraintSystemRef};
-use r1cs_std::{
+use ark_ff::{PrimeField, BitIteratorBE, FpParameters};
+use ark_relations::r1cs::{SynthesisError, Namespace, ConstraintSystemRef};
+use ark_r1cs_std::{
     prelude::*,
     fields::fp::FpVar,
 };
@@ -514,7 +514,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         if cs != ConstraintSystemRef::None {
             for b in bits.iter().rev() { // Switch to little-endian
                 bit_vars.push(Boolean::<ConstraintF>::new_witness(
-                    r1cs_core::ns!(cs, "bit"),
+                    ark_relations::ns!(cs, "bit"),
                     || Ok(b),
                 )?);
             }
@@ -736,12 +736,10 @@ pub fn select_index<ConstraintF: PrimeField, T: CondSelectGadget<ConstraintF>> (
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{Fq};
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
+    use ark_ff::ToBytes;
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use tracing_subscriber::layer::SubscriberExt;
-
-    use algebra::ToBytes;
-
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct BigNatTestParams;
@@ -816,19 +814,19 @@ mod tests {
 
     fn carry_over_equal_test(vec1: Vec<u64>, vec2: Vec<u64>, word_size_1: u64, word_size_2: u64, should_satisfy: bool) {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
             let cs = ConstraintSystem::<Fq>::new_ref();
             let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat1"),
+                ark_relations::ns!(cs, "nat1"),
                 &vec1,
                 BigNat::from(word_size_1),
                 AllocationMode::Witness,
             ).unwrap();
             let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat2"),
+                ark_relations::ns!(cs, "nat2"),
                 &vec2,
                 BigNat::from(word_size_2),
                 AllocationMode::Witness,
@@ -932,25 +930,25 @@ mod tests {
         should_satisfy: bool,
     ) {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
             let cs = ConstraintSystem::<Fq>::new_ref();
             let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat1"),
+                ark_relations::ns!(cs, "nat1"),
                 &vec1,
                 BigNat::from(word_size_1),
                 AllocationMode::Witness,
             ).unwrap();
             let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat2"),
+                ark_relations::ns!(cs, "nat2"),
                 &vec2,
                 BigNat::from(word_size_2),
                 AllocationMode::Witness,
             ).unwrap();
             let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat3"),
+                ark_relations::ns!(cs, "nat3"),
                 &vec3,
                 BigNat::from(word_size_3),
                 AllocationMode::Witness,
@@ -1006,25 +1004,25 @@ mod tests {
         should_satisfy: bool,
     ) {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
             let cs = ConstraintSystem::<Fq>::new_ref();
             let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat1"),
+                ark_relations::ns!(cs, "nat1"),
                 &vec1,
                 BigNat::from(word_size_1),
                 AllocationMode::Witness,
             ).unwrap();
             let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat2"),
+                ark_relations::ns!(cs, "nat2"),
                 &vec2,
                 BigNat::from(word_size_2),
                 AllocationMode::Witness,
             ).unwrap();
             let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat3"),
+                ark_relations::ns!(cs, "nat3"),
                 &vec3,
                 BigNat::from(word_size_3),
                 AllocationMode::Witness,
@@ -1083,31 +1081,31 @@ mod tests {
         should_satisfy: bool,
     ) {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
             let cs = ConstraintSystem::<Fq>::new_ref();
             let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat1"),
+                ark_relations::ns!(cs, "nat1"),
                 &vec1,
                 BigNat::from(word_size_1),
                 AllocationMode::Witness,
             ).unwrap();
             let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat2"),
+                ark_relations::ns!(cs, "nat2"),
                 &vec2,
                 BigNat::from(word_size_2),
                 AllocationMode::Witness,
             ).unwrap();
             let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat3"),
+                ark_relations::ns!(cs, "nat3"),
                 &vec3,
                 BigNat::from(word_size_3),
                 AllocationMode::Witness,
             ).unwrap();
             let modvar = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "mod"),
+                ark_relations::ns!(cs, "mod"),
                 &modvec,
                 BigNat::from(mod_word_size),
                 AllocationMode::Witness,
@@ -1179,33 +1177,33 @@ mod tests {
         should_satisfy: bool,
     ) {
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             println!("vec1: {:?}, vec2: {:?}", vec1.clone(), vec2.clone());
             let cs = ConstraintSystem::<Fq>::new_ref();
             let nat1var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat1"),
+                ark_relations::ns!(cs, "nat1"),
                 &vec1,
                 BigNat::from(word_size_1),
                 AllocationMode::Witness,
             ).unwrap();
             println!("vec1: {}", limbs_to_nat(&nat1var.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
             let nat2var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat2"),
+                ark_relations::ns!(cs, "nat2"),
                 &vec2,
                 BigNat::from(word_size_2),
                 AllocationMode::Witness,
             ).unwrap();
             println!("vec2: {}", limbs_to_nat(&nat2var.limbs.value().unwrap(), BigNatTestParams::LIMB_WIDTH));
             let nat3var = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "nat3"),
+                ark_relations::ns!(cs, "nat3"),
                 &vec3,
                 BigNat::from(word_size_3),
                 AllocationMode::Witness,
             ).unwrap();
             let modvar = BigNatVar::<Fq, BigNatTestParams>::alloc_from_u64_limbs(
-                r1cs_core::ns!(cs, "mod"),
+                ark_relations::ns!(cs, "mod"),
                 &modvec,
                 BigNat::from(mod_word_size),
                 AllocationMode::Witness,

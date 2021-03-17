@@ -1,4 +1,4 @@
-use algebra::{
+use ark_ff::{
     biginteger::BigInteger,
     fields::{PrimeField, FpParameters},
 };

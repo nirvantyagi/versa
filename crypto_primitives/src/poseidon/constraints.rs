@@ -3,10 +3,12 @@ This implementation of Poseidon is taken almost entirely from arkworks:
 https://github.com/arkworks-rs/marlin/blob/constraints/src/fiat_shamir/poseidon/constraints.rs
  */
 
-use algebra::{PrimeField};
-use r1cs_std::fields::fp::FpVar;
-use r1cs_std::prelude::*;
-use r1cs_core::{ConstraintSystemRef, SynthesisError};
+use ark_ff::{PrimeField};
+use ark_r1cs_std::{
+    prelude::*,
+    fields::fp::FpVar,
+};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 use rand::{rngs::StdRng, SeedableRng};
 
 use crate::poseidon::{PoseidonSponge, PoseidonSpongeState, AlgebraicSponge};
@@ -239,7 +241,7 @@ impl<F: PrimeField> AlgebraicSpongeVar<F, PoseidonSponge<F>> for PoseidonSpongeV
 
         for state_elem in pfs.state.iter() {
             state_gadgets.push(
-                FpVar::<F>::new_constant(r1cs_core::ns!(cs, "alloc_elems"), *state_elem)
+                FpVar::<F>::new_constant(ark_relations::ns!(cs, "alloc_elems"), *state_elem)
                     .unwrap(),
             );
         }

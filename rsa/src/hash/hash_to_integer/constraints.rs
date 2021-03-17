@@ -1,9 +1,9 @@
-use algebra::{PrimeField, FpParameters};
-use r1cs_std::{
+use ark_ff::{PrimeField, FpParameters};
+use ark_r1cs_std::{
     prelude::*,
     fields::fp::FpVar,
 };
-use r1cs_core::{ConstraintSystemRef, SynthesisError};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 
 use crate::{
     bignat::constraints::{BigNatCircuitParams, BigNatVar},
@@ -50,8 +50,9 @@ pub fn check_hash_to_integer<H, HG, ConstraintF, P>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use algebra::{ed_on_bls12_381::{Fq}, UniformRand};
-    use r1cs_core::{ConstraintSystem};
+    use ark_ff::{UniformRand};
+    use ark_ed_on_bls12_381::{Fq};
+    use ark_relations::r1cs::{ConstraintSystem};
     use rand::{rngs::StdRng, SeedableRng};
 
     use crate::hash::{
@@ -77,11 +78,11 @@ mod tests {
         let input = vec![Fq::rand(&mut rng); 12];
         let h = hash_to_integer::<H>(&input, 128);
         let inputvar = Vec::<FpVar<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "input"),
+            ark_relations::ns!(cs, "input"),
             || Ok(&input[..]),
         ).unwrap();
         let hvar = BigNatVar::<Fq, BigNatTestParams>::new_witness(
-            r1cs_core::ns!(cs, "h"),
+            ark_relations::ns!(cs, "h"),
             || Ok(&h),
         ).unwrap();
         check_hash_to_integer::<H, HG, _, _>(

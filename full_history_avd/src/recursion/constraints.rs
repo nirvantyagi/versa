@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
@@ -6,35 +7,32 @@ use crypto_primitives::sparse_merkle_tree::{
     MerkleTreeParameters,
     constraints::MerkleTreePathVar,
 };
-use algebra::{
+use ark_ff::{
     biginteger::BigInteger,
     ToConstraintField,
     fields::{PrimeField, FpParameters},
-    curves::{CycleEngine, PairingEngine},
 };
-use groth16::{Proof, VerifyingKey};
-use r1cs_core::{
+use ark_ec::{
+    CycleEngine, PairingEngine,
+};
+use ark_groth16::{
+    Groth16, Proof, VerifyingKey,
+    constraints::{ProofVar, VerifyingKeyVar},
+};
+use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystemRef, SynthesisError,
 };
-use r1cs_std::{
+use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
     fields::fp::FpVar,
     ToConstraintFieldGadget,
 };
-use zexe_cp::{
+use ark_crypto_primitives::{
     crh::{FixedLengthCRH, FixedLengthCRHGadget},
-    nizk::{
-        constraints::NIZKVerifierGadget,
-        groth16::{
-            constraints::{Groth16VerifierGadget, ProofVar, VerifyingKeyVar},
-            Groth16,
-        },
-    },
 };
 
 use crate::{
-    Error,
     history_tree::{
         SingleStepAVDWithHistory,
         SingleStepUpdateProof,
@@ -47,6 +45,52 @@ use std::{
     marker::PhantomData, ops::MulAssign, convert::TryFrom,
 };
 use bench_utils::{end_timer, start_timer};
+
+//Helper method to allow for efficient packing of inputs to Groth16 Gadget
+#[tracing::instrument(target = "r1cs", skip(circuit_vk, public_inputs, proof))]
+fn verify_with_processed_vk<E: PairingEngine, P: PairingVar<E, E::Fq>, T: ToBitsGadget<E::Fq>>(
+    circuit_vk: &VerifyingKeyVar<E, P>,
+    public_inputs: &Vec<T>,
+    proof: &ProofVar<E, P>,
+) -> Result<Boolean<E::Fq>, SynthesisError> {
+    let circuit_pvk = circuit_vk.prepare()?;
+
+    let g_ic = {
+        let mut g_ic: P::G1Var = circuit_pvk.gamma_abc_g1[0].clone();
+        let mut input_len = 1;
+        for (input, b) in public_inputs.iter()
+            .zip(circuit_pvk.gamma_abc_g1.iter().skip(1))
+        {
+            let encoded_input_i: P::G1Var = b.scalar_mul_le(input.to_bits_le()?.iter())?;
+            g_ic += encoded_input_i;
+            input_len += 1;
+        }
+        // Check that the input and the query in the verification are of the
+        // same length.
+        assert!(input_len == circuit_pvk.gamma_abc_g1.len() && input_len - 1 == public_inputs.len());
+        g_ic
+    };
+
+    let test_exp = {
+        let proof_a_prep = P::prepare_g1(&proof.a)?;
+        let proof_b_prep = P::prepare_g2(&proof.b)?;
+        let proof_c_prep = P::prepare_g1(&proof.c)?;
+
+        let g_ic_prep = P::prepare_g1(&g_ic)?;
+
+        P::miller_loop(
+            &[proof_a_prep, g_ic_prep, proof_c_prep],
+            &[
+                proof_b_prep,
+                circuit_pvk.gamma_g2_neg_pc.clone(),
+                circuit_pvk.delta_g2_neg_pc.clone(),
+            ],
+        )?
+    };
+
+    let test = P::final_exponentiation(&test_exp)?;
+    test.is_eq(&circuit_pvk.alpha_g1_beta_g2)
+}
 
 
 pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
@@ -112,13 +156,13 @@ where
         // Allocate constants
         let ssavd_pp_time = start_timer!(|| "Generating SSAVD parameters");
         let ssavd_pp = SSAVDGadget::PublicParametersVar::new_constant(
-            r1cs_core::ns!(cs, "ssavd_pp"),
+            ark_relations::ns!(cs, "ssavd_pp"),
             &self.ssavd_pp,
         )?;
         end_timer!(ssavd_pp_time);
         let ht_pp_time = start_timer!(|| "Generating history tree parameters");
         let history_tree_pp = HGadget::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "history_tree_pp"),
+            ark_relations::ns!(cs, "history_tree_pp"),
             &self.history_tree_pp,
         )?;
         end_timer!(ht_pp_time);
@@ -129,7 +173,7 @@ where
             &self.history_tree_pp,
         ).unwrap().digest().digest;
         let genesis_digest = HGadget::OutputVar::new_constant(
-            r1cs_core::ns!(cs, "genesis_digest"),
+            ark_relations::ns!(cs, "genesis_digest"),
             &genesis_digest_val,
         )?;
         end_timer!(genesis_digest_time);
@@ -138,13 +182,13 @@ where
         let public_input_time = start_timer!(|| "Allocating public inputs");
         let new_digest_time = start_timer!(|| "Generating new digest");
         let new_digest = HGadget::OutputVar::new_input(
-            r1cs_core::ns!(cs, "new_digest"),
+            ark_relations::ns!(cs, "new_digest"),
             || Ok(if self.is_genesis { &genesis_digest_val } else {&self.proof.new_digest} ),
         )?;
         end_timer!(new_digest_time);
         let new_epoch_time = start_timer!(|| "Generating new epoch");
         let new_epoch = UInt64::new_input(
-            r1cs_core::ns!(cs, "new_epoch"),
+            ark_relations::ns!(cs, "new_epoch"),
             || Ok(if self.is_genesis { 0 } else { self.proof.prev_epoch + 1 }),
         )?;
         end_timer!(new_epoch_time);
@@ -154,32 +198,32 @@ where
         let witness_input_time = start_timer!(|| "Allocating witness inputs");
         let time = start_timer!(|| "Generating prev digest");
         let prev_digest = HGadget::OutputVar::new_witness(
-            r1cs_core::ns!(cs, "prev_digest"),
+            ark_relations::ns!(cs, "prev_digest"),
             || Ok(&self.proof.prev_digest),
         )?;
         end_timer!(time);
         let time = start_timer!(|| "Generating SSAVD update proof");
         let ssavd_proof = SSAVDGadget::UpdateProofVar::new_witness(
-            r1cs_core::ns!(cs, "ssavd_proof"),
+            ark_relations::ns!(cs, "ssavd_proof"),
             || Ok(&self.proof.ssavd_proof),
         )?;
         end_timer!(time);
         let time = start_timer!(|| "Generating history tree update proof");
         let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, _>>::new_witness(
-            r1cs_core::ns!(cs, "history_tree_proof"),
+            ark_relations::ns!(cs, "history_tree_proof"),
             || Ok(&self.proof.history_tree_proof),
         )?;
         end_timer!(time);
         let prev_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            r1cs_core::ns!(cs, "prev_ssavd_digest"),
+            ark_relations::ns!(cs, "prev_ssavd_digest"),
             || Ok(&self.proof.prev_ssavd_digest),
         )?;
         let new_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            r1cs_core::ns!(cs, "new_ssavd_digest"),
+            ark_relations::ns!(cs, "new_ssavd_digest"),
             || Ok(&self.proof.new_ssavd_digest),
         )?;
         let prev_epoch = UInt64::new_witness(
-            r1cs_core::ns!(cs, "prev_epoch"),
+            ark_relations::ns!(cs, "prev_epoch"),
             || Ok(&self.proof.prev_epoch),
         )?;
         let prev_recursive_proof = ProofVar::<Cycle::E2, E2Gadget>::new_witness(
@@ -187,7 +231,7 @@ where
             || Ok(&self.prev_recursive_proof),
         )?;
         let vk = VerifyingKeyVar::<Cycle::E2, E2Gadget>::new_witness(
-            r1cs_core::ns!(cs, "vk"),
+            ark_relations::ns!(cs, "vk"),
             || Ok(&self.vk),
         )?;
         end_timer!(witness_input_time);
@@ -242,14 +286,7 @@ where
             })
             .collect::<Vec<Vec<UInt8<_>>>>();
 
-        let outer_proof_verifies = <Groth16VerifierGadget<Cycle::E2, E2Gadget> as NIZKVerifierGadget<
-            Groth16<
-                Cycle::E2,
-                OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-                OuterVerifierInput<HTParams, Cycle>,
-            >,
-            <Cycle::E2 as PairingEngine>::Fq,
-        >>::verify(&vk, &inner_proof_input_as_e1_fq_bytes, &prev_recursive_proof)?;
+        let outer_proof_verifies = verify_with_processed_vk(&vk, &inner_proof_input_as_e1_fq_bytes, &prev_recursive_proof)?;
         outer_proof_verifies.conditional_enforce_equal(&Boolean::TRUE, &is_genesis.not())?;
         end_timer!(time);
 
@@ -335,9 +372,10 @@ HTParams: MerkleTreeParameters,
 ConstraintF: PrimeField,
 <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<ConstraintF>,
 {
-    fn to_field_elements(&self) -> Result<Vec<ConstraintF>, Error> {
+    //TODO: Change UInt64 variable to pack into one field element
+    fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
-        v.extend_from_slice(&self.new_digest.to_field_elements()?);
+        v.extend_from_slice(&self.new_digest.to_field_elements().unwrap_or_default());
         let mut tmp = self.new_epoch;
         for _ in 0..64 {
             v.push(<ConstraintF>::from((tmp & 1 == 1) as u8));
@@ -346,10 +384,11 @@ ConstraintF: PrimeField,
         println!("Public input length: {}", v.len());
         let a = v.iter().map(|f| rsa::bignat::f_to_nat(f)).collect::<Vec<rsa::bignat::BigNat>>();
         println!("Public inputs: {:?}", a);
-        Ok(v)
+        Some(v)
     }
 }
 
+//TODO: Outer circuit doesn't need to depend on SSAVD
 pub struct OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
     where
         SSAVD: SingleStepAVD,
@@ -381,7 +420,7 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> Constrain
 for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
+        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
         HTParams: MerkleTreeParameters,
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
         Cycle: CycleEngine,
@@ -406,7 +445,7 @@ for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadge
             .collect::<Vec<Vec<Vec<u8>>>>().iter()
             .flatten().flatten().cloned().collect::<Vec<u8>>();
         let inner_proof_input_as_e1_fr_bytes_var = UInt8::<<Cycle::E1 as PairingEngine>::Fq>::new_input_vec(
-            r1cs_core::ns!(cs, "e1_fr_bytes"),
+            ark_relations::ns!(cs, "e1_fr_bytes"),
             &inner_proof_input_as_e1_fr_bytes,
         )?;
         let e1_fr_size_in_bytes = <<<Cycle::E1 as PairingEngine>::Fr as PrimeField>::BigInt as BigInteger>::NUM_LIMBS * 8;
@@ -416,22 +455,15 @@ for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadge
             .collect::<Vec<Vec<UInt8<_>>>>();
 
         let vk = VerifyingKeyVar::<Cycle::E1, E1Gadget>::new_constant(
-            r1cs_core::ns!(cs, "vk"),
+            ark_relations::ns!(cs, "vk"),
             &self.vk,
         )?;
         let prev_inner_proof = ProofVar::<Cycle::E1, E1Gadget>::new_witness(
-            r1cs_core::ns!(cs, "inner_proof"),
+            ark_relations::ns!(cs, "inner_proof"),
             || Ok(&self.prev_inner_proof),
         )?;
 
-        <Groth16VerifierGadget<Cycle::E1, E1Gadget> as NIZKVerifierGadget<
-            Groth16<
-                Cycle::E1,
-                InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-                InnerSingleStepProofVerifierInput<HTParams>,
-            >,
-            <Cycle::E1 as PairingEngine>::Fq,
-        >>::verify(&vk, &inner_proof_input_repacked_as_e1_fr, &prev_inner_proof)?
+        verify_with_processed_vk(&vk, &inner_proof_input_repacked_as_e1_fr, &prev_inner_proof)?
             .enforce_equal(&Boolean::TRUE)?;
         Ok(())
     }
@@ -440,7 +472,7 @@ for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadge
 impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
+        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
         HTParams: MerkleTreeParameters,
         HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
         Cycle: CycleEngine,
@@ -448,6 +480,7 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> OuterCirc
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     pub fn blank(
@@ -486,8 +519,8 @@ impl <HTParams, Cycle> ToConstraintField<<Cycle::E1 as PairingEngine>::Fq> for O
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
 {
-    fn to_field_elements(&self) -> Result<Vec<<Cycle::E1 as PairingEngine>::Fq>, Error> {
-        let inner_proof_input_as_e1_fr: Vec<<Cycle::E1 as PairingEngine>::Fr> = self.prev_inner_proof_input.to_field_elements()?;
+    fn to_field_elements(&self) -> Option<Vec<<Cycle::E1 as PairingEngine>::Fq>> {
+        let inner_proof_input_as_e1_fr: Vec<<Cycle::E1 as PairingEngine>::Fr> = self.prev_inner_proof_input.to_field_elements().unwrap();
         let inner_proof_input_as_e1_fr_bytes = inner_proof_input_as_e1_fr.iter()
             .map(|e1_fr| {
                 e1_fr.into_repr().as_ref().iter()
@@ -502,24 +535,17 @@ impl <HTParams, Cycle> ToConstraintField<<Cycle::E1 as PairingEngine>::Fq> for O
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::{
-        ed_on_mnt4_298::{EdwardsProjective, Fq},
-        mnt4_298::{MNT4_298, Fq as MNT4Fq},
-        mnt6_298::{MNT6_298, Fq as MNT6Fq},
-        curves::{AffineCurve},
-    };
-    use r1cs_core::{ConstraintSystem, ConstraintLayer};
-    use r1cs_std::{
-        ed_on_mnt4_298::EdwardsVar,
-        mnt4_298::PairingVar as MNT4PairingVar,
-        mnt6_298::PairingVar as MNT6PairingVar,
-    };
+    use ark_ed_on_mnt4_298::{EdwardsProjective, Fq, constraints::EdwardsVar};
+    use ark_mnt4_298::{MNT4_298, Fq as MNT4Fq, constraints::PairingVar as MNT4PairingVar};
+    use ark_mnt6_298::{MNT6_298, Fq as MNT6Fq, constraints::PairingVar as MNT6PairingVar};
+    use ark_ec::{AffineCurve};
+    use ark_relations::r1cs::{ConstraintSystem, ConstraintLayer};
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::{
+    use ark_crypto_primitives::{
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
-        nizk::{groth16::Groth16, NIZK},
+        snark::{SNARK},
     };
     use tracing_subscriber::layer::SubscriberExt;
 
@@ -549,7 +575,6 @@ mod test {
 
     #[derive(Clone, Copy, Debug)]
     pub struct MNT298Cycle;
-
     impl CycleEngine for MNT298Cycle {
         type E1 = MNT4_298;
         type E2 = MNT6_298;
@@ -672,8 +697,8 @@ mod test {
                 gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
             },
         );
-        let inner_parameters =
-            Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
         println!("Inner preparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
@@ -684,8 +709,8 @@ mod test {
         let outer_blank_circuit = TestOuterCircuit::blank(
             inner_parameters.0.vk.clone(),
         );
-        let outer_parameters =
-            Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_parameters = Groth16::<MNT6_298>::circuit_specific_setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_vk = Groth16::<MNT6_298>::process_vk(&outer_parameters.1).unwrap();
         println!("Outer preparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
@@ -702,7 +727,7 @@ mod test {
         let start = Instant::now();
         let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
         let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
-        let inner_genesis_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_genesis_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestInnerCircuit::new(
                 true,
@@ -722,15 +747,15 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for genesis epoch
-        let result = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_genesis,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_genesis.to_field_elements().unwrap(),
             &inner_genesis_proof,
         ).unwrap();
         assert!(result);
-        let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 },
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 }.to_field_elements().unwrap(),
             &inner_genesis_proof,
         ).unwrap();
         assert!(!result2);
@@ -738,7 +763,7 @@ mod test {
         // Construct outer genesis proof
         println!("Generating outer genesis proof...");
         let start = Instant::now();
-        let outer_genesis_proof = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::prove(
+        let outer_genesis_proof = Groth16::<MNT6_298>::prove(
             &outer_parameters.0,
             TestOuterCircuit::new(
                 inner_genesis_proof.clone(),
@@ -755,18 +780,18 @@ mod test {
             prev_inner_proof_input: verifier_input_genesis.clone(),
             _cycle: PhantomData,
         };
-        let result = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
-            &outer_genesis_verifier_input,
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_genesis_verifier_input.to_field_elements().unwrap(),
             &outer_genesis_proof,
         ).unwrap();
         assert!(result);
-        let result2 = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
+        let result2 = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
             &TestOuterVerifierInput{
                 prev_inner_proof_input: TestInnerVerifierInput{ new_digest: Default::default(), new_epoch: 0 },
                 _cycle: PhantomData,
-           },
+           }.to_field_elements().unwrap(),
             &outer_genesis_proof,
         ).unwrap();
         assert!(!result2);
@@ -787,7 +812,7 @@ mod test {
         };
         println!("Generating inner proof for epoch 1...");
         let start = Instant::now();
-        let inner_epoch_1_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_epoch_1_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestInnerCircuit::new(
                 false,
@@ -803,21 +828,21 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for epoch 1
-        let result = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_epoch_1,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_1.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
         assert!(result);
-        let result2 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 }.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
         assert!(!result2);
-        let result3 = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 },
+        let result3 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 }.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
         assert!(!result3);
@@ -826,7 +851,7 @@ mod test {
         // Construct outer proof for epoch 1
         println!("Generating outer proof for epoch 1...");
         let start = Instant::now();
-        let outer_epoch_1_proof = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::prove(
+        let outer_epoch_1_proof = Groth16::<MNT6_298>::prove(
             &outer_parameters.0,
             TestOuterCircuit::new(
                 inner_epoch_1_proof.clone(),
@@ -843,9 +868,9 @@ mod test {
             prev_inner_proof_input: verifier_input_epoch_1.clone(),
             _cycle: PhantomData,
         };
-        let result = Groth16::<MNT6_298, TestOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
-            &outer_epoch_1_verifier_input,
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_epoch_1_verifier_input.to_field_elements().unwrap(),
             &outer_epoch_1_proof,
         ).unwrap();
         assert!(result);
@@ -867,7 +892,7 @@ mod test {
         };
         println!("Generating inner proof for epoch 2...");
         let start = Instant::now();
-        let inner_epoch_2_proof = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_epoch_2_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestInnerCircuit::new(
                 false,
@@ -883,9 +908,9 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for epoch 2
-        let result = Groth16::<MNT4_298, TestInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_epoch_2,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_2.to_field_elements().unwrap(),
             &inner_epoch_2_proof,
         ).unwrap();
         assert!(result);
@@ -932,8 +957,8 @@ mod test {
                 gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
             },
         );
-        let inner_parameters =
-            Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
         println!("Inner preparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
@@ -944,8 +969,8 @@ mod test {
         let outer_blank_circuit = TestRsaOuterCircuit::blank(
             inner_parameters.0.vk.clone(),
         );
-        let outer_parameters =
-            Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_parameters = Groth16::<MNT6_298>::circuit_specific_setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_vk = Groth16::<MNT6_298>::process_vk(&outer_parameters.1).unwrap();
         println!("Outer preparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
@@ -963,7 +988,7 @@ mod test {
 
 
         let mut layer = ConstraintLayer::default();
-        layer.mode = r1cs_core::TracingMode::OnlyConstraints;
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<MNT6Fq>::new_ref();
@@ -991,11 +1016,10 @@ mod test {
             assert!(cs.is_satisfied().unwrap());
         });
 
-
         let start = Instant::now();
         let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
         let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
-        let inner_genesis_proof = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_genesis_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestRsaInnerCircuit::new(
                 true,
@@ -1015,16 +1039,15 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for genesis epoch
-        let result = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_genesis,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_genesis.to_field_elements().unwrap(),
             &inner_genesis_proof,
         ).unwrap();
         assert!(result);
-        println!("Verification of inner genesis proof: {}", result);
-        let result2 = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 },
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 }.to_field_elements().unwrap(),
             &inner_genesis_proof,
         ).unwrap();
         assert!(!result2);
@@ -1032,7 +1055,7 @@ mod test {
         // Construct outer genesis proof
         println!("Generating outer genesis proof...");
         let start = Instant::now();
-        let outer_genesis_proof = Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::prove(
+        let outer_genesis_proof = Groth16::<MNT6_298>::prove(
             &outer_parameters.0,
             TestRsaOuterCircuit::new(
                 inner_genesis_proof.clone(),
@@ -1049,19 +1072,18 @@ mod test {
             prev_inner_proof_input: verifier_input_genesis.clone(),
             _cycle: PhantomData,
         };
-        let result = Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
-            &outer_genesis_verifier_input,
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_genesis_verifier_input.to_field_elements().unwrap(),
             &outer_genesis_proof,
         ).unwrap();
-        //assert!(result);
-        println!("Verification of outer genesis proof: {}", result);
-        let result2 = Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
+        assert!(result);
+        let result2 = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
             &TestOuterVerifierInput{
                 prev_inner_proof_input: TestInnerVerifierInput{ new_digest: Default::default(), new_epoch: 0 },
                 _cycle: PhantomData,
-            },
+            }.to_field_elements().unwrap(),
             &outer_genesis_proof,
         ).unwrap();
         assert!(!result2);
@@ -1082,7 +1104,7 @@ mod test {
         };
         println!("Generating inner proof for epoch 1...");
         let start = Instant::now();
-        let inner_epoch_1_proof = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_epoch_1_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestRsaInnerCircuit::new(
                 false,
@@ -1098,22 +1120,21 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for epoch 1
-        let result = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_epoch_1,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_1.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
-        //assert!(result);
-        println!("Verification of inner epoch 1 proof: {}", result);
-        let result2 = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 },
+        assert!(result);
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 }.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
         assert!(!result2);
-        let result3 = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &TestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 },
+        let result3 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &TestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 }.to_field_elements().unwrap(),
             &inner_epoch_1_proof,
         ).unwrap();
         assert!(!result3);
@@ -1122,7 +1143,7 @@ mod test {
         // Construct outer proof for epoch 1
         println!("Generating outer proof for epoch 1...");
         let start = Instant::now();
-        let outer_epoch_1_proof = Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::prove(
+        let outer_epoch_1_proof = Groth16::<MNT6_298>::prove(
             &outer_parameters.0,
             TestRsaOuterCircuit::new(
                 inner_epoch_1_proof.clone(),
@@ -1139,13 +1160,12 @@ mod test {
             prev_inner_proof_input: verifier_input_epoch_1.clone(),
             _cycle: PhantomData,
         };
-        let result = Groth16::<MNT6_298, TestRsaOuterCircuit, TestOuterVerifierInput>::verify(
-            &outer_parameters.1,
-            &outer_epoch_1_verifier_input,
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_epoch_1_verifier_input.to_field_elements().unwrap(),
             &outer_epoch_1_proof,
         ).unwrap();
-        //assert!(result);
-        println!("Verification of outer epoch 1 proof: {}", result);
+        assert!(result);
 
 
         // Update AVD
@@ -1164,7 +1184,7 @@ mod test {
         };
         println!("Generating inner proof for epoch 2...");
         let start = Instant::now();
-        let inner_epoch_2_proof = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::prove(
+        let inner_epoch_2_proof = Groth16::<MNT4_298>::prove(
             &inner_parameters.0,
             TestRsaInnerCircuit::new(
                 false,
@@ -1180,13 +1200,12 @@ mod test {
         println!("\t proving time: {} s", bench);
 
         // Verify inner proof for epoch 2
-        let result = Groth16::<MNT4_298, TestRsaInnerCircuit, TestInnerVerifierInput>::verify(
-            &inner_parameters.1,
-            &verifier_input_epoch_2,
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_2.to_field_elements().unwrap(),
             &inner_epoch_2_proof,
         ).unwrap();
-        //assert!(result);
-        println!("Verification of inner epoch 2 proof: {}", result);
+        assert!(result);
 
         // Count constraints
         let blank_circuit_constraint_counter = TestRsaInnerCircuit::blank(
@@ -1197,11 +1216,10 @@ mod test {
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
         println!("\t number of constraints for inner circuit: {}", cs.num_constraints());
-        let blank_circuit_constraint_counter = TestRsaOuterCircuit::blank(inner_parameters.0.vk.clone());
+        let blank_circuit_constraint_counter = TestOuterCircuit::blank(inner_parameters.0.vk.clone());
         let cs = ConstraintSystem::<MNT4Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
         println!("\t number of constraints for outer circuit: {}", cs.num_constraints());
     }
-
 
 }

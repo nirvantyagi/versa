@@ -1,28 +1,33 @@
+#![allow(deprecated)]
 use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
 };
 use crypto_primitives::sparse_merkle_tree::{MerkleTreeParameters};
 
-use zexe_cp::{
+use ark_crypto_primitives::{
     crh::{FixedLengthCRH, FixedLengthCRHGadget},
-    nizk::{groth16::Groth16, NIZK},
+    snark::{SNARK},
 };
-use groth16::{Proof, VerifyingKey, verifier::prepare_verifying_key};
-use algebra::{
-    curves::{CycleEngine, PairingEngine, AffineCurve},
+use ark_groth16::{Groth16, Proof, VerifyingKey, verifier::prepare_verifying_key};
+use ark_ff::{
     ToConstraintField,
 };
-use r1cs_std::{
+//TODO: Switch to PairingFriendlyCycle
+use ark_ec:: {
+    CycleEngine, PairingEngine, AffineCurve,
+};
+use ark_r1cs_std::{
     pairing::PairingVar,
     ToConstraintFieldGadget,
 };
 use bench_utils::{end_timer, start_timer};
 
-use rand::{Rng};
+use rand::{Rng, CryptoRng};
 
 use std::{
     ops::MulAssign,
+    marker::PhantomData,
 };
 use crate::{
     history_tree::{SingleStepAVDWithHistory, Digest, LookupProof, HistoryProof, SingleStepUpdateProof},
@@ -32,7 +37,7 @@ use crate::{
 pub mod constraints;
 use constraints::{
     InnerSingleStepProofCircuit, InnerSingleStepProofVerifierInput,
-    OuterCircuit, OuterVerifierInput,
+    OuterCircuit,
 };
 
 //TODO: Double storing SSAVD_pp (also stored in MerkleTreeAVD) since need for update
@@ -51,68 +56,41 @@ where
     <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     history_ssavd: SingleStepAVDWithHistory<SSAVD, HTParams>,
-    inner_proof: <Groth16<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-            > as NIZK
-        >::Proof,
+    inner_proof: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof,
     ssavd_pp: SSAVD::PublicParameters,
-    inner_groth16_pp: <Groth16<
-        Cycle::E1,
-        InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-        InnerSingleStepProofVerifierInput<HTParams>,
-    > as NIZK>::ProvingParameters,
-    outer_groth16_pp: <Groth16<
-        Cycle::E2,
-        OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-        OuterVerifierInput<HTParams, Cycle>,
-    > as NIZK>::ProvingParameters,
+    inner_groth16_pp: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::ProvingKey,
+    outer_groth16_pp: <Groth16<Cycle::E2> as SNARK<<Cycle::E2 as PairingEngine>::Fr>>::ProvingKey,
+    _ssavd_gadget: PhantomData<SSAVDGadget>,
+    _hash_gadget: PhantomData<HGadget>,
+    _e1_gadget: PhantomData<E1Gadget>,
+    _e2_gadget: PhantomData<E2Gadget>,
 }
 
 
 //TODO: Can separate out verification parameters
-pub struct PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+pub struct PublicParameters<SSAVD, HTParams, Cycle>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
         HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
         Cycle: CycleEngine,
-        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
-        E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
-        <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     ssavd_pp: SSAVD::PublicParameters,
     history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
-    inner_groth16_pp: <Groth16<
-        Cycle::E1,
-        InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-        InnerSingleStepProofVerifierInput<HTParams>,
-    > as NIZK>::ProvingParameters,
-    outer_groth16_pp: <Groth16<
-        Cycle::E2,
-        OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-        OuterVerifierInput<HTParams, Cycle>,
-    > as NIZK>::ProvingParameters,
+    inner_groth16_pp: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::ProvingKey,
+    outer_groth16_pp: <Groth16<Cycle::E2> as SNARK<<Cycle::E2 as PairingEngine>::Fr>>::ProvingKey,
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> Clone for PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, HTParams, Cycle> Clone for PublicParameters<SSAVD, HTParams, Cycle>
     where
         SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
         HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E1 as PairingEngine>::Fr>,
         Cycle: CycleEngine,
-        E1Gadget: PairingVar<Cycle::E1, <Cycle::E1 as PairingEngine>::Fq>,
-        E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
-        <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -141,16 +119,12 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
     type Digest = Digest<HTParams>;
-    type PublicParameters = PublicParameters<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>;
+    type PublicParameters = PublicParameters<SSAVD, HTParams, Cycle>;
     type LookupProof = LookupProof<SSAVD, HTParams>;
     type HistoryProof = HistoryProof<SSAVD, HTParams>;
-    type DigestProof = <Groth16<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        > as NIZK>::Proof;
+    type DigestProof = <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof;
 
-    fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
+    fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         println!("Starting setup");
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
         println!("Starting inner blank circuit setup");
@@ -165,20 +139,12 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
                 gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
             },
         );
-        let (inner_groth16_pp, _) = Groth16::<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        >::setup(inner_blank_circuit, rng)?;
+        let (inner_groth16_pp, _) = Groth16::<Cycle::E1>::circuit_specific_setup(inner_blank_circuit, rng)?;
         println!("Starting outer blank circuit setup");
-        let outer_blank_circuit = OuterCircuit::blank(
+        let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
             inner_groth16_pp.vk.clone(),
         );
-        let (outer_groth16_pp, _) = Groth16::<
-            Cycle::E2,
-            OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            OuterVerifierInput<HTParams, Cycle>,
-        >::setup(outer_blank_circuit, rng)?;
+        let (outer_groth16_pp, _) = Groth16::<Cycle::E2>::circuit_specific_setup(outer_blank_circuit, rng)?;
         Ok(PublicParameters {
             ssavd_pp,
             history_tree_pp,
@@ -187,15 +153,11 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         })
     }
 
-    fn new<R: Rng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
         let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp)?;
-        let inner_genesis_proof = Groth16::<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        >::prove(
+        let inner_genesis_proof = Groth16::<Cycle::E1>::prove(
             &pp.inner_groth16_pp,
-            InnerSingleStepProofCircuit::new(
+            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
                 true,
                 &pp.ssavd_pp,
                 &pp.history_tree_pp,
@@ -215,6 +177,10 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             ssavd_pp: pp.ssavd_pp.clone(),
             inner_groth16_pp: pp.inner_groth16_pp.clone(),
             outer_groth16_pp: pp.outer_groth16_pp.clone(),
+            _ssavd_gadget: PhantomData,
+            _hash_gadget: PhantomData,
+            _e1_gadget: PhantomData,
+            _e2_gadget: PhantomData,
         })
     }
 
@@ -227,14 +193,14 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         Ok((value, self.digest()?, proof))
     }
 
-    fn update<R: Rng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
         // Compute new step proof
         let prev_digest = self.history_ssavd.digest();
         let update = self.history_ssavd.update(key, value)?;
         self._update(rng, update, prev_digest)
     }
 
-    fn batch_update<R: Rng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
         // Compute new step proof
         println!("Starting batch update");
         let prev_digest = self.history_ssavd.digest();
@@ -244,18 +210,15 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
 
     fn verify_digest(pp: &Self::PublicParameters, digest: &Self::Digest, proof: &Self::DigestProof) -> Result<bool, Error> {
-        Groth16::<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        >::verify(
+        let b = Groth16::<Cycle::E1>::verify_with_processed_vk(
             &prepare_verifying_key(&pp.inner_groth16_pp.vk),
-            &InnerSingleStepProofVerifierInput {
+            &InnerSingleStepProofVerifierInput::<HTParams> {
                 new_digest: digest.digest.clone(),
                 new_epoch: digest.epoch,
-            },
+            }.to_field_elements().unwrap(),
             &proof,
-        )
+        ).unwrap();
+        Ok(b)
     }
 
     fn verify_lookup(pp: &Self::PublicParameters, key: &[u8; 32], value: &Option<(u64, [u8; 32])>, digest: &Self::Digest, proof: &Self::LookupProof) -> Result<bool, Error> {
@@ -300,25 +263,17 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
 {
-    fn _update<R: Rng>(
+    fn _update<R: Rng + CryptoRng>(
         &mut self,
         rng: &mut R,
         update: SingleStepUpdateProof<SSAVD, HTParams>,
         prev_digest: Digest<HTParams>,
-    ) -> Result<(Digest<HTParams>, <Groth16<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        > as NIZK>::Proof), Error> {
+    ) -> Result<(Digest<HTParams>, <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof), Error> {
         // Compute outer proof of previous inner proof
         let check = start_timer!(|| "Compute outer proof");
-        let outer_proof = Groth16::<
-            Cycle::E2,
-            OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            OuterVerifierInput<HTParams, Cycle>,
-        >::prove(
+        let outer_proof = Groth16::<Cycle::E2>::prove(
             &self.outer_groth16_pp,
-            OuterCircuit::new(
+            OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
                 self.inner_proof.clone(),
                 InnerSingleStepProofVerifierInput {
                     new_digest: prev_digest.digest.clone(),
@@ -331,13 +286,9 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         end_timer!(check);
         // Compute new inner proof
         let check = start_timer!(|| "Compute inner proof");
-        let new_inner_proof = Groth16::<
-            Cycle::E1,
-            InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>,
-            InnerSingleStepProofVerifierInput<HTParams>,
-        >::prove(
+        let new_inner_proof = Groth16::<Cycle::E1>::prove(
             &self.inner_groth16_pp,
-            InnerSingleStepProofCircuit::new(
+            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
                 false,
                 &self.ssavd_pp,
                 &self.history_ssavd.history_tree.tree.hash_parameters,
@@ -354,20 +305,13 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::{
-        ed_on_mnt4_298::{EdwardsProjective, Fq},
-        mnt4_298::{MNT4_298},
-        mnt6_298::MNT6_298,
-    };
-    use r1cs_std::{
-        ed_on_mnt4_298::EdwardsVar,
-        mnt4_298::PairingVar as MNT4PairingVar,
-        mnt6_298::PairingVar as MNT6PairingVar,
-    };
+    use ark_ed_on_mnt4_298::{EdwardsProjective, Fq, constraints::EdwardsVar};
+    use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
+    use ark_mnt6_298::{MNT6_298, constraints::PairingVar as MNT6PairingVar};
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::{
+    use ark_crypto_primitives::{
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
     };
 
@@ -398,7 +342,6 @@ mod test {
 
     #[derive(Clone, Copy, Debug)]
     pub struct MNT298Cycle;
-
     impl CycleEngine for MNT298Cycle {
         type E1 = MNT4_298;
         type E2 = MNT6_298;
@@ -509,7 +452,7 @@ mod test {
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
-    fn update_and_verify_recursion_full_history_test() {
+    fn mt_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = TestRecursionFHAVD::setup(&mut rng).unwrap();

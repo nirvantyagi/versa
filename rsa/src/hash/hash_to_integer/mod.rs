@@ -1,4 +1,4 @@
-use algebra::{PrimeField, FpParameters};
+use ark_ff::{PrimeField, FpParameters};
 use crate::{
     bignat::{BigNat, f_to_nat},
     hash::{Hasher},

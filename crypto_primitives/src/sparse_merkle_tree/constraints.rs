@@ -1,14 +1,10 @@
-use algebra::Field;
-use r1cs_core::{SynthesisError, Namespace};
-use r1cs_std::{
-    alloc::{AllocVar, AllocationMode},
-    bits::ToBytesGadget,
-    eq::{EqGadget},
-    select::CondSelectGadget,
-    uint64::UInt64, uint8::UInt8,
-    boolean::Boolean,
+use ark_ff::Field;
+use ark_relations::r1cs::{SynthesisError, Namespace};
+use ark_r1cs_std::{
+    prelude::*,
+    uint64::UInt64,
 };
-use zexe_cp::crh::{FixedLengthCRH, FixedLengthCRHGadget};
+use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 
 use crate::sparse_merkle_tree::{MerkleTreeParameters, MerkleTreePath};
 
@@ -160,11 +156,13 @@ where
 mod tests {
     use super::*;
     use crate::sparse_merkle_tree::*;
-    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub, Fq};
-    use r1cs_core::ConstraintSystem;
-    use r1cs_std::{ed_on_bls12_381::EdwardsVar};
+    use ark_ed_on_bls12_381::{
+        EdwardsProjective as JubJub, Fq,
+        constraints::EdwardsVar,
+    };
+    use ark_relations::r1cs::ConstraintSystem;
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
         FixedLengthCRH, FixedLengthCRHGadget,
     };
@@ -202,32 +200,32 @@ mod tests {
 
         // Allocate hash parameters
         let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "parameters"),
+            ark_relations::ns!(cs, "parameters"),
             &crh_parameters,
         )
         .unwrap();
 
         // Allocate root
         let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "root"),
+            ark_relations::ns!(cs, "root"),
             || Ok(tree.root.clone()),
         ).unwrap();
 
         // Allocate leaf
         let leaf_var = Vec::<UInt8<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "leaf"),
+            ark_relations::ns!(cs, "leaf"),
             || Ok([1_u8; 16]),
         ).unwrap();
 
         // Allocate leaf
         let index_var = UInt64::<Fq>::new_witness(
-            r1cs_core::ns!(cs, "index"),
+            ark_relations::ns!(cs, "index"),
             || Ok(177),
         ).unwrap();
 
         // Allocate path
         let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
-            r1cs_core::ns!(cs, "path"),
+            ark_relations::ns!(cs, "path"),
             || Ok(path),
         )
         .unwrap();
@@ -256,32 +254,32 @@ mod tests {
 
         // Allocate hash parameters
         let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "parameters"),
+            ark_relations::ns!(cs, "parameters"),
             &crh_parameters,
         )
             .unwrap();
 
         // Allocate root
         let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "root"),
+            ark_relations::ns!(cs, "root"),
             || Ok(<H as FixedLengthCRH>::Output::default()),
         ).unwrap();
 
         // Allocate leaf
         let leaf_var = Vec::<UInt8<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "leaf"),
+            ark_relations::ns!(cs, "leaf"),
             || Ok([1_u8; 16]),
         ).unwrap();
 
         // Allocate leaf
         let index_var = UInt64::<Fq>::new_witness(
-            r1cs_core::ns!(cs, "index"),
+            ark_relations::ns!(cs, "index"),
             || Ok(177),
         ).unwrap();
 
         // Allocate path
         let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
-            r1cs_core::ns!(cs, "path"),
+            ark_relations::ns!(cs, "path"),
             || Ok(path),
         )
             .unwrap();
@@ -310,32 +308,32 @@ mod tests {
 
         // Allocate hash parameters
         let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "parameters"),
+            ark_relations::ns!(cs, "parameters"),
             &crh_parameters,
         )
             .unwrap();
 
         // Allocate root
         let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "root"),
+            ark_relations::ns!(cs, "root"),
             || Ok(tree.root.clone()),
         ).unwrap();
 
         // Allocate leaf
         let leaf_var = Vec::<UInt8<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "leaf"),
+            ark_relations::ns!(cs, "leaf"),
             || Ok([2_u8; 16]),
         ).unwrap();
 
         // Allocate leaf
         let index_var = UInt64::<Fq>::new_witness(
-            r1cs_core::ns!(cs, "index"),
+            ark_relations::ns!(cs, "index"),
             || Ok(177),
         ).unwrap();
 
         // Allocate path
         let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
-            r1cs_core::ns!(cs, "path"),
+            ark_relations::ns!(cs, "path"),
             || Ok(path),
         )
             .unwrap();
@@ -364,32 +362,32 @@ mod tests {
 
         // Allocate hash parameters
         let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
-            r1cs_core::ns!(cs, "parameters"),
+            ark_relations::ns!(cs, "parameters"),
             &crh_parameters,
         )
             .unwrap();
 
         // Allocate root
         let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
-            r1cs_core::ns!(cs, "root"),
+            ark_relations::ns!(cs, "root"),
             || Ok(tree.root.clone()),
         ).unwrap();
 
         // Allocate leaf
         let leaf_var = Vec::<UInt8<Fq>>::new_witness(
-            r1cs_core::ns!(cs, "leaf"),
+            ark_relations::ns!(cs, "leaf"),
             || Ok([1_u8; 16]),
         ).unwrap();
 
         // Allocate leaf
         let index_var = UInt64::<Fq>::new_witness(
-            r1cs_core::ns!(cs, "index"),
+            ark_relations::ns!(cs, "index"),
             || Ok(176),
         ).unwrap();
 
         // Allocate path
         let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
-            r1cs_core::ns!(cs, "path"),
+            ark_relations::ns!(cs, "path"),
             || Ok(path),
         )
             .unwrap();

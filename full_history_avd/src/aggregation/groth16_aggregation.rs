@@ -1,26 +1,28 @@
-use algebra::{
-    curves::{AffineCurve, PairingEngine},
+use ark_ff::{
     fields::Field,
-    groups::Group,
     to_bytes,
 };
-use groth16::{VerifyingKey};
-use ff_fft::polynomial::DensePolynomial as UnivariatePolynomial;
+use ark_ec::{
+    group::Group,
+    AffineCurve, PairingEngine,
+};
+use ark_groth16::{VerifyingKey};
+use ark_poly::polynomial::{UVPolynomial, univariate::DensePolynomial as UnivariatePolynomial};
 
 use std::ops::AddAssign;
 
 use rand::Rng;
 use num_traits::identities::{One, Zero};
 
-use dh_commitments::{
+use ark_dh_commitments::{
     afgho16::{AFGHOCommitmentG1, AFGHOCommitmentG2},
     identity::{HomomorphicPlaceholderValue, IdentityCommitment, IdentityOutput},
 };
-use inner_products::{
+use ark_inner_products::{
     ExtensionFieldElement, InnerProduct, MultiexponentiationInnerProduct, PairingInnerProduct,
     ScalarInnerProduct,
 };
-use ip_proofs::{
+use ark_ip_proofs::{
     tipa::{
         structured_scalar_message::{structured_scalar_power, TIPAWithSSM, TIPAWithSSMProof},
         TIPAProof, VerifierSRS, SRS, TIPA,
@@ -219,8 +221,8 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             .collect::<Vec<Pairing::G1Projective>>();
 
         //TODO: Keep as iters instead of collecting to vector
-        let digest_size = self.digests[start_i].to_field_elements()?.len();
-        let digests_as_field = self.digests[start_i..end_i].iter().map(|d| d.to_field_elements()).collect::<Result<Vec<Vec<Pairing::Fr>>, Error>>()?;
+        let digest_size = self.digests[start_i].to_field_elements().unwrap().len();
+        let digests_as_field = self.digests[start_i..end_i].iter().map(|d| d.to_field_elements().unwrap()).collect::<Vec<Vec<Pairing::Fr>>>();
         let digest_cross_slices = (0..digest_size).map(|i| {
             digests_as_field.iter().map(|d| d[i].clone()).collect::<Vec<Pairing::Fr>>()
         }).collect::<Vec<_>>();
@@ -380,7 +382,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         for i in 0..digest_size {
             g_ic.add_assign(&vk.gamma_abc_g1[i + 1].into_projective().mul(&proof.agg_d[i]));
             g_ic.add_assign(&vk.gamma_abc_g1[digest_size + i + 1].into_projective().mul(
-                &(((proof.agg_d[i] - &leading_digest.to_field_elements()?[i]) / &r) + &(r.pow(&[num_aggregated - 1]) * &proof.trailing_digest.to_field_elements()?[i]))
+                &(((proof.agg_d[i] - &leading_digest.to_field_elements().unwrap()[i]) / &r) + &(r.pow(&[num_aggregated - 1]) * &proof.trailing_digest.to_field_elements().unwrap()[i]))
             ));
         }
 

@@ -1,5 +1,5 @@
-use algebra::bytes::ToBytes;
-use zexe_cp::crh::FixedLengthCRH;
+use ark_ff::bytes::ToBytes;
+use ark_crypto_primitives::crh::FixedLengthCRH;
 
 use crypto_primitives::sparse_merkle_tree::{
     MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
@@ -346,11 +346,11 @@ pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<[u8; 128], Error> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use algebra::ed_on_bls12_381::{EdwardsProjective as JubJub};
+    use ark_ed_on_bls12_381::{EdwardsProjective as JubJub};
     use rand::{rngs::StdRng, SeedableRng};
-    use zexe_cp::crh::{
+    use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
     };
 
