@@ -167,6 +167,7 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         .iter()
         .cloned()
         .map(|mut bits| {
+            debug_assert!(bits_per_hash <= bits.len());
             bits.resize(bits_per_hash, Boolean::FALSE);
             bits
         })

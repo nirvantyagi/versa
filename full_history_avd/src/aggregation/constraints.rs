@@ -75,7 +75,6 @@ where
         )?;
 
         // Allocate public inputs
-        //TODO: Testing: Switch back to inputs
         let prev_digest = HGadget::OutputVar::new_input(
             ark_relations::ns!(cs, "prev_digest"),
             || Ok(&self.proof.prev_digest),
@@ -175,10 +174,7 @@ ConstraintF: PrimeField,
         let mut v = Vec::new();
         v.extend_from_slice(&self.prev_digest.to_field_elements().unwrap_or_default());
         v.extend_from_slice(&self.new_digest.to_field_elements().unwrap_or_default());
-        println!("Public input length: {}", v.len());
         let a = v.iter().map(|f| rsa::bignat::f_to_nat(f)).collect::<Vec<rsa::bignat::BigNat>>();
-        println!("Public inputs: {:?}", a);
-        println!("Public inputs as fields: {:?}", v.clone());
         Some(v)
     }
 }

@@ -100,8 +100,8 @@ pub fn nat_to_limbs<'a, F: PrimeField>(
             .collect())
     } else {
         println!(
-            "nat {} does not fit in {} limbs of width {}",
-            nat, n_limbs, limb_width
+            "nat-{} {} does not fit in {} limbs of width {}",
+            nat.significant_bits(), nat, n_limbs, limb_width
         );
         Err(Box::new(BigNatError::Conversion(n_limbs, limb_width)))
     }
