@@ -183,6 +183,7 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     cert.base_prime.conditional_enforce_equals_bits(&base_prime_bits, condition)?;
     random_bits = &random_bits[cert.base_plan.random_bits..];
     assert_eq!(base_prime_bits.len(), 32);
+    assert_eq!(cert.base_plan.random_bits + cert.base_plan.nonce_bits + 1, 32);
 
     // Check primality using Miller-Rabin
     miller_rabin_32b(&cert.base_prime, 32)?.conditional_enforce_equal(&Boolean::TRUE, condition)?;
@@ -192,7 +193,7 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
     // Check each extension certificate
     let mut prime = cert.base_prime.clone();
     let mut prime_bits = 32_usize;
-    for (i, extension) in cert.extensions.iter().enumerate() {
+    for extension in cert.extensions.iter() {
         // Construct extension term
         let mut extension_term_bits = vec![];
         extension_term_bits.extend(extension.nonce_as_bits.iter().cloned());
@@ -207,6 +208,7 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         let one = BigNatVar::constant(&BigNat::from(1))?;
         let n_less_one = extension_term.mult(&prime)?;
         let n = n_less_one.add(&one)?;
+        let n_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
         let part = extension.checking_base.pow_mod(
             &extension_term,
             &n,
@@ -226,15 +228,14 @@ pub fn conditional_check_hash_to_pocklington_prime<H, HG, ConstraintF, P>(
         //println!("Round {}: power: {}", i, power.value.clone());
 
         // Check Fermat's little theorem
-        //TODO: Exact comparison since power and one are both in normal form
         power.conditional_enforce_equal(&one, condition)?;
         //println!("Round {}: Extension criterion checked", i);
 
         prime = n;
-        prime_bits = prime_bits + extension.plan.nonce_bits + extension.plan.random_bits + 1;
+        prime_bits = n_bits;
     }
-    //TODO: conditional
-    prime.conditional_enforce_equal_when_carried(&cert.result, condition)
+    prime.conditional_enforce_equal_when_carried(&cert.result, condition)?;
+    Ok(())
 }
 
 
@@ -268,12 +269,12 @@ pub fn miller_rabin_32b<ConstraintF: PrimeField, P: BigNatCircuitParams>(
     n: &BigNatVar<ConstraintF, P>,
     n_bits: usize,
 ) -> Result<Boolean<ConstraintF>, SynthesisError> {
-    let primes: Vec<usize> = vec![2, 7, 61];
+    let primes = vec![2, 7, 61];
     let mr_results = primes.iter().map(|base| {
         miller_rabin_round(
             n,
             n_bits,
-            &BigNatVar::constant(&BigNat::from(*base as u32)).unwrap(),
+            &BigNatVar::constant(&BigNat::from(*base)).unwrap(),
         )
     }).collect::<Result<Vec<Boolean<ConstraintF>>, SynthesisError>>()?;
     Boolean::kary_and(&mr_results[..])

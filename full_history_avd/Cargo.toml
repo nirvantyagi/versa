@@ -53,5 +53,5 @@ ark-mnt6-298 = { git = "https://github.com/arkworks-rs/curves", default-features
 
 [features]
 default = ["std"]
-std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-relations/std", "ark-poly/std" ]
+std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-relations/std", "ark-poly/std", "ark-groth16/std" ]
 print-trace = [ "bench-utils/print-trace" ]

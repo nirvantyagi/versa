@@ -185,7 +185,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         other: &Self,
         modulus: &Self,
     ) -> Result<Self, SynthesisError> {
-        let cs = self.cs().or(other.cs());
+        let cs = self.cs().or(other.cs()).or(modulus.cs());
 
         // Reduce values so that multiplication doesn't overflow
         debug_assert!(2 * (P::LIMB_WIDTH as u32) + log2(P::N_LIMBS) <= <ConstraintF::Params as FpParameters>::CAPACITY);
@@ -196,6 +196,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         // Compute and allocate quotient and remainder
         let (quotient_value, rem_value) = (BigNat::from(&self.value * &other.value)).div_rem(modulus.value.clone());
         if cs == ConstraintSystemRef::None {
+            //println!("Constant found in mult_mod: {}", rem_value.clone());
             return Ok(Self::constant(&rem_value.clone())?)
         }
         let rem = Self::new_witness(cs.clone(),  || Ok(rem_value))?;
@@ -203,8 +204,10 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         // Compute deterministic upper bound on number of quotient limbs and pad to it
         let num_left_bits = P::LIMB_WIDTH * (P::N_LIMBS - 1) + (self.word_size.significant_bits() as usize) + 1; //TODO: +1 differs from bellman-bignat
         let num_right_bits = P::LIMB_WIDTH * (P::N_LIMBS - 1) + (other.word_size.significant_bits() as usize) + 1;
-        let num_mod_bits = modulus.value.significant_bits() as usize;
-        let num_quotient_bits = (num_left_bits + num_right_bits).saturating_sub(num_mod_bits);
+        //TODO: Take mod_bits as input
+        //let num_mod_bits = modulus.value.significant_bits() as usize;
+        //let num_quotient_bits = (num_left_bits + num_right_bits).saturating_sub(num_mod_bits);
+        let num_quotient_bits = num_left_bits + num_right_bits;
         let num_quotient_limbs = num_quotient_bits / P::LIMB_WIDTH + 1;
         let mut quotient_value_limbs = fit_nat_to_limbs(&quotient_value, P::LIMB_WIDTH).unwrap();
         assert!(num_quotient_limbs >= quotient_value_limbs.len());
@@ -212,7 +215,8 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let quotient_limbs = Vec::<FpVar<ConstraintF>>::new_witness(cs.clone(), || Ok(&quotient_value_limbs[..]))?;
 
         // Constrain remainder to appropriate size
-        rem.enforce_fits_in_bits(num_mod_bits)?;
+        //TODO: Uncomment when including mod_bits as input
+        //rem.enforce_fits_in_bits(num_mod_bits)?;
 
         // left (self) * right (other)
         let mut lr_prod_limbs = vec![<FpVar<ConstraintF>>::zero(); P::N_LIMBS + num_quotient_limbs - 1]; // Same length as below
@@ -588,7 +592,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
             limbs.push(Self::limb_from_bits(&bits[i * P::LIMB_WIDTH..(i + 1) * P::LIMB_WIDTH])?);
         }
         limbs.push(Self::limb_from_bits(&bits[num_nonzero_limbs*P::LIMB_WIDTH..])?);
-        limbs.resize(P::N_LIMBS, FpVar::<ConstraintF>::zero());
+        limbs.resize(P::N_LIMBS, FpVar::zero());
         let value = limbs_to_nat(
             &limbs.iter().map(|f| f.value().unwrap_or_default())
                 .collect::<Vec<ConstraintF>>(),

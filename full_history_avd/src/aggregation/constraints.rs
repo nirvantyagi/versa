@@ -174,7 +174,6 @@ ConstraintF: PrimeField,
         let mut v = Vec::new();
         v.extend_from_slice(&self.prev_digest.to_field_elements().unwrap_or_default());
         v.extend_from_slice(&self.new_digest.to_field_elements().unwrap_or_default());
-        let a = v.iter().map(|f| rsa::bignat::f_to_nat(f)).collect::<Vec<rsa::bignat::BigNat>>();
         Some(v)
     }
 }
@@ -403,9 +402,6 @@ mod tests {
             new_digest: proof.new_digest.clone(),
         };
 
-        println!("Prev digest: {:?}", proof.prev_digest.clone());
-        println!("New digest: {:?}", proof.new_digest.clone());
-
         // Generate proof circuit
         let mut layer = ConstraintLayer::default();
         layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
@@ -423,6 +419,7 @@ mod tests {
             assert!(cs.is_satisfied().unwrap());
         });
 
+        println!("Generating parameters...");
         let start = Instant::now();
         let blank_circuit = TestRsaCircuit::blank(
             &ssavd_pp,
