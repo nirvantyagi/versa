@@ -16,7 +16,7 @@ use ark_ec::{
     CycleEngine, PairingEngine,
 };
 use ark_groth16::{
-    Groth16, Proof, VerifyingKey,
+    Proof, VerifyingKey,
     constraints::{ProofVar, VerifyingKeyVar},
 };
 use ark_relations::r1cs::{
@@ -514,6 +514,7 @@ mod tests {
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
         snark::{SNARK},
     };
+    use ark_groth16::Groth16;
     use tracing_subscriber::layer::SubscriberExt;
 
     use single_step_avd::{

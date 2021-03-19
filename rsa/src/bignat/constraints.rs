@@ -127,6 +127,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
     ) -> Result<Self, SynthesisError> {
         let cs = self.cs().or(other.cs());
         //TODO: What to do for constants? ConstraintSystemRef::None?
+        //TODO: Check if fits in bits / well-formed?
         //TODO: Optimization: compute diff directly: https://github.com/arkworks-rs/nonnative/blob/master/src/allocated_nonnative_field_var.rs#L181
         let diff = Self::new_witness(cs.clone(),  || Ok(BigNat::from(&self.value - &other.value)))?;
         let sum = other.add(&diff)?;
@@ -215,7 +216,7 @@ impl<ConstraintF: PrimeField, P: BigNatCircuitParams> BigNatVar<ConstraintF, P> 
         let quotient_limbs = Vec::<FpVar<ConstraintF>>::new_witness(cs.clone(), || Ok(&quotient_value_limbs[..]))?;
 
         // Constrain remainder to appropriate size
-        //TODO: Uncomment when including mod_bits as input
+        //TODO: Check if fits in bits / well-formed?
         //rem.enforce_fits_in_bits(num_mod_bits)?;
 
         // left (self) * right (other)
