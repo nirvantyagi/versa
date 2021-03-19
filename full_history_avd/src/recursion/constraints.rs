@@ -154,19 +154,15 @@ where
         cs: ConstraintSystemRef<<Cycle::E2 as PairingEngine>::Fq>,
     ) -> Result<(), SynthesisError> {
         // Allocate constants
-        let ssavd_pp_time = start_timer!(|| "Generating SSAVD parameters");
+        let constant_time = start_timer!(|| "Allocating constants");
         let ssavd_pp = SSAVDGadget::PublicParametersVar::new_constant(
             ark_relations::ns!(cs, "ssavd_pp"),
             &self.ssavd_pp,
         )?;
-        end_timer!(ssavd_pp_time);
-        let ht_pp_time = start_timer!(|| "Generating history tree parameters");
         let history_tree_pp = HGadget::ParametersVar::new_constant(
             ark_relations::ns!(cs, "history_tree_pp"),
             &self.history_tree_pp,
         )?;
-        end_timer!(ht_pp_time);
-        let genesis_digest_time = start_timer!(|| "Generating genesis digest");
         let genesis_digest_val = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(
             &mut StepRng::new(1, 1),
             &self.ssavd_pp,
@@ -176,44 +172,34 @@ where
             ark_relations::ns!(cs, "genesis_digest"),
             &genesis_digest_val,
         )?;
-        end_timer!(genesis_digest_time);
+        end_timer!(constant_time);
 
         // Allocate public inputs
         let public_input_time = start_timer!(|| "Allocating public inputs");
-        let new_digest_time = start_timer!(|| "Generating new digest");
         let new_digest = HGadget::OutputVar::new_input(
             ark_relations::ns!(cs, "new_digest"),
             || Ok(if self.is_genesis { &genesis_digest_val } else {&self.proof.new_digest} ),
         )?;
-        end_timer!(new_digest_time);
-        let new_epoch_time = start_timer!(|| "Generating new epoch");
         let new_epoch = UInt64::new_input(
             ark_relations::ns!(cs, "new_epoch"),
             || Ok(if self.is_genesis { 0 } else { self.proof.prev_epoch + 1 }),
         )?;
-        end_timer!(new_epoch_time);
         end_timer!(public_input_time);
 
         // Allocate witness inputs
         let witness_input_time = start_timer!(|| "Allocating witness inputs");
-        let time = start_timer!(|| "Generating prev digest");
         let prev_digest = HGadget::OutputVar::new_witness(
             ark_relations::ns!(cs, "prev_digest"),
             || Ok(&self.proof.prev_digest),
         )?;
-        end_timer!(time);
-        let time = start_timer!(|| "Generating SSAVD update proof");
         let ssavd_proof = SSAVDGadget::UpdateProofVar::new_witness(
             ark_relations::ns!(cs, "ssavd_proof"),
             || Ok(&self.proof.ssavd_proof),
         )?;
-        end_timer!(time);
-        let time = start_timer!(|| "Generating history tree update proof");
         let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, _>>::new_witness(
             ark_relations::ns!(cs, "history_tree_proof"),
             || Ok(&self.proof.history_tree_proof),
         )?;
-        end_timer!(time);
         let prev_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
             ark_relations::ns!(cs, "prev_ssavd_digest"),
             || Ok(&self.proof.prev_ssavd_digest),
@@ -289,22 +275,6 @@ where
         let outer_proof_verifies = verify_with_processed_vk(&vk, &inner_proof_input_as_e1_fq_bytes, &prev_recursive_proof)?;
         outer_proof_verifies.conditional_enforce_equal(&Boolean::TRUE, &is_genesis.not())?;
         end_timer!(time);
-
-        println!(">>>>Checking constraints after generating them");
-        match cs.is_satisfied() {
-            Ok(b) => {
-                if !b {
-                    println!("=========================================================");
-                    println!("Unsatisfied constraints:");
-                    println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
-                    println!("=========================================================");
-                }
-                //assert!(cs.is_satisfied().unwrap());
-                println!("Constraints satisfied: {}", cs.is_satisfied().unwrap());
-            },
-            Err(_) => println!("Constraint system not assigned"),
-        }
-
         Ok(())
     }
 }
@@ -381,9 +351,6 @@ ConstraintF: PrimeField,
             v.push(<ConstraintF>::from((tmp & 1 == 1) as u8));
             tmp >>= 1;
         }
-        println!("Public input length: {}", v.len());
-        let a = v.iter().map(|f| rsa::bignat::f_to_nat(f)).collect::<Vec<rsa::bignat::BigNat>>();
-        println!("Public inputs: {:?}", a);
         Some(v)
     }
 }
@@ -986,7 +953,6 @@ mod tests {
 
         println!("Generating inner proof for genesis epoch...");
 
-
         let mut layer = ConstraintLayer::default();
         layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
         let subscriber = tracing_subscriber::Registry::default().with(layer);
@@ -1006,7 +972,6 @@ mod tests {
                     c: g.clone(),
                 },
             ).generate_constraints(cs.clone()).unwrap();
-            println!(">>>>Constraint check before proving");
             if !cs.is_satisfied().unwrap() {
                 println!("=========================================================");
                 println!("Unsatisfied constraints:");
