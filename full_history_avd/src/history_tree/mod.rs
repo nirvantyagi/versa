@@ -2,7 +2,7 @@ use ark_ff::bytes::ToBytes;
 use ark_crypto_primitives::crh::FixedLengthCRH;
 
 use crypto_primitives::sparse_merkle_tree::{
-    MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
+    MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree, MerkleTreeError,
 };
 use single_step_avd::SingleStepAVD;
 
@@ -10,20 +10,19 @@ use crate::Error;
 
 use std::{
     collections::HashMap,
-    hash::Hash,
     io::{Write, Cursor, Result as IoResult},
 };
 use rand::Rng;
 
 pub mod constraints;
 
-pub struct HistoryTree<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> {
+pub struct HistoryTree<P: MerkleTreeParameters, D: ToBytes + Eq + Clone> {
     pub tree: SparseMerkleTree<P>,
-    digest_d: HashMap<D, MerkleIndex>,
+    digest_d: HashMap<MerkleIndex, D>,
     epoch: MerkleIndex,
 }
 
-impl<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> HistoryTree<P, D> {
+impl<P: MerkleTreeParameters, D: ToBytes + Eq + Clone> HistoryTree<P, D> {
     pub fn new(hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> {
         Ok(HistoryTree {
             tree: SparseMerkleTree::<P>::new(&<[u8; 32]>::default(), hash_parameters)?,
@@ -35,7 +34,7 @@ impl<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> HistoryTree<P, D> 
     // TODO: Manage digest lifetimes so as not to store clones
     pub fn append_digest(&mut self, digest: &D) -> Result<(), Error> {
         self.tree.update(self.epoch, &digest_to_bytes(digest)?)?;
-        self.digest_d.insert(digest.clone(), self.epoch);
+        self.digest_d.insert(self.epoch, digest.clone());
         self.epoch += 1;
         Ok(())
     }
@@ -44,8 +43,8 @@ impl<P: MerkleTreeParameters, D: Hash + ToBytes + Eq + Clone> HistoryTree<P, D> 
         self.tree.lookup(epoch)
     }
 
-    pub fn lookup_digest(&self, digest: &D) -> Option<MerkleIndex> {
-        self.digest_d.get(digest).cloned()
+    pub fn lookup_digest(&self, epoch: MerkleIndex) -> Option<D> {
+        self.digest_d.get(&epoch).cloned()
     }
 }
 
@@ -129,10 +128,34 @@ pub struct LookupProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> {
     history_tree_digest: <HTParams::H as FixedLengthCRH>::Output,
 }
 
-pub struct HistoryProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> {
-    history_tree_proof: MerkleTreePath<HTParams>,
+pub enum HistoryProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> {
+    PrevEpoch(PrevEpochHistoryProof<SSAVD, HTParams>),
+    CurrEpoch(),
+}
+
+pub struct PrevEpochHistoryProof<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> {
+    path: MerkleTreePath<HTParams>,
     ssavd_digest: SSAVD::Digest,
     history_tree_digest: <HTParams::H as FixedLengthCRH>::Output,
+}
+
+impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for PrevEpochHistoryProof<SSAVD, HTParams> {
+    fn clone(&self) -> Self {
+        Self {
+            path: self.path.clone(),
+            ssavd_digest: self.ssavd_digest.clone(),
+            history_tree_digest: self.history_tree_digest.clone(),
+        }
+    }
+}
+
+impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for HistoryProof<SSAVD, HTParams> {
+    fn clone(&self) -> Self {
+        match self {
+            HistoryProof::PrevEpoch(proof) => HistoryProof::PrevEpoch(proof.clone()),
+            HistoryProof::CurrEpoch() => HistoryProof::CurrEpoch(),
+        }
+    }
 }
 
 impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHistory<SSAVD, HTParams> {
@@ -273,44 +296,53 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
 
     pub fn lookup_history(
         &self,
-        prev_digest: &Digest<HTParams>,
-    ) -> Result<Option<HistoryProof<SSAVD, HTParams>>, Error> {
-        match (
-            self.history_tree.lookup_digest(&prev_digest.digest),
-            self.history_tree.lookup_path(prev_digest.epoch)?,
-        ) {
-            (Some(epoch), path) if epoch == prev_digest.epoch => {
-                Ok(Some(HistoryProof {
-                    history_tree_proof: path,
-                    ssavd_digest: self.ssavd.digest()?,
-                    history_tree_digest: self.history_tree.tree.root.clone(),
-                }))
-            },
-            _ => Ok(None),
+        prev_epoch: usize,
+    ) -> Result<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>), Error> {
+        if prev_epoch as u64 > self.history_tree.epoch {
+            Err(Box::new(MerkleTreeError::LeafIndex(prev_epoch as u64)))
+        } else if prev_epoch as u64 == self.history_tree.epoch {
+            Ok((self.digest(), HistoryProof::CurrEpoch()))
+        } else {
+            Ok((
+                   Digest { digest: self.history_tree.lookup_digest(prev_epoch as u64).unwrap(), epoch: prev_epoch as u64 },
+                   HistoryProof::PrevEpoch(
+                        PrevEpochHistoryProof {
+                            path: self.history_tree.lookup_path(prev_epoch as u64)?,
+                            ssavd_digest: self.ssavd.digest()?,
+                            history_tree_digest: self.history_tree.tree.root.clone(),
+                        }
+                   )
+            ))
         }
     }
 
     pub fn verify_history(
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
+        prev_epoch: usize,
         prev_digest: &Digest<HTParams>,
-        current_digest: &Digest<HTParams>,
+        digest: &Digest<HTParams>,
         proof: &HistoryProof<SSAVD, HTParams>,
     ) -> Result<bool, Error> {
-        Ok(
-            proof.history_tree_proof.verify(
-                &proof.history_tree_digest,
-                &digest_to_bytes(&prev_digest.digest)?,
-                prev_digest.epoch,
-                history_tree_pp,
-            )? &&
-                current_digest.digest ==
-                    hash_to_final_digest::<SSAVD, HTParams::H>(
-                        history_tree_pp,
-                        &proof.ssavd_digest,
+        match proof {
+            HistoryProof::CurrEpoch() => Ok(digest.epoch == prev_epoch as u64),
+            HistoryProof::PrevEpoch(proof) => {
+                Ok(
+                    proof.path.verify(
                         &proof.history_tree_digest,
-                        &current_digest.epoch,
-                    )?
-        )
+                        &digest_to_bytes(&prev_digest.digest)?,
+                        prev_epoch as u64,
+                        history_tree_pp,
+                    )? &&
+                        digest.digest ==
+                            hash_to_final_digest::<SSAVD, HTParams::H>(
+                            history_tree_pp,
+                            &proof.ssavd_digest,
+                            &proof.history_tree_digest,
+                            &digest.epoch,
+                        )?
+                )
+            }
+        }
     }
 }
 
@@ -424,19 +456,16 @@ mod tests {
         let curr_digest = avd.digest();
         assert_eq!(curr_digest.epoch, 2);
 
-        let history_proof = avd.lookup_history(&prev_digest).unwrap().unwrap();
+        let (prev_digest_lookup, history_proof) = avd.lookup_history(1).unwrap();
         let result = TestAVDWithHistory::verify_history(
             &crh_pp,
-            &prev_digest,
+            1,
+            &prev_digest_lookup,
             &curr_digest,
             &history_proof,
         ).unwrap();
         assert!(result);
-
-        let invalid_history_proof = avd.lookup_history(
-            &Digest{epoch: 1, digest: Default::default()}
-        ).unwrap();
-        assert!(invalid_history_proof.is_none());
+        assert!(prev_digest == prev_digest_lookup);
     }
 
 }

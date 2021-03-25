@@ -32,6 +32,7 @@ use std::{
 use crate::{
     history_tree::{SingleStepAVDWithHistory, Digest, LookupProof, HistoryProof, SingleStepUpdateProof},
     FullHistoryAVD, Error,
+    get_checkpoint_epochs,
 };
 
 pub mod constraints;
@@ -102,6 +103,20 @@ impl<SSAVD, HTParams, Cycle> Clone for PublicParameters<SSAVD, HTParams, Cycle>
     }
 }
 
+pub struct AuditProof<SSAVD, HTParams, Cycle>
+where
+    SSAVD: SingleStepAVD,
+    HTParams: MerkleTreeParameters,
+    Cycle: CycleEngine,
+    <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+    <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+    <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
+{
+    groth_proof: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof,
+    checkpoint_paths: Vec<HistoryProof<SSAVD, HTParams>>,
+    checkpoint_digests: Vec<Digest<HTParams>>,
+}
+
 
 impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> FullHistoryAVD for
 RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
@@ -121,8 +136,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
     type Digest = Digest<HTParams>;
     type PublicParameters = PublicParameters<SSAVD, HTParams, Cycle>;
     type LookupProof = LookupProof<SSAVD, HTParams>;
-    type HistoryProof = HistoryProof<SSAVD, HTParams>;
-    type DigestProof = <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof;
+    type AuditProof = AuditProof<SSAVD, HTParams, Cycle>;
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
@@ -190,31 +204,18 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         Ok((value, self.digest()?, proof))
     }
 
-    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<Self::Digest, Error> {
         // Compute new step proof
         let prev_digest = self.history_ssavd.digest();
         let update = self.history_ssavd.update(key, value)?;
         self._update(rng, update, prev_digest)
     }
 
-    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
+    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<Self::Digest, Error> {
         // Compute new step proof
         let prev_digest = self.history_ssavd.digest();
         let update = self.history_ssavd.batch_update(kvs)?;
         self._update(rng, update, prev_digest)
-    }
-
-
-    fn verify_digest(pp: &Self::PublicParameters, digest: &Self::Digest, proof: &Self::DigestProof) -> Result<bool, Error> {
-        let b = Groth16::<Cycle::E1>::verify_with_processed_vk(
-            &prepare_verifying_key(&pp.inner_groth16_pp.vk),
-            &InnerSingleStepProofVerifierInput::<HTParams> {
-                new_digest: digest.digest.clone(),
-                new_epoch: digest.epoch,
-            }.to_field_elements().unwrap(),
-            &proof,
-        ).unwrap();
-        Ok(b)
     }
 
     fn verify_lookup(pp: &Self::PublicParameters, key: &[u8; 32], value: &Option<(u64, [u8; 32])>, digest: &Self::Digest, proof: &Self::LookupProof) -> Result<bool, Error> {
@@ -228,17 +229,51 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         )
     }
 
-    fn lookup_history(&self, prev_digest: &Self::Digest) -> Result<(Self::Digest, Option<Self::HistoryProof>), Error> {
-        Ok((self.digest()?, self.history_ssavd.lookup_history(prev_digest)?))
+    fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
+        let (d, history_proof) = get_checkpoint_epochs(start_epoch, end_epoch).0.iter()
+            .map(|epoch| self.history_ssavd.lookup_history(*epoch))
+            .collect::<Result<Vec<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>)>, Error>>()?
+            .iter().cloned().unzip::<_, _, Vec<_>, Vec<_>>();
+        Ok((
+            self.history_ssavd.digest(),
+            AuditProof {
+                groth_proof: self.inner_proof.clone(),
+                checkpoint_paths: history_proof,
+                checkpoint_digests: d,
+            }
+        ))
     }
 
-    fn verify_history(pp: &Self::PublicParameters, prev_digest: &Self::Digest, current_digest: &Self::Digest, proof: &Self::HistoryProof) -> Result<bool, Error> {
-        SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_history(
-            &pp.history_tree_pp,
-            prev_digest,
-            current_digest,
-            proof,
-        )
+    fn verify_audit(
+        pp: &Self::PublicParameters,
+        start_epoch: usize,
+        end_epoch: usize,
+        digest: &Self::Digest,
+        proof: &Self::AuditProof,
+    ) -> Result<bool, Error> {
+        let groth_proof_valid = Groth16::<Cycle::E1>::verify_with_processed_vk(
+            &prepare_verifying_key(&pp.inner_groth16_pp.vk),
+            &InnerSingleStepProofVerifierInput::<HTParams> {
+                new_digest: digest.digest.clone(),
+                new_epoch: digest.epoch,
+            }.to_field_elements().unwrap(),
+            &proof.groth_proof,
+        ).unwrap();
+        let checkpoint_paths_valid = proof.checkpoint_paths.iter()
+            .zip(&proof.checkpoint_digests)
+            .zip(get_checkpoint_epochs(start_epoch, end_epoch).0)
+            .map(|((checkpoint_proof, checkpoint_digest), epoch)|
+                     SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_history(
+                         &pp.history_tree_pp,
+                         epoch,
+                         checkpoint_digest,
+                         digest,
+                         checkpoint_proof,
+                     )
+            ).collect::<Result<Vec<bool>, Error>>()?
+            .iter()
+            .all(|b| *b);
+        Ok(groth_proof_valid && checkpoint_paths_valid)
     }
 }
 
@@ -264,7 +299,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         rng: &mut R,
         update: SingleStepUpdateProof<SSAVD, HTParams>,
         prev_digest: Digest<HTParams>,
-    ) -> Result<(Digest<HTParams>, <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof), Error> {
+    ) -> Result<Digest<HTParams>, Error> {
         // Compute outer proof of previous inner proof
         let check = start_timer!(|| "Compute outer proof");
         let outer_proof = Groth16::<Cycle::E2>::prove(
@@ -296,7 +331,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         )?;
         end_timer!(check);
         self.inner_proof = new_inner_proof.clone();
-        Ok((self.digest()?, new_inner_proof))
+        Ok(self.digest()?)
     }
 }
 
@@ -445,7 +480,6 @@ mod tests {
         MNT6PairingVar,
     >;
 
-
     #[test]
     #[ignore] // Expensive test, run with ``cargo test update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
     fn mt_update_and_verify_recursion_full_history_test() {
@@ -483,59 +517,37 @@ mod tests {
         ];
 
         let start = Instant::now();
-        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let d1 = avd.batch_update(&mut rng, &epoch1_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 1 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify1 = TestRecursionFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 1 verification time: {} s", bench);
-        assert!(verify1);
+        let (_, audit_proof) = avd.audit(0, 1).unwrap();
+        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        assert!(verify_audit);
 
         let start = Instant::now();
-        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let _d2 = avd.batch_update(&mut rng, &epoch2_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 2 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify2 = TestRecursionFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 2 verification time: {} s", bench);
-        assert!(verify2);
-
-        let start = Instant::now();
-        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let _d3 = avd.batch_update(&mut rng, &epoch3_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 3 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify3 = TestRecursionFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 3 verification time: {} s", bench);
-        assert!(verify3);
-
-        let start = Instant::now();
-        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let _d4 = avd.batch_update(&mut rng, &epoch4_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 4 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify4 = TestRecursionFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 4 verification time: {} s", bench);
-        assert!(verify4);
-
-        let start = Instant::now();
-        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let d5 = avd.batch_update(&mut rng, &epoch5_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify5 = TestRecursionFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 5 verification time: {} s", bench);
-        assert!(verify5);
+        let (_, audit_proof) = avd.audit(2, 5).unwrap();
+        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
+        assert!(verify_audit);
     }
 
     #[test]
@@ -581,58 +593,36 @@ mod tests {
         ];
 
         let start = Instant::now();
-        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let d1 = avd.batch_update(&mut rng, &epoch1_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 1 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify1 = TestRecursionRsaFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 1 verification time: {} s", bench);
-        assert!(verify1);
+        let (_, audit_proof) = avd.audit(0, 1).unwrap();
+        let verify_audit = TestRecursionRsaFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        assert!(verify_audit);
 
         let start = Instant::now();
-        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let _d2 = avd.batch_update(&mut rng, &epoch2_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 2 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify2 = TestRecursionRsaFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 2 verification time: {} s", bench);
-        assert!(verify2);
-
-        let start = Instant::now();
-        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let _d3 = avd.batch_update(&mut rng, &epoch3_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 3 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify3 = TestRecursionRsaFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 3 verification time: {} s", bench);
-        assert!(verify3);
-
-        let start = Instant::now();
-        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let _d4 = avd.batch_update(&mut rng, &epoch4_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 4 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify4 = TestRecursionRsaFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 4 verification time: {} s", bench);
-        assert!(verify4);
-
-        let start = Instant::now();
-        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let d5 = avd.batch_update(&mut rng, &epoch5_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify5 = TestRecursionRsaFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 5 verification time: {} s", bench);
-        assert!(verify5);
+        let (_, audit_proof) = avd.audit(1, 5).unwrap();
+        let verify_audit = TestRecursionRsaFHAVD::verify_audit(&pp, 1, 5, &d5, &audit_proof).unwrap();
+        assert!(verify_audit);
     }
 }
