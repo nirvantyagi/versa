@@ -2,10 +2,6 @@ use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
 };
-use crypto_primitives::sparse_merkle_tree::{
-    MerkleTreeParameters,
-    constraints::MerkleTreePathVar,
-};
 
 use ark_ff::{
     ToConstraintField,
@@ -16,47 +12,33 @@ use ark_relations::r1cs::{
 };
 use ark_r1cs_std::{
     prelude::*,
-    uint64::UInt64,
-};
-use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
-
-use crate::{
-    history_tree::{
-        SingleStepUpdateProof,
-        constraints::SingleStepUpdateProofVar,
-    },
 };
 
 use std::marker::PhantomData;
 
 
-pub struct SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
+pub struct SingleStepProofCircuit<SSAVD, SSAVDGadget, ConstraintF>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-        HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
         ConstraintF: PrimeField,
 {
-    proof: SingleStepUpdateProof<SSAVD, HTParams>,
+    proof: SSAVD::UpdateProof,
+    public_input: SingleStepProofVerifierInput<SSAVD>,
     ssavd_pp: SSAVD::PublicParameters,
-    history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
     _ssavd_gadget: PhantomData<SSAVDGadget>,
-    _hash_gadget: PhantomData<HGadget>,
     _field: PhantomData<ConstraintF>,
 }
 
-pub struct SingleStepProofVerifierInput<HTParams: MerkleTreeParameters> {
-    pub(crate) prev_digest: <HTParams::H as FixedLengthCRH>::Output,
-    pub(crate) new_digest: <HTParams::H as FixedLengthCRH>::Output,
+pub struct SingleStepProofVerifierInput<SSAVD: SingleStepAVD> {
+    pub(crate) prev_digest: SSAVD::Digest,
+    pub(crate) new_digest: SSAVD::Digest,
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> ConstraintSynthesizer<ConstraintF> for SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
+impl<SSAVD, SSAVDGadget, ConstraintF> ConstraintSynthesizer<ConstraintF> for SingleStepProofCircuit<SSAVD, SSAVDGadget, ConstraintF>
 where
     SSAVD: SingleStepAVD,
     SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-    HTParams: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
     ConstraintF: PrimeField,
 {
     #[tracing::instrument(target = "r1cs", skip(self, cs))]
@@ -69,106 +51,73 @@ where
             ark_relations::ns!(cs, "ssavd_pp"),
             &self.ssavd_pp,
         )?;
-        let history_tree_pp = HGadget::ParametersVar::new_constant(
-            ark_relations::ns!(cs, "history_tree_pp"),
-            &self.history_tree_pp,
-        )?;
 
         // Allocate public inputs
-        let prev_digest = HGadget::OutputVar::new_input(
+        let prev_digest = SSAVDGadget::DigestVar::new_input(
             ark_relations::ns!(cs, "prev_digest"),
-            || Ok(&self.proof.prev_digest),
+            || Ok(&self.public_input.prev_digest),
         )?;
-        let new_digest = HGadget::OutputVar::new_input(
+        let new_digest = SSAVDGadget::DigestVar::new_input(
             ark_relations::ns!(cs, "new_digest"),
-            || Ok(&self.proof.new_digest),
+            || Ok(&self.public_input.new_digest),
         )?;
 
         // Allocate witness inputs
         let ssavd_proof = SSAVDGadget::UpdateProofVar::new_witness(
             ark_relations::ns!(cs, "ssavd_proof"),
-            || Ok(&self.proof.ssavd_proof),
-        )?;
-        let history_tree_proof = <MerkleTreePathVar<HTParams, HGadget, ConstraintF>>::new_witness(
-            ark_relations::ns!(cs, "history_tree_proof"),
-            || Ok(&self.proof.history_tree_proof),
-        )?;
-        let prev_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            ark_relations::ns!(cs, "prev_ssavd_digest"),
-            || Ok(&self.proof.prev_ssavd_digest),
-        )?;
-        let new_ssavd_digest = SSAVDGadget::DigestVar::new_witness(
-            ark_relations::ns!(cs, "new_ssavd_digest"),
-            || Ok(&self.proof.new_ssavd_digest),
-        )?;
-        let prev_epoch = UInt64::new_witness(
-            ark_relations::ns!(cs, "prev_epoch"),
-            || Ok(&self.proof.prev_epoch),
+            || Ok(&self.proof),
         )?;
 
         // Check update proof
-        let proof_gadget = SingleStepUpdateProofVar::<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>{
-            ssavd_proof,
-            history_tree_proof,
-            prev_ssavd_digest,
-            new_ssavd_digest,
-            prev_digest,
-            new_digest,
-            prev_epoch,
-        };
-        proof_gadget.conditional_check_single_step_with_history_update(
+        SSAVDGadget::check_update_proof(
             &ssavd_pp,
-            &history_tree_pp,
-            &Boolean::constant(true),
+            &prev_digest,
+            &new_digest,
+            &ssavd_proof,
         )?;
         Ok(())
     }
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF> SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, ConstraintF>
+impl<SSAVD, SSAVDGadget, ConstraintF> SingleStepProofCircuit<SSAVD, SSAVDGadget, ConstraintF>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-        HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, ConstraintF>,
         ConstraintF: PrimeField,
 {
     pub fn blank(
         ssavd_pp: &SSAVD::PublicParameters,
-        history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
     ) -> Self {
         Self {
-            proof: SingleStepUpdateProof::<SSAVD, HTParams>::default(),
+            proof: Default::default(),
+            public_input: Default::default(),
             ssavd_pp: ssavd_pp.clone(),
-            history_tree_pp: history_tree_pp.clone(),
             _ssavd_gadget: PhantomData ,
-            _hash_gadget: PhantomData,
             _field: PhantomData,
         }
     }
 
     pub fn new(
         ssavd_pp: &SSAVD::PublicParameters,
-        history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
-        proof: SingleStepUpdateProof<SSAVD, HTParams>,
+        proof: SSAVD::UpdateProof,
+        public_input: SingleStepProofVerifierInput<SSAVD>,
     ) -> Self {
         Self {
             proof: proof,
+            public_input: public_input,
             ssavd_pp: ssavd_pp.clone(),
-            history_tree_pp: history_tree_pp.clone(),
             _ssavd_gadget: PhantomData ,
-            _hash_gadget: PhantomData,
             _field: PhantomData,
         }
     }
 
 }
 
-impl <HTParams, ConstraintF> ToConstraintField<ConstraintF> for SingleStepProofVerifierInput<HTParams>
+impl <SSAVD, ConstraintF> ToConstraintField<ConstraintF> for SingleStepProofVerifierInput<SSAVD>
 where
-HTParams: MerkleTreeParameters,
+SSAVD: SingleStepAVD,
 ConstraintF: PrimeField,
-<HTParams::H as FixedLengthCRH>::Output: ToConstraintField<ConstraintF>,
+SSAVD::Digest: ToConstraintField<ConstraintF>,
 {
     fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
@@ -178,6 +127,23 @@ ConstraintF: PrimeField,
     }
 }
 
+impl <SSAVD: SingleStepAVD> Clone for SingleStepProofVerifierInput<SSAVD> {
+    fn clone(&self) -> Self {
+        Self {
+            prev_digest: self.prev_digest.clone(),
+            new_digest: self.new_digest.clone(),
+        }
+    }
+}
+
+impl <SSAVD: SingleStepAVD> Default for SingleStepProofVerifierInput<SSAVD> {
+    fn default() -> Self {
+        Self {
+            prev_digest: Default::default(),
+            new_digest: Default::default(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -203,10 +169,7 @@ mod tests {
             RsaAVD, constraints::RsaAVDGadget,
         },
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
-    use crate::{
-        history_tree::SingleStepAVDWithHistory,
-    };
+    use crypto_primitives::sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters};
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::RsaKVACParams,
@@ -249,10 +212,9 @@ mod tests {
 
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
-    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters>;
 
-    type TestCircuit = SingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, Fq>;
-    type TestVerifierInput = SingleStepProofVerifierInput<MerkleTreeTestParameters>;
+    type TestCircuit = SingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, Fq>;
+    type TestVerifierInput = SingleStepProofVerifierInput<TestMerkleTreeAVD>;
 
 
     // Parameters for RSA AVD
@@ -304,9 +266,9 @@ mod tests {
         PoseidonHG,
         BigNatTestParams,
     >;
-    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters>;
 
-    type TestRsaCircuit = SingleStepProofCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, Fq>;
+    type TestRsaCircuit = SingleStepProofCircuit<TestRsaAVD, TestRsaAVDGadget, Fq>;
+    type TestRsaVerifierInput = SingleStepProofVerifierInput<TestRsaAVD>;
 
     fn u8_to_array(n: u8) -> [u8; 32] {
         let mut arr = [0_u8; 32];
@@ -318,9 +280,10 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_circuit_test --release -- --ignored --nocapture``
     fn mt_aggr_update_and_verify_circuit_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
-        let proof = avd.batch_update(
+        let ssavd_pp = TestMerkleTreeAVD::setup(&mut rng).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &ssavd_pp).unwrap();
+        let d0 = avd.digest().unwrap();
+        let (d1, proof) = avd.batch_update(
             &vec![
                 //([1_u8; 32], [2_u8; 32]),
                 //([11_u8; 32], [12_u8; 32]),
@@ -330,8 +293,8 @@ mod tests {
                 (u8_to_array(21), u8_to_array(22)),
             ]).unwrap();
         let verifier_input = TestVerifierInput{
-            prev_digest: proof.prev_digest.clone(),
-            new_digest: proof.new_digest.clone(),
+            prev_digest: d0.clone(),
+            new_digest: d1.clone(),
         };
 
         // Generate proof circuit
@@ -342,7 +305,6 @@ mod tests {
         let start = Instant::now();
         let blank_circuit = TestCircuit::blank(
             &ssavd_pp,
-            &crh_pp,
         );
         let parameters =
             Groth16::<Bls12_381>::circuit_specific_setup::<TestCircuit, _>(blank_circuit, &mut rng).unwrap();
@@ -355,7 +317,7 @@ mod tests {
         let start = Instant::now();
         let circuit_proof = Groth16::<Bls12_381>::prove(
             &parameters.0,
-            TestCircuit::new(&ssavd_pp, &crh_pp, proof),
+            TestCircuit::new(&ssavd_pp, proof, verifier_input.clone()),
             &mut rng,
         ).unwrap();
         let bench = start.elapsed().as_secs();
@@ -378,7 +340,6 @@ mod tests {
         // Count constraints
         let blank_circuit_constraint_counter = TestCircuit::blank(
             &ssavd_pp,
-            &crh_pp,
         );
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
@@ -389,17 +350,18 @@ mod tests {
     #[ignore] // Expensive test, run with ``cargo test rsa_aggr_update_and_verify_circuit_test --release -- --ignored --nocapture``
     fn rsa_aggr_update_and_verify_circuit_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
-        let proof = avd.batch_update(
+        let ssavd_pp = TestRsaAVD::setup(&mut rng).unwrap();
+        let mut avd = TestRsaAVD::new(&mut rng, &ssavd_pp).unwrap();
+        let d0 = avd.digest().unwrap();
+        let (d1, proof) = avd.batch_update(
             &vec![
                 (u8_to_array(1), u8_to_array(2)),
                 (u8_to_array(11), u8_to_array(12)),
                 (u8_to_array(21), u8_to_array(22)),
             ]).unwrap();
-        let verifier_input = TestVerifierInput{
-            prev_digest: proof.prev_digest.clone(),
-            new_digest: proof.new_digest.clone(),
+        let verifier_input = TestRsaVerifierInput{
+            prev_digest: d0.clone(),
+            new_digest: d1.clone(),
         };
 
         // Generate proof circuit
@@ -408,7 +370,7 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let cs = ConstraintSystem::<Fq>::new_ref();
-            TestRsaCircuit::new(&ssavd_pp, &crh_pp, proof.clone()).generate_constraints(cs.clone()).unwrap();
+            TestRsaCircuit::new(&ssavd_pp, proof.clone(), verifier_input.clone()).generate_constraints(cs.clone()).unwrap();
             println!("Constraints satisfied: {}", cs.is_satisfied().unwrap());
             if !cs.is_satisfied().unwrap() {
                 println!("=========================================================");
@@ -423,9 +385,9 @@ mod tests {
         let start = Instant::now();
         let blank_circuit = TestRsaCircuit::blank(
             &ssavd_pp,
-            &crh_pp,
         );
         let parameters = Groth16::<Bls12_381>::circuit_specific_setup(blank_circuit, &mut rng).unwrap();
+        //println!("Verifying key length: {}", parameters.1.gamma_abc_g1.len());
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -435,7 +397,7 @@ mod tests {
         let start = Instant::now();
         let circuit_proof = Groth16::<Bls12_381>::prove(
             &parameters.0,
-            TestRsaCircuit::new(&ssavd_pp, &crh_pp, proof),
+            TestRsaCircuit::new(&ssavd_pp, proof, verifier_input.clone()),
             &mut rng,
         ).unwrap();
         let bench = start.elapsed().as_secs();
@@ -450,7 +412,7 @@ mod tests {
         assert!(result);
         let result2 = Groth16::<Bls12_381>::verify_with_processed_vk(
             &Groth16::process_vk(&parameters.1).unwrap(),
-            &TestVerifierInput{prev_digest: Default::default(), new_digest: Default::default()}.to_field_elements().unwrap(),
+            &TestRsaVerifierInput::default().to_field_elements().unwrap(),
             &circuit_proof,
         ).unwrap();
         assert!(!result2);
@@ -458,7 +420,6 @@ mod tests {
         // Count constraints
         let blank_circuit_constraint_counter = TestRsaCircuit::blank(
             &ssavd_pp,
-            &crh_pp,
         );
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();

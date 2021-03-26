@@ -4,7 +4,7 @@ use std::{error::Error as ErrorTrait};
 use rand::{Rng, CryptoRng};
 
 pub mod history_tree;
-//pub mod aggregation;
+pub mod aggregation;
 pub mod recursion;
 
 pub type Error = Box<dyn ErrorTrait>;
@@ -162,6 +162,5 @@ mod tests {
             get_checkpoint_epochs(5, 23).1,
             vec![0, 1, 3, 2, 1, 0],
         );
-
     }
 }

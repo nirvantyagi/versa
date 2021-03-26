@@ -2,10 +2,8 @@ use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
 };
-use crypto_primitives::sparse_merkle_tree::{MerkleTreeParameters};
 
 use ark_crypto_primitives::{
-    crh::{FixedLengthCRH, FixedLengthCRHGadget},
     snark::{SNARK},
 };
 use ark_groth16::{
@@ -22,7 +20,7 @@ use ark_ip_proofs::{
     tipa::{SRS},
 };
 
-use rand::{Rng, CryptoRng, rngs::mock::StepRng};
+use rand::{Rng, CryptoRng};
 
 use digest::Digest as HashDigest;
 use std::{
@@ -31,8 +29,8 @@ use std::{
     error::Error as ErrorTrait,
 };
 use crate::{
-    history_tree::{SingleStepAVDWithHistory, Digest, LookupProof, HistoryProof, SingleStepUpdateProof},
     FullHistoryAVD, Error,
+    get_checkpoint_epochs,
 };
 
 pub mod constraints;
@@ -55,218 +53,156 @@ pub trait AggregatedFullHistoryAVDParameters {
 
 
 //TODO: Double storing SSAVD_pp (also stored in MerkleTreeAVD) since need for update
-pub struct AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
+pub struct AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
 where
     Params: AggregatedFullHistoryAVDParameters,
     SSAVD: SingleStepAVD,
     SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
-    HTParams: MerkleTreeParameters,
-    HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
     Pairing: PairingEngine,
     FastH: HashDigest,
-    <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+    SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
-    history_ssavd: SingleStepAVDWithHistory<SSAVD, HTParams>,
+    ssavd: SSAVD,
     proofs: Vec<<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof>,
-    aggregated_proofs: Vec<AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>>,
-    digests: Vec<<<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output>,
-    digest_openings: Vec<(SSAVD::Digest, <HTParams::H as FixedLengthCRH>::Output)>,
+    aggregated_proofs: Vec<Vec<AggregateDigestProof<Pairing, FastH>>>,
+    digests: Vec<SSAVD::Digest>,
     ssavd_pp: SSAVD::PublicParameters,
     groth16_pp: <Groth16<Pairing> as SNARK<Pairing::Fr>>::ProvingKey,
     ip_pp: SRS<Pairing>,
     _params: PhantomData<Params>,
     _ssavd_gadget: PhantomData<SSAVDGadget>,
-    _hash_gadget: PhantomData<HGadget>,
 }
 
 
 //TODO: Can separate out verification parameters
 //TODO: Can add genesis digest as constant to parameters instead of recalculating on verify
 //TODO: Optimization: Groth16 and Inner Product public parameters may be shared
-pub struct PublicParameters<SSAVD, HTParams, Pairing>
+pub struct PublicParameters<SSAVD, Pairing>
     where
         SSAVD: SingleStepAVD,
-        HTParams: MerkleTreeParameters,
         Pairing: PairingEngine,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
     ssavd_pp: SSAVD::PublicParameters,
-    history_tree_pp: <HTParams::H as FixedLengthCRH>::Parameters,
     groth16_pp: <Groth16<Pairing> as SNARK<Pairing::Fr>>::ProvingKey,
     ip_pp: SRS<Pairing>,
 }
 
-impl<SSAVD, HTParams, Pairing> Clone for PublicParameters<SSAVD, HTParams, Pairing>
+impl<SSAVD, Pairing> Clone for PublicParameters<SSAVD, Pairing>
     where
         SSAVD: SingleStepAVD,
-        HTParams: MerkleTreeParameters,
         Pairing: PairingEngine,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
     fn clone(&self) -> Self {
         Self {
             ssavd_pp: self.ssavd_pp.clone(),
-            history_tree_pp: self.history_tree_pp.clone(),
             groth16_pp: self.groth16_pp.clone(),
             ip_pp: self.ip_pp.clone(),
         }
     }
 }
 
-pub struct DigestProof<SSAVD, HTParams, Pairing, FastH>
+pub enum CheckpointRangeProof<Pairing, FastH>
     where
-        SSAVD: SingleStepAVD,
-        HTParams: MerkleTreeParameters,
         Pairing: PairingEngine,
         FastH: HashDigest,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
 {
-    aggregated_proofs: Vec<AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>>,
-    base_proof: Option<<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof>,
+    Single(<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof),
+    Range(AggregateDigestProof<Pairing, FastH>),
+}
+
+pub struct AuditProof<SSAVD, Pairing, FastH>
+    where
+        SSAVD: SingleStepAVD,
+        Pairing: PairingEngine,
+        FastH: HashDigest,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
+{
+    aggregated_proofs: Vec<CheckpointRangeProof<Pairing, FastH>>,
+    checkpoint_digests: Vec<SSAVD::Digest>,
 }
 
 
 
-impl<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH> FullHistoryAVD for
-AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
+impl<Params, SSAVD, SSAVDGadget, Pairing, FastH> FullHistoryAVD for
+AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
     where
         Params: AggregatedFullHistoryAVDParameters,
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
-        HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         FastH: HashDigest,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
-    type Digest = Digest<HTParams>;
-    type PublicParameters = PublicParameters<SSAVD, HTParams, Pairing>;
-    type LookupProof = LookupProof<SSAVD, HTParams>;
-    type HistoryProof = HistoryProof<SSAVD, HTParams>;
-    type DigestProof = DigestProof<SSAVD, HTParams, Pairing, FastH>;
+    type Digest = SSAVD::Digest;
+    type PublicParameters = PublicParameters<SSAVD, Pairing>;
+    type LookupProof = SSAVD::LookupProof;
+    type AuditProof = AuditProof<SSAVD, Pairing, FastH>;
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
-        let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
-        let blank_circuit = SingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>::blank(
+        let ssavd_pp = SSAVD::setup(rng)?;
+        let blank_circuit = SingleStepProofCircuit::<SSAVD, SSAVDGadget, Pairing::Fr>::blank(
             &ssavd_pp,
-            &history_tree_pp,
         );
         let (groth16_pp, _) = Groth16::<Pairing>::circuit_specific_setup::<
-                SingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>, _
+                SingleStepProofCircuit<SSAVD, SSAVDGadget, Pairing::Fr>, _
             >(blank_circuit, rng)?;
         let ip_pp = Self::setup_inner_product(rng, (1_u64 << (Params::MAX_EPOCH_LOG_2 as u64)) as usize)?;
         Ok(PublicParameters {
             ssavd_pp,
-            history_tree_pp,
             groth16_pp,
             ip_pp,
         })
     }
 
     fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
-        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp)?;
-        let digests = vec![history_ssavd.digest().digest];
-        let digest_openings = vec![(history_ssavd.ssavd.digest()?, history_ssavd.history_tree.tree.root.clone())];
+        let ssavd = SSAVD::new(rng, &pp.ssavd_pp)?;
+        let digests = vec![ssavd.digest()?];
         Ok(Self {
-            history_ssavd: history_ssavd,
+            ssavd: ssavd,
             proofs: Vec::new(),
             aggregated_proofs: Vec::new(),
             digests: digests,
-            digest_openings: digest_openings,
             ssavd_pp: pp.ssavd_pp.clone(),
             groth16_pp: pp.groth16_pp.clone(),
             ip_pp: pp.ip_pp.clone(),
             _params: PhantomData,
             _ssavd_gadget: PhantomData,
-            _hash_gadget: PhantomData,
         })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
-        Ok(self.history_ssavd.digest())
+        self.ssavd.digest()
     }
 
     fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
-        let (value, proof) = self.history_ssavd.lookup(key)?;
-        Ok((value, self.digest()?, proof))
+        self.ssavd.lookup(key)
     }
 
-    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<(Self::Digest, Self::DigestProof), Error> {
-        if self.digest()?.epoch >= 1_u64 << (Params::MAX_EPOCH_LOG_2 as u64) {
+    fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<Self::Digest, Error> {
+        if self.proofs.len() >= 1 << (Params::MAX_EPOCH_LOG_2 as u64) {
             return Err(Box::new(AggregatedFullHistoryAVDError::MaxEpochExceeded));
         }
         // Compute new step proof
-        let update = self.history_ssavd.update(key, value)?;
-        self._update(rng, update)
+        let (d, update) = self.ssavd.update(key, value)?;
+        self._update(rng, update)?;
+        Ok(d)
     }
 
-    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(Self::Digest, Self::DigestProof), Error> {
-        if self.digest()?.epoch >= 1_u64 << (Params::MAX_EPOCH_LOG_2 as u64) {
+    fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<Self::Digest, Error> {
+        if self.proofs.len() >= 1 << (Params::MAX_EPOCH_LOG_2 as u64) {
             return Err(Box::new(AggregatedFullHistoryAVDError::MaxEpochExceeded));
         }
         // Compute new step proof
-        let update = self.history_ssavd.batch_update(kvs)?;
-        self._update(rng, update)
-    }
-
-
-    fn verify_digest(pp: &Self::PublicParameters, digest: &Self::Digest, proof: &Self::DigestProof) -> Result<bool, Error> {
-        let epoch = digest.epoch;
-        let mut proof_counter = 0;
-        //TODO: Assumes new AVD initialization is deterministic with dummy Rng
-        let mut prev_digest =
-            SingleStepAVDWithHistory::<SSAVD, HTParams>::new(&mut StepRng::new(1, 1), &pp.ssavd_pp, &pp.history_tree_pp)?
-                .digest().digest;
-        let mut prev_epoch = 0;
-        let valid_aggregate_proofs = (1..Params::MAX_EPOCH_LOG_2).rev().map(|n| {
-            if (epoch & (1 << n)) == (1 << n) {
-                let aggregate_proof = &proof.aggregated_proofs[proof_counter];
-                let proof_start_i = (epoch & (!0 << (n + 1))) as usize;
-                let proof_end_i = proof_start_i + (1 << n);
-                //println!("\t\t checking aggregate proof of size: {:?}: {}-{} epochs", n, proof_start_i, proof_end_i);
-                let valid_trailing_epoch = proof_end_i as u64 == aggregate_proof.trailing_digest_opening.0;
-                let valid_aggregate_proof = Self::verify_aggregate_proof(
-                    &pp.history_tree_pp,
-                    &pp.ip_pp.get_verifier_key(),
-                    &pp.groth16_pp.vk,
-                    &prev_digest,
-                    aggregate_proof,
-                    1 << n,
-                )?;
-                // Set up verification of next batch of proofs
-                proof_counter += 1;
-                prev_digest = aggregate_proof.trailing_digest.clone();
-                prev_epoch = aggregate_proof.trailing_digest_opening.0;
-                Ok(valid_trailing_epoch && valid_aggregate_proof)
-            } else {
-                Ok(true)
-            }
-        })
-            .collect::<Result<Vec<bool>, Error>>()?
-            .iter()
-            .all(|b| *b);
-        //May not be last epoch but second to last epoch
-        let valid_last_epoch = if (epoch & 1) == 1 {
-            let base_proof = proof.base_proof.as_ref().ok_or(Box::new(AggregatedFullHistoryAVDError::Verification))?;
-            (epoch - 1 == prev_epoch) &&
-                Groth16::<Pairing>::verify_with_processed_vk(
-                    &prepare_verifying_key(&pp.groth16_pp.vk),
-                    &SingleStepProofVerifierInput::<HTParams>{
-                        prev_digest: prev_digest,
-                        new_digest: digest.digest.clone(),
-                    }.to_field_elements().unwrap(),
-                    base_proof,
-                )?
-        } else {
-            digest.digest == prev_digest
-        };
-        Ok(valid_aggregate_proofs && valid_last_epoch)
+        let (d, update) = self.ssavd.batch_update(kvs)?;
+        self._update(rng, update)?;
+        Ok(d)
     }
 
     fn verify_lookup(pp: &Self::PublicParameters, key: &[u8; 32], value: &Option<(u64, [u8; 32])>, digest: &Self::Digest, proof: &Self::LookupProof) -> Result<bool, Error> {
-        SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_lookup(
+        SSAVD::verify_lookup(
             &pp.ssavd_pp,
-            &pp.history_tree_pp,
             key,
             value,
             digest,
@@ -274,86 +210,113 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         )
     }
 
-    fn lookup_history(&self, prev_digest: &Self::Digest) -> Result<(Self::Digest, Option<Self::HistoryProof>), Error> {
-        Ok((self.digest()?, self.history_ssavd.lookup_history(prev_digest)?))
+    fn audit(
+        &self,
+        start_epoch: usize,
+        end_epoch: usize,
+    ) -> Result<(Self::Digest, Self::AuditProof), Error> {
+        let (checkpoints, checkpoint_ranges) = get_checkpoint_epochs(start_epoch, end_epoch);
+        let checkpoint_digests = checkpoints.iter()
+            .map(|i| self.digests[*i].clone())
+            .collect::<Vec<_>>();
+        let range_proofs = checkpoints.iter().zip(&checkpoint_ranges)
+            .map(|(ckpt, ckpt_level)| {
+                match ckpt_level {
+                    0 => CheckpointRangeProof::Single(self.proofs[*ckpt].clone()),
+                    _ => CheckpointRangeProof::Range(self.aggregated_proofs[ckpt_level-1][ckpt >> ckpt_level].clone()),
+                }
+            }).collect::<Vec<_>>();
+        Ok((
+            self.digest()?,
+            AuditProof {
+                aggregated_proofs: range_proofs,
+                checkpoint_digests: checkpoint_digests,
+            },
+        ))
     }
 
-    fn verify_history(pp: &Self::PublicParameters, prev_digest: &Self::Digest, current_digest: &Self::Digest, proof: &Self::HistoryProof) -> Result<bool, Error> {
-        SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_history(
-            &pp.history_tree_pp,
-            prev_digest,
-            current_digest,
-            proof,
+    fn verify_audit(
+        pp: &Self::PublicParameters,
+        start_epoch: usize,
+        end_epoch: usize,
+        _digest: &Self::Digest,
+        proof: &Self::AuditProof,
+    ) -> Result<bool, Error> {
+        Ok(proof.aggregated_proofs.iter()
+            .zip(get_checkpoint_epochs(start_epoch, end_epoch).1)
+            .enumerate()
+            .map(|(i, (range_proof, ckpt_level))| {
+                match range_proof {
+                    CheckpointRangeProof::Single(groth_proof) =>
+                        Groth16::<Pairing>::verify_with_processed_vk(
+                            &prepare_verifying_key(&pp.groth16_pp.vk),
+                            &SingleStepProofVerifierInput::<SSAVD>{
+                                prev_digest: proof.checkpoint_digests[i].clone(),
+                                new_digest: proof.checkpoint_digests[i+1].clone(),
+                            }.to_field_elements().unwrap(),
+                            groth_proof,
+                        ).unwrap(),
+                    CheckpointRangeProof::Range(agg_proof) =>
+                        Self::verify_aggregate_proof(
+                            &pp.ip_pp.get_verifier_key(),
+                            &pp.groth16_pp.vk,
+                            &proof.checkpoint_digests[i].clone(),
+                            &proof.checkpoint_digests[i+1].clone(),
+                            &agg_proof,
+                            1 << ckpt_level,
+                        ).unwrap(),
+                }
+            }).all(|b| b)
         )
     }
+
 }
 
-
-
-impl<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
-AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
+impl<Params, SSAVD, SSAVDGadget, Pairing, FastH>
+AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
     where
         Params: AggregatedFullHistoryAVDParameters,
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
-        HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         FastH: HashDigest,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
-    fn _update<R: Rng + CryptoRng>(&mut self, rng: &mut R, update: SingleStepUpdateProof<SSAVD, HTParams>)
-        -> Result<(Digest<HTParams>, DigestProof<SSAVD, HTParams, Pairing, FastH>), Error> {
+    fn _update<R: Rng + CryptoRng>(&mut self, rng: &mut R, update: SSAVD::UpdateProof)
+        -> Result<(), Error> {
+        let prev_digest = self.digests.last().unwrap().clone();
+        let new_digest = self.digest()?;
+        self.digests.push(new_digest.clone());
+
         let groth16_proof = Groth16::<Pairing>::prove(
             &self.groth16_pp,
-            SingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Pairing::Fr>::new(
-                &self.ssavd_pp, &self.history_ssavd.history_tree.tree.hash_parameters, update,
+            SingleStepProofCircuit::<SSAVD, SSAVDGadget, Pairing::Fr>::new(
+                &self.ssavd_pp, update,
+                SingleStepProofVerifierInput {
+                    prev_digest: prev_digest,
+                    new_digest: new_digest,
+                },
             ),
             rng,
         )?;
-
-        let base_proof = match (self.digest()?.epoch & 1) == 1 {
-            true => Some(groth16_proof.clone()),
-            false => None,
-        };
         self.proofs.push(groth16_proof);
-        self.digests.push(self.history_ssavd.digest().digest);
-        //TODO: Optimization: Don't need to keep around all digest openings once it won't be a sentinel anymore
-        self.digest_openings.push((self.history_ssavd.ssavd.digest()?, self.history_ssavd.history_tree.tree.root.clone()));
 
-        // Compute necessary aggregated proofs
-        let new_epoch = self.digest()?.epoch;
-        let prev_proof_positions_aggregated = new_epoch - 1;
-        for n in 1..Params::MAX_EPOCH_LOG_2 {
-            match (
-                (new_epoch & (1 << n)) == (1 << n),
-                (prev_proof_positions_aggregated & (1 << n)) == (1 << n),
-            ) {
-                (false, true) => {
-                    self.aggregated_proofs.pop();
-                },
-                (true, false) => {
-                    // Create aggregate proof of proofs
-                    // This case should be hit at most once and afterwards bits should be equal
-                    let proof_start_i = (new_epoch & (!0 << (n + 1))) as usize;
-                    let proof_end_i = proof_start_i + (1 << n);
-                    //println!("\t\t creating aggregate proof of size: {:?}: {}-{} epochs", n, proof_start_i, proof_end_i);
-                    let proof = self.aggregate_proofs(
-                        proof_start_i,
-                        proof_end_i
-                    )?;
-                    self.aggregated_proofs.push(proof);
-                },
-                _ => (), //TODO: Optimization: Can break early in this case
-            }
+        // Compute aggregated proofs if necessary
+        let new_epoch = self.proofs.len();
+        let mut aggr_level = (new_epoch).trailing_zeros() as usize;
+        if aggr_level > self.aggregated_proofs.len() {
+            self.aggregated_proofs.push(vec![]);
         }
-        Ok((
-            self.digest()?,
-            DigestProof {
-                aggregated_proofs: self.aggregated_proofs.clone(),
-                base_proof: base_proof,
-            },
-        ))
+        while aggr_level > 0 {  // Aggregate
+            let start_epoch = new_epoch - (1 << aggr_level);
+            let proof = self.aggregate_proofs(
+                start_epoch,
+                new_epoch,
+            )?;
+            self.aggregated_proofs[aggr_level - 1].push(proof);
+            aggr_level -= 1;
+        }
+        Ok(())
     }
 }
 
@@ -403,7 +366,7 @@ mod tests {
             RsaAVD, constraints::RsaAVDGadget,
         }
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters};
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::RsaKVACParams,
@@ -458,8 +421,6 @@ mod tests {
         AggregatedFHAVDTestParameters,
         TestMerkleTreeAVD,
         TestMerkleTreeAVDGadget,
-        MerkleTreeTestParameters,
-        HG,
         Bls12_381,
         Blake2b,
     >;
@@ -520,8 +481,6 @@ mod tests {
         AggregatedFHAVDTestParameters,
         TestRsaAVD,
         TestRsaAVDGadget,
-        MerkleTreeTestParameters,
-        HG,
         Bls12_381,
         Blake2b,
     >;
@@ -564,59 +523,37 @@ mod tests {
         ];
 
         let start = Instant::now();
-        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let d1 = avd.batch_update(&mut rng, &epoch1_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 1 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify1 = TestAggregatedFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 1 verification time: {} s", bench);
-        assert!(verify1);
+        let (_, audit_proof) = avd.audit(0, 1).unwrap();
+        let verify_audit = TestAggregatedFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        assert!(verify_audit);
 
         let start = Instant::now();
-        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let _d2 = avd.batch_update(&mut rng, &epoch2_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 2 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify2 = TestAggregatedFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 2 verification time: {} s", bench);
-        assert!(verify2);
-
-        let start = Instant::now();
-        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let _d3 = avd.batch_update(&mut rng, &epoch3_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 3 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify3 = TestAggregatedFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 3 verification time: {} s", bench);
-        assert!(verify3);
-
-        let start = Instant::now();
-        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let _d4 = avd.batch_update(&mut rng, &epoch4_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 4 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify4 = TestAggregatedFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 4 verification time: {} s", bench);
-        assert!(verify4);
-
-        let start = Instant::now();
-        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let d5 = avd.batch_update(&mut rng, &epoch5_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify5 = TestAggregatedFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 5 verification time: {} s", bench);
-        assert!(verify5);
+        let (_, audit_proof) = avd.audit(2, 5).unwrap();
+        let verify_audit = TestAggregatedFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
+        assert!(verify_audit);
     }
 
     #[test]
@@ -625,7 +562,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = TestRsaAggregatedFHAVD::setup(&mut rng).unwrap();
-        let mut avd = TestRsaAggregatedFHAVD::new(&mut rng, &pp).unwrap();
+        let mut avd  = TestRsaAggregatedFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -662,58 +599,36 @@ mod tests {
         ];
 
         let start = Instant::now();
-        let (d1, proof1) = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let d1 = avd.batch_update(&mut rng, &epoch1_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 1 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify1 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d1, &proof1).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 1 verification time: {} s", bench);
-        assert!(verify1);
+        let (_, audit_proof) = avd.audit(0, 1).unwrap();
+        let verify_audit = TestRsaAggregatedFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        assert!(verify_audit);
 
         let start = Instant::now();
-        let (d2, proof2) = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let _d2 = avd.batch_update(&mut rng, &epoch2_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 2 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify2 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d2, &proof2).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 2 verification time: {} s", bench);
-        assert!(verify2);
-
-        let start = Instant::now();
-        let (d3, proof3) = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let _d3 = avd.batch_update(&mut rng, &epoch3_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 3 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify3 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d3, &proof3).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 3 verification time: {} s", bench);
-        assert!(verify3);
-
-        let start = Instant::now();
-        let (d4, proof4) = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let _d4 = avd.batch_update(&mut rng, &epoch4_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 4 proving time: {} s", bench);
 
         let start = Instant::now();
-        let verify4 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d4, &proof4).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 4 verification time: {} s", bench);
-        assert!(verify4);
-
-        let start = Instant::now();
-        let (d5, proof5) = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let d5 = avd.batch_update(&mut rng, &epoch5_update).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t epoch 5 proving time: {} s", bench);
 
-        let start = Instant::now();
-        let verify5 = TestRsaAggregatedFHAVD::verify_digest(&pp, &d5, &proof5).unwrap();
-        let bench = start.elapsed().as_secs();
-        println!("\t epoch 5 verification time: {} s", bench);
-        assert!(verify5);
+        let (_, audit_proof) = avd.audit(1, 5).unwrap();
+        let verify_audit = TestRsaAggregatedFHAVD::verify_audit(&pp, 1, 5, &d5, &audit_proof).unwrap();
+        assert!(verify_audit);
     }
 }

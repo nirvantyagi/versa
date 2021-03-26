@@ -1,12 +1,16 @@
 use rand::Rng;
-use ark_ff::bytes::ToBytes;
+use ark_ff::{
+    bytes::ToBytes,
+    fields::PrimeField,
+    ToConstraintField,
+};
 
 use crate::{Error, SingleStepAVD};
 
 use rsa::{
     kvac::{RsaKVAC, RsaKVACParams, Commitment, MembershipWitness, UpdateProof},
     hash::{Hasher, hash_to_prime::{PocklingtonCertificate, PocklingtonPlan, ExtensionCertificate, PlannedExtension}},
-    bignat::{BigNat, Order, constraints::BigNatCircuitParams},
+    bignat::{BigNat, Order, nat_to_limbs, constraints::BigNatCircuitParams},
     poker::PoKERParams,
 };
 
@@ -106,6 +110,15 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams> ToBytes for DigestWrapper<P, C> {
         let mut c1_bytes = self.digest.1.n.to_digits::<u8>(Order::LsfBe);
         c1_bytes.resize(num_bytes_per_bignat, 0);
         c1_bytes.write(&mut writer)
+    }
+}
+
+impl<P: RsaKVACParams, C: BigNatCircuitParams, ConstraintF: PrimeField> ToConstraintField<ConstraintF> for DigestWrapper<P, C> {
+    fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&nat_to_limbs(&self.digest.0.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
+        v.extend_from_slice(&nat_to_limbs(&self.digest.1.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
+        Some(v)
     }
 }
 

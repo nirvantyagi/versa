@@ -32,7 +32,6 @@ use ark_ip_proofs::{
 use super::*;
 use crate::{
     Error,
-    history_tree::hash_to_final_digest,
 };
 
 type PairingInnerProductAB<P, D> = TIPA<
@@ -123,10 +122,8 @@ impl<P: PairingEngine> KZG<P> {
 }
 
 
-pub struct AggregateDigestProof<SSAVD, HTParams, P, FastH>
+pub struct AggregateDigestProof<P, FastH>
     where
-        SSAVD: SingleStepAVD,
-        HTParams: MerkleTreeParameters,
         P: PairingEngine,
         FastH: HashDigest,
 {
@@ -140,15 +137,11 @@ pub struct AggregateDigestProof<SSAVD, HTParams, P, FastH>
     tipa_proof_ab: PairingInnerProductABProof<P, FastH>,
     tipa_proof_c: MultiExpInnerProductCProof<P, FastH>,
     tipa_proof_d: Vec<P::G1Projective>,
-    pub trailing_digest: <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
-    pub trailing_digest_opening: (u64, SSAVD::Digest, <HTParams::H as FixedLengthCRH>::Output),
 }
 
 
-impl<SSAVD, HTParams, P, FastH> Clone for AggregateDigestProof<SSAVD, HTParams, P, FastH>
+impl<P, FastH> Clone for AggregateDigestProof<P, FastH>
     where
-        SSAVD: SingleStepAVD,
-        HTParams: MerkleTreeParameters,
         P: PairingEngine,
         FastH: HashDigest,
 {
@@ -164,23 +157,19 @@ impl<SSAVD, HTParams, P, FastH> Clone for AggregateDigestProof<SSAVD, HTParams, 
             tipa_proof_ab: self.tipa_proof_ab.clone(),
             tipa_proof_c: self.tipa_proof_c.clone(),
             tipa_proof_d: self.tipa_proof_d.clone(),
-            trailing_digest: self.trailing_digest.clone(),
-            trailing_digest_opening: self.trailing_digest_opening.clone(),
         }
     }
 }
 
-impl<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
-AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing, FastH>
+impl<Params, SSAVD, SSAVDGadget, Pairing, FastH>
+AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
     where
         Params: AggregatedFullHistoryAVDParameters,
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
-        HTParams: MerkleTreeParameters,
-        HGadget: FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, Pairing::Fr>,
         Pairing: PairingEngine,
         FastH: HashDigest,
-        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<Pairing::Fr>,
+        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
     pub(crate) fn setup_inner_product<R: Rng>(rng: &mut R, size: usize) -> Result<SRS<Pairing>, Error>
     {
@@ -193,10 +182,10 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         &self,
         start_i: usize,
         end_i: usize,
-    ) -> Result<AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>, Error> {
+    ) -> Result<AggregateDigestProof<Pairing, FastH>, Error> {
         let size = end_i - start_i;
         assert!(size.is_power_of_two() && size < (1_usize << Params::MAX_EPOCH_LOG_2));
-        assert!(end_i <= self.digest().unwrap().epoch as usize);
+        assert!(end_i <= self.proofs.len());
         // Truncate SRS
         let ip_srs = SRS{
             g_alpha_powers: self.ip_pp.g_alpha_powers[0..(2*size - 1)].to_vec(),
@@ -226,14 +215,6 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         let digest_cross_slices = (0..digest_size).map(|i| {
             digests_as_field.iter().map(|d| d[i].clone()).collect::<Vec<Pairing::Fr>>()
         }).collect::<Vec<_>>();
-
-        let trailing_digest = self.digests[end_i].clone();
-        let trailing_digest_opening = (
-            end_i as u64,
-            self.digest_openings[end_i].0.clone(),
-            self.digest_openings[end_i].1.clone(),
-        );
-
 
         let (full_ck_1, full_ck_2) = self.ip_pp.get_commitment_keys();
         let ck_1 = &full_ck_1[0..size];
@@ -311,17 +292,15 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
             tipa_proof_ab,
             tipa_proof_c,
             tipa_proof_d,
-            trailing_digest,
-            trailing_digest_opening,
         })
     }
 
     pub(crate) fn verify_aggregate_proof(
-        history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
         ip_verifier_srs: &VerifierSRS<Pairing>,
         vk: &VerifyingKey<Pairing>,
-        leading_digest: &<<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
-        proof: &AggregateDigestProof<SSAVD, HTParams, Pairing, FastH>,
+        leading_digest: &SSAVD::Digest,
+        trailing_digest: &SSAVD::Digest,
+        proof: &AggregateDigestProof<Pairing, FastH>,
         num_aggregated: u64,
     ) -> Result<bool, Error> {
         // Random linear combination of proofs
@@ -382,7 +361,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
         for i in 0..digest_size {
             g_ic.add_assign(&vk.gamma_abc_g1[i + 1].into_projective().mul(&proof.agg_d[i]));
             g_ic.add_assign(&vk.gamma_abc_g1[digest_size + i + 1].into_projective().mul(
-                &(((proof.agg_d[i] - &leading_digest.to_field_elements().unwrap()[i]) / &r) + &(r.pow(&[num_aggregated - 1]) * &proof.trailing_digest.to_field_elements().unwrap()[i]))
+                &(((proof.agg_d[i] - &leading_digest.to_field_elements().unwrap()[i]) / &r) + &(r.pow(&[num_aggregated - 1]) * &trailing_digest.to_field_elements().unwrap()[i]))
             ));
         }
 
@@ -391,16 +370,6 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, HTParams, HGadget, Pairing,
 
         let ppe_valid = proof.ip_ab.0 == (p1 * &p2) * &p3;
 
-        // Check opening of trailing digest
-        let trailing_digest_valid =
-            proof.trailing_digest ==
-                hash_to_final_digest::<SSAVD, HTParams::H>(
-                    history_tree_pp,
-                    &proof.trailing_digest_opening.1,
-                    &proof.trailing_digest_opening.2,
-                    &proof.trailing_digest_opening.0,
-                )?;
-
-        Ok(tipa_proof_ab_valid && tipa_proof_c_valid && tipa_proof_d_valid && ppe_valid && trailing_digest_valid)
+        Ok(tipa_proof_ab_valid && tipa_proof_c_valid && tipa_proof_d_valid && ppe_valid)
     }
 }
