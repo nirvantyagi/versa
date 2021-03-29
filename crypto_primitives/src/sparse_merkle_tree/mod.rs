@@ -1,15 +1,14 @@
-use ark_ff::bytes::ToBytes;
-use ark_crypto_primitives::crh::FixedLengthCRH;
-
 use std::{
     collections::HashMap,
     error::Error as ErrorTrait,
     fmt,
-    io::Cursor,
     marker::PhantomData,
 };
 
-use crate::Error;
+use crate::{
+    hash::FixedLengthCRH,
+    Error,
+};
 
 pub mod constraints;
 
@@ -186,11 +185,7 @@ pub fn hash_leaf<H: FixedLengthCRH>(
     parameters: &H::Parameters,
     leaf: &[u8],
 ) -> Result<H::Output, Error> {
-    //TODO: Oversized buffer to hopefully not underflow hash input size
-    let mut buffer = [0u8; 1024];
-    let mut writer = Cursor::new(&mut buffer[..]);
-    leaf.write(&mut writer)?;
-    H::evaluate(&parameters, &buffer[..(H::INPUT_SIZE_BITS / 8)])
+    H::evaluate_variable_length(parameters, leaf)
 }
 
 pub fn hash_inner_node<H: FixedLengthCRH>(
@@ -198,12 +193,7 @@ pub fn hash_inner_node<H: FixedLengthCRH>(
     left: &H::Output,
     right: &H::Output,
 ) -> Result<H::Output, Error> {
-    //TODO: Oversized buffer to hopefully not underflow hash input size
-    let mut buffer = [0u8; 1024];
-    let mut writer = Cursor::new(&mut buffer[..]);
-    left.write(&mut writer)?;
-    right.write(&mut writer)?;
-    H::evaluate(&parameters, &buffer[..(H::INPUT_SIZE_BITS / 8)])
+    H::merge(&parameters, left, right)
 }
 
 #[derive(Debug)]
@@ -235,7 +225,6 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
-        FixedLengthCRH,
     };
 
     #[derive(Clone)]

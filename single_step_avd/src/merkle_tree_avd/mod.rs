@@ -1,12 +1,14 @@
 use rand::Rng;
 use sha3::{digest::Digest, Sha3_256};
-use ark_crypto_primitives::crh::FixedLengthCRH;
 
 use std::{collections::HashMap, error::Error as ErrorTrait, fmt};
 
 use crate::{Error, SingleStepAVD};
-use crypto_primitives::sparse_merkle_tree::{
-    MerkleDepth, MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
+use crypto_primitives::{
+    sparse_merkle_tree::{
+        MerkleDepth, MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
+    },
+    hash::FixedLengthCRH,
 };
 
 pub mod constraints;
@@ -394,7 +396,6 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
-        FixedLengthCRH,
     };
 
     #[derive(Clone)]

@@ -4,14 +4,16 @@ use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-use ark_crypto_primitives::crh::FixedLengthCRHGadget;
 
 use crate::{
     constraints::SingleStepAVDGadget,
     merkle_tree_avd::{MerkleTreeAVD, MerkleTreeAVDParameters, UpdateProof},
 };
-use crypto_primitives::sparse_merkle_tree::{
-    constraints::MerkleTreePathVar, MerkleTreeParameters,
+use crypto_primitives::{
+    sparse_merkle_tree::{
+        constraints::MerkleTreePathVar, MerkleTreeParameters,
+    },
+    hash::constraints::FixedLengthCRHGadget,
 };
 
 use std::{borrow::Borrow, marker::PhantomData, convert::{TryFrom}};
@@ -232,11 +234,12 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
     use ark_crypto_primitives::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
-        FixedLengthCRH, FixedLengthCRHGadget,
     };
 
     use crate::SingleStepAVD;
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::{
+        sparse_merkle_tree::MerkleDepth, hash::FixedLengthCRH,
+    };
 
     #[derive(Clone)]
     pub struct Window4x256;

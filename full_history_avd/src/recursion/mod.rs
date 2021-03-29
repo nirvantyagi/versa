@@ -3,10 +3,12 @@ use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
 };
-use crypto_primitives::sparse_merkle_tree::{MerkleTreeParameters};
+use crypto_primitives::{
+    sparse_merkle_tree::{MerkleTreeParameters},
+    hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
+};
 
 use ark_crypto_primitives::{
-    crh::{FixedLengthCRH, FixedLengthCRHGadget},
     snark::{SNARK},
 };
 use ark_groth16::{Groth16, Proof, VerifyingKey, verifier::prepare_verifying_key};

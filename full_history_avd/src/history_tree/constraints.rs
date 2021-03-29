@@ -1,6 +1,9 @@
-use crypto_primitives::sparse_merkle_tree::{
-    MerkleTreeParameters,
-    constraints::MerkleTreePathVar,
+use crypto_primitives::{
+    sparse_merkle_tree::{
+        MerkleTreeParameters,
+        constraints::MerkleTreePathVar,
+    },
+    hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
 };
 use single_step_avd::{SingleStepAVD, constraints::SingleStepAVDGadget};
 use crate::history_tree::SingleStepUpdateProof;
@@ -11,7 +14,6 @@ use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 use std::{
     borrow::Borrow,
 };
@@ -179,17 +181,14 @@ pub fn hash_to_final_digest_var<SSAVD, SSAVDGadget, H, HGadget, ConstraintF>(
         HGadget: FixedLengthCRHGadget<H, ConstraintF>,
         ConstraintF: Field,
 {
-    // Hash together digests
-    let mut buffer1 = ssavd_digest.to_bytes()?;
-    buffer1.extend_from_slice(&history_tree_digest.to_bytes()?);
-    buffer1.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    let digests_hash = HGadget::evaluate(parameters, &buffer1)?;
-
+    // Assumes digests require only 256 bits for collision resistance
+    let mut buffer = ssavd_digest.to_bytes()?;
+    buffer.resize(32, UInt8::constant(0u8));
+    buffer.extend_from_slice(&history_tree_digest.to_bytes()?);
+    buffer.resize(64, UInt8::constant(0u8));
     // Note: to_bytes must provide little endian repr of u64 to match fn hash_to_final_digest
-    let mut buffer2 = epoch.to_bytes()?;
-    buffer2.extend_from_slice(&digests_hash.to_bytes()?);
-    buffer2.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    HGadget::evaluate(parameters, &buffer2)
+    buffer.extend_from_slice(&epoch.to_bytes()?);
+    HGadget::evaluate_variable_length(parameters, &buffer)
 }
 
 #[cfg(test)]

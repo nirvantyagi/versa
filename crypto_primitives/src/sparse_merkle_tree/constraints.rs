@@ -4,9 +4,11 @@ use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-use ark_crypto_primitives::crh::{FixedLengthCRH, FixedLengthCRHGadget};
 
-use crate::sparse_merkle_tree::{MerkleTreeParameters, MerkleTreePath};
+use crate::{
+    sparse_merkle_tree::{MerkleTreeParameters, MerkleTreePath},
+    hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
+};
 
 use std::{borrow::Borrow, marker::PhantomData};
 
@@ -105,9 +107,7 @@ where
     HGadget: FixedLengthCRHGadget<H, ConstraintF>,
     ConstraintF: Field,
 {
-    let mut buffer = leaf.clone();
-    buffer.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    HGadget::evaluate(parameters, &buffer)
+    HGadget::evaluate_variable_length(parameters, leaf)
 }
 
 pub fn hash_inner_node_var<H, HGadget, ConstraintF>(
@@ -121,10 +121,7 @@ where
     ConstraintF: Field,
 {
     // Little endian byte representation (must match serialization in hash_inner_node)
-    let mut buffer = left.to_bytes()?;
-    buffer.extend_from_slice(&right.to_bytes()?);
-    buffer.resize(H::INPUT_SIZE_BITS / 8, UInt8::constant(0u8));
-    HGadget::evaluate(parameters, &buffer)
+    HGadget::merge(parameters, left, right)
 }
 
 impl<P, HGadget, ConstraintF> AllocVar<MerkleTreePath<P>, ConstraintF>
@@ -164,7 +161,6 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
     use ark_crypto_primitives::crh::{
         pedersen::{constraints::CRHGadget, CRH, Window},
-        FixedLengthCRH, FixedLengthCRHGadget,
     };
 
     #[derive(Clone)]

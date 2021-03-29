@@ -1,8 +1,10 @@
 use ark_ff::bytes::ToBytes;
-use ark_crypto_primitives::crh::FixedLengthCRH;
 
-use crypto_primitives::sparse_merkle_tree::{
-    MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree, MerkleTreeError,
+use crypto_primitives::{
+    sparse_merkle_tree::{
+        MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree, MerkleTreeError,
+    },
+    hash::FixedLengthCRH,
 };
 use single_step_avd::SingleStepAVD;
 
@@ -354,20 +356,18 @@ pub fn hash_to_final_digest<SSAVD: SingleStepAVD, H: FixedLengthCRH>(
     history_tree_digest: &H::Output,
     epoch: &u64,
 ) -> Result<H::Output, Error> {
-    // Hash together digests
-    //TODO: Oversized buffer to hopefully not underflow hash input size
-    let mut buffer1 = [0u8; 1024];
-    let mut writer1 = Cursor::new(&mut buffer1[..]);
+    // Assumes digests require only 256 bits for collision resistance
+    let mut buffer1 = vec![];
+    let mut writer1 = Cursor::new(&mut buffer1);
     ssavd_digest.write(&mut writer1)?;
-    history_tree_digest.write(&mut writer1)?;
-    let digests_hash = H::evaluate(&parameters, &buffer1[..(H::INPUT_SIZE_BITS / 8)])?;
-
-    // Hash in epoch
-    let mut buffer2 = [0u8; 1024];
-    let mut writer2 = Cursor::new(&mut buffer2[..]);
-    writer2.write(&epoch.to_le_bytes())?;
-    digests_hash.write(&mut writer2)?;
-    H::evaluate(&parameters, &buffer2[..(H::INPUT_SIZE_BITS / 8)])
+    let mut buffer2 = vec![];
+    let mut writer2 = Cursor::new(&mut buffer2);
+    history_tree_digest.write(&mut writer2)?;
+    buffer1.resize(32, 0);
+    buffer2.resize(32, 0);
+    buffer1.extend_from_slice(&buffer2);
+    buffer1.extend_from_slice(&epoch.to_le_bytes());
+    H::evaluate_variable_length(&parameters, &buffer1)
 }
 
 pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<[u8; 128], Error> {

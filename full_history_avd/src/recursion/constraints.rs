@@ -3,9 +3,12 @@ use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
 };
-use crypto_primitives::sparse_merkle_tree::{
-    MerkleTreeParameters,
-    constraints::MerkleTreePathVar,
+use crypto_primitives::{
+    sparse_merkle_tree::{
+        MerkleTreeParameters,
+        constraints::MerkleTreePathVar,
+    },
+    hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
 };
 use ark_ff::{
     biginteger::BigInteger,
@@ -27,9 +30,6 @@ use ark_r1cs_std::{
     uint64::UInt64,
     fields::fp::FpVar,
     ToConstraintFieldGadget,
-};
-use ark_crypto_primitives::{
-    crh::{FixedLengthCRH, FixedLengthCRHGadget},
 };
 
 use crate::{
