@@ -42,7 +42,7 @@ use crate::{
 
 use rand::rngs::mock::StepRng;
 use std::{
-    marker::PhantomData, ops::MulAssign, convert::TryFrom,
+    marker::PhantomData, ops::MulAssign, convert::{TryFrom, From},
     io::Cursor,
 };
 use bench_utils::{end_timer, start_timer};
@@ -180,10 +180,13 @@ where
             ark_relations::ns!(cs, "new_digest"),
             || Ok(if self.is_genesis { &genesis_digest_val } else {&self.proof.new_digest} ),
         )?;
-        let new_epoch = UInt64::new_input(
+        let new_epoch_fr = FpVar::new_input(
             ark_relations::ns!(cs, "new_epoch"),
-            || Ok(if self.is_genesis { 0 } else { self.proof.prev_epoch + 1 }),
+            || Ok(<Cycle::E1 as PairingEngine>::Fr::from(
+                if self.is_genesis { 0 } else { self.proof.prev_epoch + 1 }
+            )),
         )?;
+        let new_epoch = UInt64::from_bits_le(&new_epoch_fr.to_bits_le()?[..64]);
         end_timer!(public_input_time);
 
         // Allocate witness inputs
@@ -208,10 +211,11 @@ where
             ark_relations::ns!(cs, "new_ssavd_digest"),
             || Ok(&self.proof.new_ssavd_digest),
         )?;
-        let prev_epoch = UInt64::new_witness(
+        let prev_epoch_fr = FpVar::new_witness(
             ark_relations::ns!(cs, "prev_epoch"),
-            || Ok(&self.proof.prev_epoch),
+            || Ok(<Cycle::E1 as PairingEngine>::Fr::from(self.proof.prev_epoch)),
         )?;
+        let prev_epoch = UInt64::from_bits_le(&prev_epoch_fr.to_bits_le()?[..64]);
         let prev_recursive_proof = ProofVar::<Cycle::E2, E2Gadget>::new_witness(
             cs.clone(),
             || Ok(&self.prev_recursive_proof),
@@ -251,9 +255,7 @@ where
         let time = start_timer!(|| "Generating constraints to check recursive proof");
         let mut inner_proof_input_as_e1_fr: Vec<FpVar<<Cycle::E1 as PairingEngine>::Fr>> = Vec::new();
         inner_proof_input_as_e1_fr.extend_from_slice(&prev_digest.to_constraint_field()?);
-        for b in prev_epoch.to_bits_le() {
-            inner_proof_input_as_e1_fr.push(<FpVar<_>>::from(b.clone()));
-        }
+        inner_proof_input_as_e1_fr.push(prev_epoch_fr);
         let inner_proof_input_as_e1_fr_bytes = inner_proof_input_as_e1_fr.iter()
             .map(|e1_fr| e1_fr.to_bytes())
             .collect::<Result<Vec<Vec<UInt8<_>>>, SynthesisError>>()?
@@ -300,9 +302,7 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSing
         let mut e1_fr = ToConstraintField::<<Cycle::E1 as PairingEngine>::Fr>::to_field_elements(
             &<HTParams::H as FixedLengthCRH>::Output::default()
         ).unwrap();
-        for _ in 0..64 {
-            e1_fr.push(Default::default());
-        }
+        e1_fr.push(Default::default()); // epoch
         let e1_fr_bytes = e1_fr.iter()
             .map(|e1_fr_elem| {
                 let mut buffer = vec![];
@@ -368,15 +368,10 @@ HTParams: MerkleTreeParameters,
 ConstraintF: PrimeField,
 <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<ConstraintF>,
 {
-    //TODO: Change UInt64 variable to pack into one field element
     fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
         v.extend_from_slice(&self.new_digest.to_field_elements().unwrap_or_default());
-        let mut tmp = self.new_epoch;
-        for _ in 0..64 {
-            v.push(<ConstraintF>::from((tmp & 1 == 1) as u8));
-            tmp >>= 1;
-        }
+        v.push(<ConstraintF>::from(self.new_epoch));
         Some(v)
     }
 }
