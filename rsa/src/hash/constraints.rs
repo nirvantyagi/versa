@@ -8,7 +8,7 @@ use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
 use std::marker::PhantomData;
 
 use crate::hash::{Hasher, PoseidonHasher};
-use crypto_primitives::poseidon::constraints::{PoseidonSpongeVar, AlgebraicSpongeVar};
+use crypto_primitives::hash::poseidon::constraints::{PoseidonSpongeVar, AlgebraicSpongeVar};
 
 pub trait HasherGadget<H, ConstraintF>: Sized
 where

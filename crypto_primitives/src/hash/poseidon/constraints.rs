@@ -7,11 +7,17 @@ use ark_ff::{PrimeField};
 use ark_r1cs_std::{
     prelude::*,
     fields::fp::FpVar,
+    ToConstraintFieldGadget,
 };
-use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError, Namespace};
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::poseidon::{PoseidonSponge, PoseidonSpongeState, AlgebraicSponge};
+use crate::hash::{
+    poseidon::{PoseidonSponge, PoseidonSpongeState, AlgebraicSponge},
+    constraints::FixedLengthCRHGadget, FixedLengthCRH,
+};
+
+use std::borrow::Borrow;
 
 
 /// Trait for an algebraic sponge such as Poseidon.
@@ -313,3 +319,62 @@ impl<F: PrimeField> AlgebraicSpongeVar<F, PoseidonSponge<F>> for PoseidonSpongeV
         Ok(squeezed_elems)
     }
 }
+
+impl<F: PrimeField> FixedLengthCRHGadget<PoseidonSponge<F>, F> for PoseidonSpongeVar<F> {
+    type OutputVar = FpVar<F>;
+    type ParametersVar = EmptyVar;
+
+    fn evaluate(
+        parameters: &Self::ParametersVar,
+        input: &[UInt8<F>],
+    ) -> Result<Self::OutputVar, SynthesisError> {
+        Self::evaluate_variable_length(parameters, input)
+    }
+
+    fn evaluate_variable_length(_parameters: &Self::ParametersVar, input: &[UInt8<F>]) -> Result<Self::OutputVar, SynthesisError> {
+        let cs = input.cs();
+        if cs != ConstraintSystemRef::None {
+            let mut sponge = PoseidonSpongeVar::new(cs);
+            sponge.absorb(&input.to_constraint_field()?)?;
+            Ok(sponge.squeeze(1)?[0].clone())
+        } else {
+            Ok(FpVar::constant(
+                PoseidonSponge::<F>::evaluate_variable_length(
+                    &(), &input.value().unwrap_or_default(),
+                ).unwrap()
+            ))
+        }
+    }
+
+    fn merge(_parameters: &Self::ParametersVar, left: &Self::OutputVar, right: &Self::OutputVar) -> Result<Self::OutputVar, SynthesisError> {
+        let cs = left.cs().or(right.cs());
+        if cs != ConstraintSystemRef::None {
+            let mut sponge = PoseidonSpongeVar::new(cs);
+            sponge.absorb(&[left.clone(), right.clone()])?;
+            Ok(sponge.squeeze(1)?[0].clone())
+        } else {
+            Ok(FpVar::constant(
+                PoseidonSponge::<F>::merge(
+                    &(),
+                    &left.value().unwrap_or_default(),
+                    &right.value().unwrap_or_default(),
+                ).unwrap()
+            ))
+        }
+    }
+}
+
+
+#[derive(Clone)]
+pub struct EmptyVar;
+
+impl<ConstraintF: PrimeField> AllocVar<(), ConstraintF> for EmptyVar {
+    fn new_variable<T: Borrow<()>>(
+        _cs: impl Into<Namespace<ConstraintF>>,
+        _f: impl FnOnce() -> Result<T, SynthesisError>,
+        _mode: AllocationMode,
+    ) -> Result<Self, SynthesisError> {
+        Ok(EmptyVar)
+    }
+}
+

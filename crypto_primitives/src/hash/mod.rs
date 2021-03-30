@@ -9,6 +9,7 @@ use crate::Error;
 
 pub mod constraints;
 pub mod pedersen;
+pub mod poseidon;
 
 // Wrapper around arkworks/crypto_primitives/crh to allow Poseidon without intermediate bytes
 // https://github.com/arkworks-rs/crypto-primitives/tree/main/src/crh

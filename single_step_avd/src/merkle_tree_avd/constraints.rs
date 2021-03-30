@@ -158,6 +158,7 @@ where
         )
     }
 
+    #[tracing::instrument(target = "r1cs", skip(pp, prev_digest, new_digest, proof, condition))]
     fn conditional_check_update_proof(
         pp: &Self::PublicParametersVar,
         prev_digest: &Self::DigestVar,

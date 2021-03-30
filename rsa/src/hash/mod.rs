@@ -3,7 +3,7 @@ use ark_ff::{
     fields::{PrimeField, FpParameters},
 };
 
-use crypto_primitives::poseidon::{PoseidonSponge, AlgebraicSponge};
+use crypto_primitives::hash::poseidon::{PoseidonSponge, AlgebraicSponge};
 
 use std::{
     marker::PhantomData,

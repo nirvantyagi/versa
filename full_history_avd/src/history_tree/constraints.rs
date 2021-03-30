@@ -210,7 +210,10 @@ mod tests {
         },
         rsa_avd::{RsaAVD, constraints::RsaAVDGadget},
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::{
+        sparse_merkle_tree::MerkleDepth,
+        hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+    };
     use crate::{
         history_tree::SingleStepAVDWithHistory,
     };
@@ -261,6 +264,35 @@ mod tests {
         TestMerkleTreeAVDGadget,
         MerkleTreeTestParameters,
         HG,
+        Fq,
+    >;
+
+    // Parameters for Merkle Tree AVD with Poseidon hash
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeTestParameters;
+
+    impl MerkleTreeParameters for PoseidonMerkleTreeTestParameters {
+        const DEPTH: MerkleDepth = 4;
+        type H = PoseidonSponge<Fq>;
+    }
+
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeAVDTestParameters;
+
+    impl MerkleTreeAVDParameters for PoseidonMerkleTreeAVDTestParameters {
+        const MAX_UPDATE_BATCH_SIZE: u64 = 4;
+        const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
+        type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
+    }
+
+    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
+    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq>;
+    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters>;
+    type PoseidonTestHistoryUpdateVar = SingleStepUpdateProofVar<
+        PoseidonTestMerkleTreeAVD,
+        PoseidonTestMerkleTreeAVDGadget,
+        PoseidonMerkleTreeTestParameters,
+        PoseidonSpongeVar<Fq>,
         Fq,
     >;
 
@@ -355,6 +387,52 @@ mod tests {
 
         assert!(cs.is_satisfied().unwrap());
     }
+
+    #[test]
+    fn history_tree_poseidon_update_and_verify_test() {
+        let mut layer = ConstraintLayer::default();
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let mut rng = StdRng::seed_from_u64(0_u64);
+            let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
+            let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+            let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+
+            let cs = ConstraintSystem::<Fq>::new_ref();
+
+            // Allocate proof variables
+            let proof_var = PoseidonTestHistoryUpdateVar::new_input(
+                ark_relations::ns!(cs, "alloc_proof"),
+                || Ok(proof),
+            ).unwrap();
+
+            let ssavd_pp_gadget = <PoseidonTestMerkleTreeAVDGadget as SingleStepAVDGadget<PoseidonTestMerkleTreeAVD, Fq>>::PublicParametersVar::new_constant(
+                ark_relations::ns!(cs, "ssavd_pp"),
+                &ssavd_pp,
+            ).unwrap();
+            let crh_pp_gadget = <PoseidonSpongeVar<Fq> as FixedLengthCRHGadget<PoseidonSponge<Fq>, Fq>>::ParametersVar::new_constant(
+                ark_relations::ns!(cs, "history_tree_pp"),
+                &crh_pp,
+            ).unwrap();
+
+            proof_var.conditional_check_single_step_with_history_update(
+                &ssavd_pp_gadget,
+                &crh_pp_gadget,
+                &Boolean::constant(true),
+            ).unwrap();
+
+            println!("Number of constraints: {}", cs.num_constraints());
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        })
+    }
+
 
     #[test]
     #[ignore]

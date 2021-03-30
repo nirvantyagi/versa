@@ -370,9 +370,9 @@ pub fn hash_to_final_digest<SSAVD: SingleStepAVD, H: FixedLengthCRH>(
     H::evaluate_variable_length(&parameters, &buffer1)
 }
 
-pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<[u8; 128], Error> {
-    let mut buffer = [0_u8; 128];
-    let mut writer = Cursor::new(&mut buffer[..]);
+pub fn digest_to_bytes<D: ToBytes>(digest: &D) -> Result<Vec<u8>, Error> {
+    let mut buffer = vec![];
+    let mut writer = Cursor::new(&mut buffer);
     digest.write(&mut writer)?;
     Ok(buffer)
 }

@@ -152,7 +152,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sparse_merkle_tree::*;
+    use crate::{
+        sparse_merkle_tree::*,
+        hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+    };
     use ark_ed_on_bls12_381::{
         EdwardsProjective as JubJub, Fq,
         constraints::EdwardsVar,
@@ -183,6 +186,20 @@ mod tests {
     }
 
     type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters>;
+
+    // Parameters for Merkle Tree AVD with Poseidon hash
+    type PH = PoseidonSponge<Fq>;
+    type PHG = PoseidonSpongeVar<Fq>;
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeTestParameters;
+
+    impl MerkleTreeParameters for PoseidonMerkleTreeTestParameters {
+        const DEPTH: MerkleDepth = 8;
+        type H = PH;
+    }
+
+    type PoseidonTestMerkleTree = SparseMerkleTree<PoseidonMerkleTreeTestParameters>;
+
 
     #[test]
     fn valid_path_constraints_test() {
@@ -225,6 +242,61 @@ mod tests {
             || Ok(path),
         )
         .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+
+    #[test]
+    fn poseidon_valid_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = PH::setup(&mut rng).unwrap();
+        let mut tree = PoseidonTestMerkleTree::new(&[0u8; 16], &crh_parameters).unwrap();
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <PHG as FixedLengthCRHGadget<PH, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate root
+        let root_var = <PHG as FixedLengthCRHGadget<PH, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(tree.root.clone()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<PoseidonMerkleTreeTestParameters, PHG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+            .unwrap();
 
         path_var
             .check_path(

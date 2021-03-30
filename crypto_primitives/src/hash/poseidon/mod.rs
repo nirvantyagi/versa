@@ -3,8 +3,12 @@ This implementation of Poseidon is taken almost entirely from arkworks:
 https://github.com/arkworks-rs/marlin/blob/constraints/src/fiat_shamir/poseidon/mod.rs
  */
 
-use ark_ff::{PrimeField};
-use rand::{rngs::StdRng, SeedableRng};
+use ark_ff::{fields::{PrimeField, FpParameters}, ToConstraintField};
+use rand::{Rng, rngs::StdRng, SeedableRng};
+use crate::{
+    hash::{FixedLengthCRH, HashError},
+    Error,
+};
 
 /// constraints for Poseidon
 pub mod constraints;
@@ -245,5 +249,34 @@ impl<F: PrimeField> AlgebraicSponge<F> for PoseidonSponge<F> {
             }
         };
         squeezed_elems
+    }
+}
+
+impl<F: PrimeField> FixedLengthCRH for PoseidonSponge<F> {
+    const INPUT_SIZE_BITS: usize = <F::Params as FpParameters>::CAPACITY as usize;
+    type Output = F;
+    type Parameters = ();
+
+    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
+        Ok(())
+    }
+
+    fn evaluate(parameters: &Self::Parameters, input: &[u8]) -> Result<Self::Output, Error> {
+        if input.len() > Self::INPUT_SIZE_BITS / 8 {
+            return Err(Box::new(HashError::InputSizeError(input.len())));
+        }
+        Self::evaluate_variable_length(parameters, input)
+    }
+
+    fn evaluate_variable_length(_parameters: &Self::Parameters, input: &[u8]) -> Result<Self::Output, Error> {
+        let mut sponge = PoseidonSponge::<F>::new();
+        sponge.absorb(&input.to_field_elements().unwrap());
+        Ok(sponge.squeeze(1)[0].clone())
+    }
+
+    fn merge(_parameters: &Self::Parameters, left: &Self::Output, right: &Self::Output) -> Result<Self::Output, Error> {
+        let mut sponge = PoseidonSponge::<F>::new();
+        sponge.absorb(&[left.clone(), right.clone()]);
+        Ok(sponge.squeeze(1)[0].clone())
     }
 }

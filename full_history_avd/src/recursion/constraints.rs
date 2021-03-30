@@ -12,7 +12,7 @@ use crypto_primitives::{
 };
 use ark_ff::{
     biginteger::BigInteger,
-    ToConstraintField,
+    ToConstraintField, ToBytes,
     fields::{PrimeField, FpParameters},
 };
 use ark_ec::{
@@ -43,6 +43,7 @@ use crate::{
 use rand::rngs::mock::StepRng;
 use std::{
     marker::PhantomData, ops::MulAssign, convert::TryFrom,
+    io::Cursor,
 };
 use bench_utils::{end_timer, start_timer};
 
@@ -65,8 +66,7 @@ fn verify_with_processed_vk<E: PairingEngine, P: PairingVar<E, E::Fq>, T: ToBits
             g_ic += encoded_input_i;
             input_len += 1;
         }
-        // Check that the input and the query in the verification are of the
-        // same length.
+        // Check that the input and the query in the verification are of the same length.
         assert!(input_len == circuit_pvk.gamma_abc_g1.len() && input_len - 1 == public_inputs.len());
         g_ic
     };
@@ -290,12 +290,38 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSing
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
 {
     pub fn blank(
         ssavd_pp: &SSAVD::PublicParameters,
         history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
-        vk: VerifyingKey<Cycle::E2>,
     ) -> Self {
+        // public inputs (digest + epoch) reformatted for outer circuit input
+        let mut e1_fr = ToConstraintField::<<Cycle::E1 as PairingEngine>::Fr>::to_field_elements(
+            &<HTParams::H as FixedLengthCRH>::Output::default()
+        ).unwrap();
+        for _ in 0..64 {
+            e1_fr.push(Default::default());
+        }
+        let e1_fr_bytes = e1_fr.iter()
+            .map(|e1_fr_elem| {
+                let mut buffer = vec![];
+                let mut writer = Cursor::new(&mut buffer);
+                e1_fr_elem.write(&mut writer).unwrap();
+                buffer
+            })
+            .flatten().collect::<Vec<u8>>();
+        let e1_fq_max_encoding_size_in_bytes = usize::try_from(<<<Cycle::E1 as PairingEngine>::Fq as PrimeField>::Params as FpParameters>::CAPACITY / 8).unwrap();
+        let num_e1_fq = e1_fr_bytes
+            .chunks(e1_fq_max_encoding_size_in_bytes)
+            .len();
+        let vk = VerifyingKey {
+            alpha_g1: Default::default(),
+            beta_g2: Default::default(),
+            gamma_g2: Default::default(),
+            delta_g2: Default::default(),
+            gamma_abc_g1: vec![Default::default(); num_e1_fq + 1],
+        };
         Self {
             is_genesis: Default::default(),
             prev_recursive_proof: Default::default(),
@@ -525,7 +551,10 @@ mod tests {
         },
         rsa_avd::{RsaAVD, constraints::RsaAVDGadget},
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::{
+        sparse_merkle_tree::MerkleDepth,
+        hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+    };
     use crate::{
         history_tree::SingleStepAVDWithHistory,
     };
@@ -585,6 +614,33 @@ mod tests {
 
     type TestOuterCircuit = OuterCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
     type TestOuterVerifierInput = OuterVerifierInput<MerkleTreeTestParameters, MNT298Cycle>;
+
+    // Parameters for Merkle Tree AVD with Poseidon hash
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeTestParameters;
+
+    impl MerkleTreeParameters for PoseidonMerkleTreeTestParameters {
+        const DEPTH: MerkleDepth = 4;
+        type H = PoseidonSponge<Fq>;
+    }
+
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeAVDTestParameters;
+
+    impl MerkleTreeAVDParameters for PoseidonMerkleTreeAVDTestParameters {
+        const MAX_UPDATE_BATCH_SIZE: u64 = 3;
+        const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
+        type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
+    }
+    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
+    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq>;
+    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters>;
+
+    type PoseidonTestInnerCircuit = InnerSingleStepProofCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type PoseidonTestInnerVerifierInput = InnerSingleStepProofVerifierInput<PoseidonMerkleTreeTestParameters>;
+
+    type PoseidonTestOuterCircuit = OuterCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type PoseidonTestOuterVerifierInput = OuterVerifierInput<PoseidonMerkleTreeTestParameters, MNT298Cycle>;
 
 
     // Parameters for RSA AVD
@@ -657,13 +713,6 @@ mod tests {
         let inner_blank_circuit = TestInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
-            VerifyingKey {
-                alpha_g1: Default::default(),
-                beta_g2: Default::default(),
-                gamma_g2: Default::default(),
-                delta_g2: Default::default(),
-                gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
-            },
         );
         let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
         let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
@@ -887,12 +936,291 @@ mod tests {
         let blank_circuit_constraint_counter = TestInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
-            outer_parameters.0.vk.clone(),
         );
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
         println!("\t number of constraints for inner circuit: {}", cs.num_constraints());
         let blank_circuit_constraint_counter = TestOuterCircuit::blank(inner_parameters.0.vk.clone());
+        let cs = ConstraintSystem::<MNT4Fq>::new_ref();
+        blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
+        println!("\t number of constraints for outer circuit: {}", cs.num_constraints());
+    }
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test mt_poseidon_update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
+    fn mt_poseidon_update_and_verify_inner_circuit_test() {
+        fn u8_to_array(n: u8) -> [u8; 32] {
+            let mut arr = [0_u8; 32];
+            arr[31] = n;
+            arr
+        }
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+
+        // Setup inner proof circuit
+        println!("Setting up inner proof...");
+        let start = Instant::now();
+        let inner_blank_circuit = PoseidonTestInnerCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+        );
+        let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
+        println!("Inner preparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        // Setup outer proof circuit
+        println!("Setting up outer proof...");
+        let start = Instant::now();
+        let outer_blank_circuit = PoseidonTestOuterCircuit::blank(
+            inner_parameters.0.vk.clone(),
+        );
+        let outer_parameters = Groth16::<MNT6_298>::circuit_specific_setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_vk = Groth16::<MNT6_298>::process_vk(&outer_parameters.1).unwrap();
+        println!("Outer preparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+
+        // Construct genesis proof
+        let genesis_digest = avd.digest().digest;
+        let verifier_input_genesis = PoseidonTestInnerVerifierInput{
+            new_digest: genesis_digest.clone(),
+            new_epoch: 0,
+        };
+
+        println!("Generating inner proof for genesis epoch...");
+
+        let mut layer = ConstraintLayer::default();
+        layer.mode = ark_relations::r1cs::TracingMode::OnlyConstraints;
+        let subscriber = tracing_subscriber::Registry::default().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            let cs = ConstraintSystem::<MNT6Fq>::new_ref();
+            let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
+            let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
+            PoseidonTestInnerCircuit::new(
+                true,
+                &ssavd_pp,
+                &crh_pp,
+                Default::default(),
+                outer_parameters.0.vk.clone(),
+                Proof {
+                    a: g.clone(),
+                    b: g2,
+                    c: g.clone(),
+                },
+            ).generate_constraints(cs.clone()).unwrap();
+            if !cs.is_satisfied().unwrap() {
+                println!("=========================================================");
+                println!("Unsatisfied constraints:");
+                println!("{}", cs.which_is_unsatisfied().unwrap().unwrap());
+                println!("=========================================================");
+            }
+            assert!(cs.is_satisfied().unwrap());
+        });
+
+        let start = Instant::now();
+        let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
+        let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
+        let inner_genesis_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            PoseidonTestInnerCircuit::new(
+                true,
+                &ssavd_pp,
+                &crh_pp,
+                Default::default(),
+                outer_parameters.0.vk.clone(),
+                Proof {
+                    a: g.clone(),
+                    b: g2,
+                    c: g.clone(),
+                },
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for genesis epoch
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_genesis.to_field_elements().unwrap(),
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &PoseidonTestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 }.to_field_elements().unwrap(),
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
+
+        // Construct outer genesis proof
+        println!("Generating outer genesis proof...");
+        let start = Instant::now();
+        let outer_genesis_proof = Groth16::<MNT6_298>::prove(
+            &outer_parameters.0,
+            PoseidonTestOuterCircuit::new(
+                inner_genesis_proof.clone(),
+                verifier_input_genesis.clone(),
+                inner_parameters.0.vk.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify outer genesis proof
+        let outer_genesis_verifier_input = PoseidonTestOuterVerifierInput{
+            prev_inner_proof_input: verifier_input_genesis.clone(),
+            _cycle: PhantomData,
+        };
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_genesis_verifier_input.to_field_elements().unwrap(),
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &PoseidonTestOuterVerifierInput{
+                prev_inner_proof_input: PoseidonTestInnerVerifierInput{ new_digest: Default::default(), new_epoch: 0 },
+                _cycle: PhantomData,
+            }.to_field_elements().unwrap(),
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
+
+        // Update AVD
+        let proof = avd.batch_update(
+            &vec![
+                (u8_to_array(1), u8_to_array(2)),
+                (u8_to_array(11), u8_to_array(12)),
+                (u8_to_array(21), u8_to_array(22)),
+            ]).unwrap();
+
+
+        // Generate inner proof for new update
+        let verifier_input_epoch_1 = PoseidonTestInnerVerifierInput{
+            new_digest: proof.new_digest.clone(),
+            new_epoch: 1,
+        };
+        println!("Generating inner proof for epoch 1...");
+        let start = Instant::now();
+        let inner_epoch_1_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            PoseidonTestInnerCircuit::new(
+                false,
+                &ssavd_pp,
+                &crh_pp,
+                proof,
+                outer_parameters.0.vk.clone(),
+                outer_genesis_proof.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for epoch 1
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_1.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &PoseidonTestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 }.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(!result2);
+        let result3 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &PoseidonTestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 }.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(!result3);
+
+
+        // Construct outer proof for epoch 1
+        println!("Generating outer proof for epoch 1...");
+        let start = Instant::now();
+        let outer_epoch_1_proof = Groth16::<MNT6_298>::prove(
+            &outer_parameters.0,
+            PoseidonTestOuterCircuit::new(
+                inner_epoch_1_proof.clone(),
+                verifier_input_epoch_1.clone(),
+                inner_parameters.0.vk.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify outer proof for epoch 1
+        let outer_epoch_1_verifier_input = PoseidonTestOuterVerifierInput{
+            prev_inner_proof_input: verifier_input_epoch_1.clone(),
+            _cycle: PhantomData,
+        };
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_epoch_1_verifier_input.to_field_elements().unwrap(),
+            &outer_epoch_1_proof,
+        ).unwrap();
+        assert!(result);
+
+
+        // Update AVD
+        let proof = avd.batch_update(
+            &vec![
+                (u8_to_array(1), u8_to_array(3)),
+                (u8_to_array(11), u8_to_array(13)),
+                (u8_to_array(21), u8_to_array(23)),
+            ]).unwrap();
+
+
+        // Generate inner proof for new update
+        let verifier_input_epoch_2 = PoseidonTestInnerVerifierInput{
+            new_digest: proof.new_digest.clone(),
+            new_epoch: 2,
+        };
+        println!("Generating inner proof for epoch 2...");
+        let start = Instant::now();
+        let inner_epoch_2_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            PoseidonTestInnerCircuit::new(
+                false,
+                &ssavd_pp,
+                &crh_pp,
+                proof,
+                outer_parameters.0.vk.clone(),
+                outer_epoch_1_proof.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for epoch 2
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_2.to_field_elements().unwrap(),
+            &inner_epoch_2_proof,
+        ).unwrap();
+        assert!(result);
+
+        // Count constraints
+        let blank_circuit_constraint_counter = PoseidonTestInnerCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+        );
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
+        println!("\t number of constraints for inner circuit: {}", cs.num_constraints());
+        let blank_circuit_constraint_counter = PoseidonTestOuterCircuit::blank(inner_parameters.0.vk.clone());
         let cs = ConstraintSystem::<MNT4Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
         println!("\t number of constraints for outer circuit: {}", cs.num_constraints());
@@ -917,13 +1245,6 @@ mod tests {
         let inner_blank_circuit = TestRsaInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
-            VerifyingKey {
-                alpha_g1: Default::default(),
-                beta_g2: Default::default(),
-                gamma_g2: Default::default(),
-                delta_g2: Default::default(),
-                gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
-            },
         );
         let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
         let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
@@ -946,7 +1267,6 @@ mod tests {
 
         // Construct genesis proof
         let genesis_digest = avd.digest().digest;
-        println!("Genesis digest in test: {:?}", &genesis_digest);
         let verifier_input_genesis = TestInnerVerifierInput{
             new_digest: genesis_digest.clone(),
             new_epoch: 0,
@@ -1177,7 +1497,6 @@ mod tests {
         let blank_circuit_constraint_counter = TestRsaInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
-            outer_parameters.0.vk.clone(),
         );
         let cs = ConstraintSystem::<Fq>::new_ref();
         blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();

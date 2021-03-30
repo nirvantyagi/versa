@@ -11,7 +11,7 @@ use crypto_primitives::{
 use ark_crypto_primitives::{
     snark::{SNARK},
 };
-use ark_groth16::{Groth16, Proof, VerifyingKey, verifier::prepare_verifying_key};
+use ark_groth16::{Groth16, Proof, verifier::prepare_verifying_key};
 use ark_ff::{
     ToConstraintField,
 };
@@ -145,13 +145,6 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
             &ssavd_pp,
             &history_tree_pp,
-            VerifyingKey {
-                alpha_g1: Default::default(),
-                beta_g2: Default::default(),
-                gamma_g2: Default::default(),
-                delta_g2: Default::default(),
-                gamma_abc_g1: vec![Default::default(); 73] // 8 for digest, 64 for epoch
-            },
         );
         let (inner_groth16_pp, _) = Groth16::<Cycle::E1>::circuit_specific_setup(inner_blank_circuit, rng)?;
         let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
@@ -358,7 +351,10 @@ mod tests {
             RsaAVD, constraints::RsaAVDGadget,
         }
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::{
+        sparse_merkle_tree::MerkleDepth,
+        hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+    };
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::RsaKVACParams,
@@ -420,6 +416,37 @@ mod tests {
         MNT4PairingVar,
         MNT6PairingVar,
     >;
+
+    // Parameters for Merkle Tree AVD with Poseidon hash
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeTestParameters;
+
+    impl MerkleTreeParameters for PoseidonMerkleTreeTestParameters {
+        const DEPTH: MerkleDepth = 4;
+        type H = PoseidonSponge<Fq>;
+    }
+
+    #[derive(Clone)]
+    pub struct PoseidonMerkleTreeAVDTestParameters;
+
+    impl MerkleTreeAVDParameters for PoseidonMerkleTreeAVDTestParameters {
+        const MAX_UPDATE_BATCH_SIZE: u64 = 3;
+        const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
+        type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
+    }
+    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
+    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq>;
+
+    type PoseidonTestRecursionFHAVD = RecursionFullHistoryAVD<
+        PoseidonTestMerkleTreeAVD,
+        PoseidonTestMerkleTreeAVDGadget,
+        PoseidonMerkleTreeTestParameters,
+        PoseidonSpongeVar<Fq>,
+        MNT298Cycle,
+        MNT4PairingVar,
+        MNT6PairingVar,
+    >;
+
 
     // Parameters for RSA AVD
     #[derive(Clone, PartialEq, Eq, Debug)]
@@ -483,7 +510,7 @@ mod tests {
     >;
 
     #[test]
-    #[ignore] // Expensive test, run with ``cargo test update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
+    #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
     fn mt_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
@@ -549,6 +576,77 @@ mod tests {
 
         let (_, audit_proof) = avd.audit(2, 5).unwrap();
         let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
+        assert!(verify_audit);
+    }
+
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test mt_poseidon_update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
+    fn mt_poseidon_update_and_verify_recursion_full_history_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let start = Instant::now();
+        let pp = PoseidonTestRecursionFHAVD::setup(&mut rng).unwrap();
+        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        let epoch1_update = &vec![
+            ([1_u8; 32], [2_u8; 32]),
+            ([11_u8; 32], [12_u8; 32]),
+            ([21_u8; 32], [22_u8; 32]),
+        ];
+        let epoch2_update = &vec![
+            ([1_u8; 32], [3_u8; 32]),
+            ([11_u8; 32], [13_u8; 32]),
+            ([21_u8; 32], [23_u8; 32]),
+        ];
+        let epoch3_update = &vec![
+            ([1_u8; 32], [4_u8; 32]),
+            ([11_u8; 32], [14_u8; 32]),
+            ([21_u8; 32], [24_u8; 32]),
+        ];
+        let epoch4_update = &vec![
+            ([1_u8; 32], [5_u8; 32]),
+            ([11_u8; 32], [15_u8; 32]),
+            ([31_u8; 32], [35_u8; 32]),
+        ];
+        let epoch5_update = &vec![
+            ([1_u8; 32], [6_u8; 32]),
+            ([11_u8; 32], [16_u8; 32]),
+            ([31_u8; 32], [36_u8; 32]),
+        ];
+
+        let start = Instant::now();
+        let d1 = avd.batch_update(&mut rng, &epoch1_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 1 proving time: {} s", bench);
+
+        let (_, audit_proof) = avd.audit(0, 1).unwrap();
+        let verify_audit = PoseidonTestRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        assert!(verify_audit);
+
+        let start = Instant::now();
+        let _d2 = avd.batch_update(&mut rng, &epoch2_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 2 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let _d3 = avd.batch_update(&mut rng, &epoch3_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 3 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let _d4 = avd.batch_update(&mut rng, &epoch4_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 4 proving time: {} s", bench);
+
+        let start = Instant::now();
+        let d5 = avd.batch_update(&mut rng, &epoch5_update).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t epoch 5 proving time: {} s", bench);
+
+        let (_, audit_proof) = avd.audit(2, 5).unwrap();
+        let verify_audit = PoseidonTestRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
         assert!(verify_audit);
     }
 
