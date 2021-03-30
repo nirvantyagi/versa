@@ -20,32 +20,8 @@ pub type Order = BitOrder;
 
 //TODO: Replace with BigNat::gcd_cofactors
 pub fn extended_euclidean_gcd(a: &BigNat, b: &BigNat) -> ((BigNat, BigNat), BigNat) {
-    let mut prev_r = a.clone();
-    let mut r = b.clone();
-    let mut prev_s = BigNat::from(1);
-    let mut s = BigNat::from(0);
-    let mut prev_t = BigNat::from(0);
-    let mut t = BigNat::from(1);
-    let mut tmp_r: BigNat;
-    let mut tmp_s: BigNat;
-    let mut tmp_t: BigNat;
-
-    while r != 0 {
-        let quotient: BigNat = <BigNat>::from(&prev_r / &r);
-
-        tmp_r = BigNat::from(&prev_r - (&quotient * &r));
-        prev_r = r;
-        r = tmp_r;
-
-        tmp_s = BigNat::from(&prev_s - (&quotient * &s));
-        prev_s = s;
-        s = tmp_s;
-
-        tmp_t = BigNat::from(&prev_t - (&quotient * &t));
-        prev_t = t;
-        t = tmp_t;
-    }
-    ((prev_s, prev_t), prev_r)
+    let (g, s, t) = a.clone().gcd_cofactors(b.clone(), BigNat::new());
+    ((s, t), g)
 }
 
 

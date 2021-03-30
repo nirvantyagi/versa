@@ -62,8 +62,8 @@ pub struct Proof<P: RsaGroupParams, H: Hasher> {
 impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> PoKER<P, RsaP, H, C> {
     pub fn prove(x: &Statement<RsaP>, w: &Witness) -> Result<Proof<RsaP, H>, Error> {
         let g = Hog::<RsaP>::generator();
-        let z_a = g.power_integer(&w.a)?;
-        let z_b = g.power_integer(&w.b)?;
+        let z_a = g.power(&w.a);
+        let z_b = g.power(&w.b);
 
         // Hash to challenge
         let mut hash_input = vec![];
@@ -85,10 +85,10 @@ impl<P: PoKERParams, RsaP: RsaGroupParams, H: Hasher, C: BigNatCircuitParams> Po
 
         // Compute proof group elements
         Ok(Proof{
-            v_a: g.power_integer(&q_a)?,
-            v_b: g.power_integer(&q_b)?,
-            v_1: x.u1.power_integer(&q_a)?.op(&x.u2.power_integer(&q_b)?),
-            v_2: x.u2.power_integer(&q_a)?,
+            v_a: g.power(&q_a),
+            v_b: g.power(&q_b),
+            v_1: x.u1.power(&q_a).op(&x.u2.power(&q_b)),
+            v_2: x.u2.power(&q_a),
             r_a,
             r_b,
             l,

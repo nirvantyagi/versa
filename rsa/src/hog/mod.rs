@@ -82,15 +82,6 @@ impl<P: RsaGroupParams> RsaHiddenOrderGroup<P> {
         RsaHiddenOrderGroup{ n: min(r, mr), _params: PhantomData }
     }
 
-    pub fn power_integer(&self, e_int: &BigNat) -> Result<Self, Error> {
-        if *e_int >= 0 {
-            Ok(self.power(e_int))
-        } else {
-            let exp = <BigNat>::from(e_int.abs_ref());
-            Ok(self.inverse()?.power(&exp))
-        }
-    }
-
     //TODO: Optimization for only calculating needed Bezout coefficient
     pub fn inverse(&self) -> Result<Self, Error> {
         let ((mut inv, _), gcd) = extended_euclidean_gcd(&self.n, &P::m());

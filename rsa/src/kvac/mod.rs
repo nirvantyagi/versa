@@ -116,7 +116,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         );
                         assert_eq!(gcd, 1);
                         updated_incomplete_witness.a = a;
-                        updated_incomplete_witness.b = Hog::<P>::generator().power_integer(&b)?;
+                        updated_incomplete_witness.b = Hog::<P>::generator().power(&b);
                         updated_incomplete_witness
                     }
                 };
@@ -133,7 +133,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                            pi_1: Default::default(),
                            pi_3: Default::default(),
                            a,
-                           b: Hog::<P>::generator().power_integer(&b)?,
+                           b: Hog::<P>::generator().power(&b),
                            u: 0,
                        }),
                 )
@@ -151,7 +151,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
         if  v.is_none() {
             // Non-membership proof
-            Ok(c2.power_integer(&witness.a)?.op(&witness.b.power(&z)) == Hog::<P>::generator())
+            Ok(c2.power(&witness.a).op(&witness.b.power(&z)) == Hog::<P>::generator())
         } else {
             // Membership proof
             //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
@@ -159,7 +159,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             let z_u = BigNat::from(&z_u1 * &z);
             let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.as_ref().unwrap() * &z_u1))) == c1.clone();
             let b_2 = witness.pi_3.power(&z_u) == c2.clone();
-            let b_3 = witness.pi_3.power_integer(&witness.a)?.op(&witness.b.power(&z)) == Hog::<P>::generator();
+            let b_3 = witness.pi_3.power(&witness.a).op(&witness.b.power(&z)) == Hog::<P>::generator();
             Ok(b_1 && b_2 && b_3)
         }
     }
@@ -247,7 +247,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     fn _update_commitment(&mut self, z: &BigNat, delta: &BigNat) -> Result<UpdateProof<P, CircuitH>, Error> {
         let (c1, c2) = self.commitment.clone();
-        let c1_new = c1.power(z).op(&c2.power_integer(delta)?);
+        let c1_new = c1.power(z).op(&c2.power(delta));
         let c2_new = c2.power(z);
         self.commitment = (c1_new, c2_new);
         self.deferred_counter_dict_exp_updates.push(z.clone());
