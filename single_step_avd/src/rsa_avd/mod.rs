@@ -86,7 +86,7 @@ impl<P: RsaKVACParams, H: Hasher> Default for UpdateProofWrapper<P, H> {
 impl<P: RsaKVACParams, C: BigNatCircuitParams> Default for DigestWrapper<P, C> {
     fn default() -> Self {
         Self {
-            digest: (Default::default(), Default::default()),
+            digest: Default::default(),
             _params: PhantomData,
             _circuit_params: PhantomData,
         }
@@ -95,8 +95,8 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams> Default for DigestWrapper<P, C> {
 
 impl<P: RsaKVACParams, C: BigNatCircuitParams> Hash for DigestWrapper<P, C> {
     fn hash<H: StdHasher>(&self, state: &mut H) {
-        self.digest.0.hash(state);
-        self.digest.1.hash(state);
+        self.digest.c1.hash(state);
+        self.digest.c2.hash(state);
     }
 }
 
@@ -104,10 +104,10 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams> ToBytes for DigestWrapper<P, C> {
     fn write<W: Write>(&self, mut writer: W) -> IoResult<()> {
         let num_bytes_per_bignat = ((C::N_LIMBS * C::LIMB_WIDTH - 1) / 8) + 1;
         //Must match ToBytesGadget in BigNatVar
-        let mut c0_bytes = self.digest.0.n.to_digits::<u8>(Order::LsfBe);
+        let mut c0_bytes = self.digest.c1.n.to_digits::<u8>(Order::LsfBe);
         c0_bytes.resize(num_bytes_per_bignat, 0);
         c0_bytes.write(&mut writer)?;
-        let mut c1_bytes = self.digest.1.n.to_digits::<u8>(Order::LsfBe);
+        let mut c1_bytes = self.digest.c2.n.to_digits::<u8>(Order::LsfBe);
         c1_bytes.resize(num_bytes_per_bignat, 0);
         c1_bytes.write(&mut writer)
     }
@@ -116,8 +116,8 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams> ToBytes for DigestWrapper<P, C> {
 impl<P: RsaKVACParams, C: BigNatCircuitParams, ConstraintF: PrimeField> ToConstraintField<ConstraintF> for DigestWrapper<P, C> {
     fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
-        v.extend_from_slice(&nat_to_limbs(&self.digest.0.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
-        v.extend_from_slice(&nat_to_limbs(&self.digest.1.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
+        v.extend_from_slice(&nat_to_limbs(&self.digest.c1.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
+        v.extend_from_slice(&nat_to_limbs(&self.digest.c2.n, C::LIMB_WIDTH, C::N_LIMBS).unwrap());
         Some(v)
     }
 }
@@ -195,11 +195,11 @@ where
 
 }
 
-fn to_bignat(arr: &[u8; 32]) -> BigNat {
+pub fn to_bignat(arr: &[u8; 32]) -> BigNat {
     BigNat::from_digits(&arr[..], Order::MsfBe)
 }
 
-fn from_bignat(n: &BigNat) -> [u8; 32] {
+pub fn from_bignat(n: &BigNat) -> [u8; 32] {
     let digits = n.to_digits::<u8>(Order::MsfBe);
     digits.try_into().unwrap()
 }

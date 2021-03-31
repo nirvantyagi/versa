@@ -303,7 +303,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
 
         // Compute aggregated proofs if necessary
         let new_epoch = self.proofs.len();
-        let mut aggr_level = (new_epoch).trailing_zeros() as usize;
+        let mut aggr_level = new_epoch.trailing_zeros() as usize;
         if aggr_level > self.aggregated_proofs.len() {
             self.aggregated_proofs.push(vec![]);
         }

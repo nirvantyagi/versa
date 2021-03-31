@@ -6,6 +6,7 @@ use rand::{Rng, CryptoRng};
 pub mod history_tree;
 pub mod aggregation;
 pub mod recursion;
+pub mod rsa_algebraic;
 
 pub type Error = Box<dyn ErrorTrait>;
 

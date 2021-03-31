@@ -8,7 +8,7 @@ use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, U
 
 use rsa::{
     hog::constraints::RsaHogVar,
-    kvac::{RsaKVACParams},
+    kvac::{RsaKVACParams, Commitment},
     hash::{Hasher, constraints::HasherGadget},
     bignat::{constraints::BigNatCircuitParams},
     poker::constraints::{ProofVar, StatementVar, conditional_enforce_poker_valid},
@@ -37,12 +37,12 @@ impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> AllocVar
         let f_out = f()?;
         let c0_var = RsaHogVar::<ConstraintF, P::RsaGroupParams, C>::new_variable(
             cs.clone(),
-            || Ok(&f_out.borrow().digest.0),
+            || Ok(&f_out.borrow().digest.c1),
             mode,
         )?;
         let c1_var = RsaHogVar::<ConstraintF, P::RsaGroupParams, C>::new_variable(
             cs.clone(),
-            || Ok(&f_out.borrow().digest.1),
+            || Ok(&f_out.borrow().digest.c2),
             mode,
         )?;
         Ok(DigestVar {
@@ -62,7 +62,7 @@ impl<ConstraintF: PrimeField, P: RsaKVACParams, C: BigNatCircuitParams> R1CSVar<
 
     fn value(&self) -> Result<Self::Value, SynthesisError> {
         Ok(DigestWrapper {
-            digest: (self.c0.value()?, self.c1.value()?),
+            digest: Commitment { c1: self.c0.value()?, c2: self.c1.value()?, _params: PhantomData },
             _params: PhantomData,
             _circuit_params: PhantomData,
         })
