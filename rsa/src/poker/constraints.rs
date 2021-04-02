@@ -7,7 +7,7 @@ use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError, Namespace};
 use std::{
     borrow::Borrow,
 };
-use bench_utils::{end_timer, start_timer};
+use ark_std::{end_timer, start_timer};
 
 use crate::{
     bignat::{constraints::{BigNatCircuitParams, BigNatVar},},

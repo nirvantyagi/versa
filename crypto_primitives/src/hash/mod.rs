@@ -20,7 +20,7 @@ pub trait FixedLengthCRH {
     const INPUT_SIZE_BITS: usize;
 
     type Output: ToBytes + Clone + Eq + core::fmt::Debug + Hash + Default;
-    type Parameters: Clone + Default;
+    type Parameters: Clone + Default + Send + Sync;
 
     fn setup<R: Rng>(r: &mut R) -> Result<Self::Parameters, Error>;
     fn evaluate(parameters: &Self::Parameters, input: &[u8]) -> Result<Self::Output, Error>;

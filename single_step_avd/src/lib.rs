@@ -10,7 +10,7 @@ pub type Error = Box<dyn ErrorTrait>;
 
 pub trait SingleStepAVD: Sized {
     type Digest: ToBytes + Clone + Eq + Hash + Default;
-    type PublicParameters: Clone + Default;
+    type PublicParameters: Clone + Default + Send + Sync;
     type LookupProof;
     type UpdateProof: Clone + Default;
 

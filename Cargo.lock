@@ -2,9 +2,14 @@
 # It is not intended for manual editing.
 [[package]]
 name = "ahash"
-version = "0.4.7"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
+checksum = "7f200cbb1e856866d9eade941cf3aa0c5d7dd36f74311c4273b494f4ef036957"
+dependencies = [
+ "getrandom 0.2.2",
+ "once_cell",
+ "version_check",
+]
 
 [[package]]
 name = "ansi_term"
@@ -17,8 +22,9 @@ dependencies = [
 
 [[package]]
 name = "ark-bls12-381"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/curves#666da1e3b22ad0f46418fb89d4e81eddfd7296c1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e1c2ad76c4f725520440b981df3ce2d635f2baa1122750c757c0cf0f3d4b74"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -27,8 +33,9 @@ dependencies = [
 
 [[package]]
 name = "ark-crypto-primitives"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/crypto-primitives.git?branch=main#e944fb11778176c479d1b75053d10b70b250cc4c"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74b83a7e125e5c611e4a997123effb2f02e3fbc66531dd77751d3016ee920741"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -37,7 +44,6 @@ dependencies = [
  "ark-relations",
  "ark-snark",
  "ark-std",
- "bench-utils",
  "blake2",
  "derivative",
  "digest",
@@ -48,18 +54,19 @@ dependencies = [
 [[package]]
 name = "ark-dh-commitments"
 version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/ripp#d48f0d3e5e2b280880c95e873e14cd61e2c6fe3c"
+source = "git+https://github.com/arkworks-rs/ripp#d152aecd46b999e7a592e143cd2e4dd87c0d2787"
 dependencies = [
  "ark-ec",
  "ark-ff",
  "ark-inner-products",
- "rand",
+ "ark-std",
 ]
 
 [[package]]
 name = "ark-ec"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c56006994f509d76fbce6f6ffe3108f7191b4f3754ecd00bbae7cac20ec05020"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -72,8 +79,9 @@ dependencies = [
 
 [[package]]
 name = "ark-ed-on-bls12-381"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/curves#666da1e3b22ad0f46418fb89d4e81eddfd7296c1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e08d948a004fc5d81d3b5cf2ac5e5a7ca106255ff222faec16e34d291fd79d86"
 dependencies = [
  "ark-bls12-381",
  "ark-ec",
@@ -84,8 +92,9 @@ dependencies = [
 
 [[package]]
 name = "ark-ed-on-mnt4-298"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/curves#666da1e3b22ad0f46418fb89d4e81eddfd7296c1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92b5cb9c350b56193d5dcd6f5ba93b26b03997bf3105625217446c4849214929"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -96,8 +105,9 @@ dependencies = [
 
 [[package]]
 name = "ark-ff"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4d8802d40fce9212c5c09be08f75c4b3becc0c488e87f60fff787b01250ce33"
 dependencies = [
  "ark-ff-asm",
  "ark-ff-macros",
@@ -112,8 +122,9 @@ dependencies = [
 
 [[package]]
 name = "ark-ff-asm"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e8cb28c2137af1ef058aa59616db3f7df67dbb70bf2be4ee6920008cc30d98c"
 dependencies = [
  "quote",
  "syn",
@@ -121,8 +132,9 @@ dependencies = [
 
 [[package]]
 name = "ark-ff-macros"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b9c256a93a10ed9708c16a517d6dcfaba3d215c0d7fab44d29a9affefb5eeb8"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -132,8 +144,9 @@ dependencies = [
 
 [[package]]
 name = "ark-groth16"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/groth16/#681c0f1312cebf96b9664884ec32347a47f489de"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba848e856c96bc15eb3f68359cd8ea92747eb2be35a177a25e780d307069f38"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
@@ -143,7 +156,6 @@ dependencies = [
  "ark-relations",
  "ark-serialize",
  "ark-std",
- "bench-utils",
  "derivative",
  "rayon",
  "tracing",
@@ -152,19 +164,18 @@ dependencies = [
 [[package]]
 name = "ark-inner-products"
 version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/ripp#d48f0d3e5e2b280880c95e873e14cd61e2c6fe3c"
+source = "git+https://github.com/arkworks-rs/ripp#d152aecd46b999e7a592e143cd2e4dd87c0d2787"
 dependencies = [
  "ark-ec",
  "ark-ff",
  "ark-std",
- "rand",
  "rayon",
 ]
 
 [[package]]
 name = "ark-ip-proofs"
 version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/ripp#d48f0d3e5e2b280880c95e873e14cd61e2c6fe3c"
+source = "git+https://github.com/arkworks-rs/ripp#d152aecd46b999e7a592e143cd2e4dd87c0d2787"
 dependencies = [
  "ark-dh-commitments",
  "ark-ec",
@@ -173,17 +184,16 @@ dependencies = [
  "ark-inner-products",
  "ark-poly",
  "ark-std",
- "bench-utils",
  "digest",
  "itertools",
  "num-traits",
- "rand",
 ]
 
 [[package]]
 name = "ark-mnt4-298"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/curves#666da1e3b22ad0f46418fb89d4e81eddfd7296c1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6edbadb22b510c2e37e1c9becacd83487fcadad02564cf6aa47097123c6d1409"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -193,8 +203,9 @@ dependencies = [
 
 [[package]]
 name = "ark-mnt6-298"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/curves#666da1e3b22ad0f46418fb89d4e81eddfd7296c1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "474c314ee673377702c99281e573d59cb889a572ad8f43ae0bf8eaa3220d4ad2"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -205,8 +216,9 @@ dependencies = [
 
 [[package]]
 name = "ark-nonnative-field"
-version = "0.0.4"
-source = "git+https://github.com/arkworks-rs/nonnative#08666f53130d0b6eb57cfe565877c174e6a84c43"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17887af156e9911d1dba5b30d49256d508f82f6a4f765a6fad8b5c637b700353"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -222,8 +234,9 @@ dependencies = [
 
 [[package]]
 name = "ark-poly"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72d6683d21645a2abb94034f6a14e708405e55d9597687952d54b2269922857a"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -235,8 +248,9 @@ dependencies = [
 
 [[package]]
 name = "ark-r1cs-std"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/r1cs-std#a1e72154bf113099de15ab34df7b5b57f2959eda"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a90fea2b84ae4443983d56540360ea004cab952292b7a6535798b6b9dcb7f41"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -250,8 +264,9 @@ dependencies = [
 
 [[package]]
 name = "ark-relations"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/snark#f3d9b35a81d247e2c82db2bbaaff499b954d2db2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a42f124f8dfff2b0561143c0c7ea48d7f7dc8d2c4c1e87eca14a27430c653c0b"
 dependencies = [
  "ark-ff",
  "ark-std",
@@ -261,8 +276,9 @@ dependencies = [
 
 [[package]]
 name = "ark-serialize"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e9b59329dc9b92086b3dc619f31cef4a0c802f10829b575a3666d48a48387d"
 dependencies = [
  "ark-serialize-derive",
  "ark-std",
@@ -270,8 +286,9 @@ dependencies = [
 
 [[package]]
 name = "ark-serialize-derive"
-version = "0.1.1-alpha.0"
-source = "git+https://github.com/arkworks-rs/algebra#4e316d1c64a00ca685e0db95cf02c09fd098e6f1"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ac3d78c750b01f5df5b2e76d106ed31487a93b3868f14a7f0eb3a74f45e1d8a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -280,20 +297,22 @@ dependencies = [
 
 [[package]]
 name = "ark-snark"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/snark#f3d9b35a81d247e2c82db2bbaaff499b954d2db2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39da26432fe584b0010741299820145ec69180fe9ea18ddf96946932763624a1"
 dependencies = [
  "ark-ff",
  "ark-relations",
  "ark-std",
- "rand",
 ]
 
 [[package]]
 name = "ark-std"
-version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/utils#eea15d112cc8e64a38f3b8615bbf79f663c824db"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5b856a29bea7b810858116a596beee3d20fc4c5aeb240e8e5a8bca4845a470"
 dependencies = [
+ "colored",
  "rand",
  "rand_xorshift",
  "rayon",
@@ -330,16 +349,30 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "az"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d84e1d907bfc5795a6addb95ef8666141ee73c8f2f5250ff2a46bf4e4f4aec8a"
+checksum = "822d7d63e0c0260a050f6b1f0d316f5c79b9eab830aca526ed904e1011bd64ca"
 
 [[package]]
-name = "bench-utils"
+name = "benches"
 version = "0.1.0"
-source = "git+https://github.com/arkworks-rs/utils#eea15d112cc8e64a38f3b8615bbf79f663c824db"
 dependencies = [
- "colored",
+ "ark-bls12-381",
+ "ark-crypto-primitives",
+ "ark-ec",
+ "ark-ed-on-bls12-381",
+ "ark-ed-on-mnt4-298",
+ "ark-mnt4-298",
+ "ark-mnt6-298",
+ "blake3",
+ "crypto_primitives",
+ "csv",
+ "full_history_avd",
+ "num_cpus",
+ "rand",
+ "rayon",
+ "rsa",
+ "single_step_avd",
 ]
 
 [[package]]
@@ -383,6 +416,18 @@ name = "block-padding"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
+
+[[package]]
+name = "bstr"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a40b47ad93e1a5404e6c18dec46b628214fee441c70f4ab5d6942142cc268a3d"
+dependencies = [
+ "lazy_static",
+ "memchr",
+ "regex-automata",
+ "serde",
+]
 
 [[package]]
 name = "byteorder"
@@ -508,6 +553,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22813a6dc45b335f9bade10bf7271dc477e81113e89eb251a0bc2a8a81c536e1"
+dependencies = [
+ "bstr",
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2466559f260f48ad25fe6317b3c8dac77b5bdb5763ac7d9d6103530663bc90"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "derivative"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -553,13 +620,13 @@ dependencies = [
  "ark-r1cs-std",
  "ark-relations",
  "ark-std",
- "bench-utils",
  "blake2",
  "blake3",
  "crypto_primitives",
  "digest",
  "num-traits",
  "rand",
+ "rayon",
  "rsa",
  "single_step_avd",
  "tracing",
@@ -584,14 +651,25 @@ checksum = "8fc3cb4d91f53b50155bdcfd23f6a4c39ae1969c2ae85982b135750cccaf5fce"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "wasi",
+ "wasi 0.9.0+wasi-snapshot-preview1",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9495705279e7140bf035dde1f6e750c162df8b625267cd52cc44e0b156732c8"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "wasi 0.10.2+wasi-snapshot-preview1",
 ]
 
 [[package]]
 name = "gmp-mpfr-sys"
-version = "1.4.3"
+version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e8813402282ac06d031b2b036998940ddcffa3100c722663cd8a1ac98b0bd8"
+checksum = "ed49cf8abf2378b5c5b53b950917c683858b186c16c6017593e0213a8db78dcc"
 dependencies = [
  "libc",
  "winapi",
@@ -599,9 +677,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.9.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
+checksum = "ab5ef0d4909ef3724cc8cce6ccc8572c5c817592e9285f5464f8e86f8bd3726e"
 dependencies = [
  "ahash",
 ]
@@ -617,9 +695,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+checksum = "37d572918e350e82412fe766d24b15e6682fb2ed2bbe018280caa810397cb319"
 dependencies = [
  "either",
 ]
@@ -644,9 +722,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.89"
+version = "0.2.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "538c092e5586f4cdd7dd8078c4a79220e3e168880218124dcbce860f0ea938c6"
+checksum = "56d855069fafbb9b344c0f962150cd2c1187975cb1c22c1522c240d8c4986714"
 
 [[package]]
 name = "log"
@@ -667,19 +745,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "memoffset"
-version = "0.6.1"
+name = "memchr"
+version = "2.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "157b4208e3059a8f9e78d559edc658e13df41410cb3ae03979c83130067fdd87"
+checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
+
+[[package]]
+name = "memoffset"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f83fb6581e8ed1f85fd45c116db8405483899489e38406156c25eb743554361d"
 dependencies = [
  "autocfg",
 ]
 
 [[package]]
 name = "num-bigint"
-version = "0.3.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d0a3d5e207573f948a9e5376662aa743a2ea13f7c50a554d7af443a73fbfeba"
+checksum = "4e0d047c1062aa51e256408c560894e5251f08925980e53cf1aa5bd00eec6512"
 dependencies = [
  "autocfg",
  "num-integer",
@@ -750,9 +834,9 @@ checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.24"
+version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
+checksum = "a152013215dca273577e18d2bf00fa862b89b24169fb78c4c95aeb07992c9cec"
 dependencies = [
  "unicode-xid",
 ]
@@ -772,7 +856,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a6b1679d49b24bbfe0c803429aa1874472f50d9b363131f0e89fc356b544d03"
 dependencies = [
- "getrandom",
+ "getrandom 0.1.16",
  "libc",
  "rand_chacha",
  "rand_core",
@@ -795,7 +879,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90bde5296fc891b0cef12a6d03ddccc162ce7b2aff54160af9338f8d40df6d19"
 dependencies = [
- "getrandom",
+ "getrandom 0.1.16",
 ]
 
 [[package]]
@@ -876,7 +960,6 @@ dependencies = [
  "ark-r1cs-std",
  "ark-relations",
  "ark-std",
- "bench-utils",
  "blake3",
  "crypto_primitives",
  "digest",
@@ -889,9 +972,9 @@ dependencies = [
 
 [[package]]
 name = "rug"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e538d00da450a8e48aac7e6322e67b2dc86ec71a1feeac0e3954c4f07f01bc45"
+checksum = "32f75e07492c4d17d12f226d17e689fdb698db7a1e875fca0fac15626283bf24"
 dependencies = [
  "az",
  "gmp-mpfr-sys",
@@ -940,9 +1023,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.124"
+version = "1.0.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd761ff957cb2a45fbb9ab3da6512de9de55872866160b23c25f1a841e99d29f"
+checksum = "558dc50e1a5a5fa7112ca2ce4effcb321b0300c0d4ccf0776a9f60cd89031171"
 
 [[package]]
 name = "serde_json"
@@ -1010,9 +1093,9 @@ checksum = "1e81da0851ada1f3e9d4312c704aa4f8806f0f9d69faaf8df2f3464b4a9437c2"
 
 [[package]]
 name = "syn"
-version = "1.0.64"
+version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fd9d1e9976102a03c542daa2eff1b43f9d72306342f3f8b3ed5fb8908195d6f"
+checksum = "3ce15dd3ed8aa2f8eeac4716d6ef5ab58b6b9256db41d7e1a0224c2788e8fd87"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1144,6 +1227,12 @@ name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
+
+[[package]]
+name = "wasi"
+version = "0.10.2+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd6fbd9a79829dd1ad0cc20627bf1ed606756a7f77edff7b66b7064f9cb327c6"
 
 [[package]]
 name = "winapi"

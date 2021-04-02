@@ -77,6 +77,7 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
         )?;
         self.digests.push(d.clone());
 
+        //TODO: Only need to store z, delta for last two elements of each level
         // Compute range proofs
         let new_epoch = self.digests.len() - 1;
         let aggr_level = new_epoch.trailing_zeros() as usize;

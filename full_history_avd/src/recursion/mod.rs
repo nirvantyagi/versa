@@ -23,7 +23,7 @@ use ark_r1cs_std::{
     pairing::PairingVar,
     ToConstraintFieldGadget,
 };
-use bench_utils::{end_timer, start_timer};
+use ark_std::{end_timer, start_timer};
 
 use rand::{Rng, CryptoRng};
 

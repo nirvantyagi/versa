@@ -31,6 +31,7 @@ use ark_r1cs_std::{
     fields::fp::FpVar,
     ToConstraintFieldGadget,
 };
+use ark_std::{end_timer, start_timer};
 
 use crate::{
     history_tree::{
@@ -45,7 +46,6 @@ use std::{
     marker::PhantomData, ops::MulAssign, convert::{TryFrom, From},
     io::Cursor,
 };
-use bench_utils::{end_timer, start_timer};
 
 //Helper method to allow for efficient packing of inputs to Groth16 Gadget
 #[tracing::instrument(target = "r1cs", skip(circuit_vk, public_inputs, proof))]

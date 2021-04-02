@@ -8,18 +8,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#zexe_cp = {git = "https://github.com/nirvantyagi/zexe/", package = "crypto-primitives", branch = "int-condselect" }
-#algebra = {git = "https://github.com/nirvantyagi/zexe/", package = "algebra", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
-#r1cs_core = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-core", branch = "int-condselect" }
-#r1cs_std = {git = "https://github.com/nirvantyagi/zexe/", package = "r1cs-std", features = [ "ed_on_bls12_381" ], branch = "int-condselect" }
-#bench_utils = {git = "https://github.com/nirvantyagi/zexe/", package = "bench-utils", branch = "int-condselect" }
-
-ark-ff = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
-ark-ec = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
-ark-relations = { git = "https://github.com/arkworks-rs/snark", default-features = false }
-ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std", default-features = false }
-ark-std = { git = "https://github.com/arkworks-rs/utils", default-features = false }
-bench-utils = { git = "https://github.com/arkworks-rs/utils", default-features = false }
+ark-ff = { version = "0.2", default-features = false }
+ark-ec = { version = "0.2", default-features = false }
+ark-relations = { version = "0.2", default-features = false }
+ark-r1cs-std = { version = "0.2", default-features = false }
+ark-std = { version = "0.2", default-features = false }
 
 rug = { version = "1.10", default-features = false, features = ["integer", "serde", "rand"] }
 rand = { version = "0.7" }
@@ -32,9 +25,9 @@ crypto_primitives = { path = "../crypto_primitives" }
 [dev-dependencies]
 blake3 = { version = "0.3" }
 tracing-subscriber = { version = "0.2" }
-ark-ed-on-bls12-381 = { git = "https://github.com/arkworks-rs/curves", default-features = false, features = ["r1cs"] }
+ark-ed-on-bls12-381 = { version = "0.2", default-features = false, features = ["r1cs"] }
 
 [features]
 default = ["std"]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-relations/std" ]
-print-trace = [ "bench-utils/print-trace" ]
+print-trace = [ "ark-std/print-trace" ]

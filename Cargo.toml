@@ -5,4 +5,5 @@ members = [
   "single_step_avd",
   "full_history_avd",
   "rsa",
+  "benches",
 ]

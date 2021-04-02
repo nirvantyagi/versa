@@ -13,7 +13,7 @@ pub type Error = Box<dyn ErrorTrait>;
 pub trait FullHistoryAVD: Sized {
     type Digest: ToBytes + Clone + Eq;
     //TODO: Can create separate verification parameters
-    type PublicParameters: Clone;
+    type PublicParameters: Clone + Send + Sync;
     type LookupProof;
     type AuditProof;
 
