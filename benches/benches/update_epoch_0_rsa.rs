@@ -36,12 +36,11 @@ use full_history_avd::{
 
 use rand::{rngs::StdRng, SeedableRng};
 use csv::Writer;
-use rayon::prelude::*;
 
 use std::{
     string::String,
     io::stdout,
-    time::{Duration, Instant},
+    time::{Instant},
 };
 
 
@@ -232,9 +231,10 @@ pub type TestRsaFHAVD = RsaFullHistoryAVD<
     BigNatTestParams,
 >;
 
-fn update_multicore_benchmark<AVD: FullHistoryAVD>(
+fn benchmark<AVD: FullHistoryAVD>(
     scheme_name: String,
-    batch_size: usize,
+    batch_sizes: &Vec<usize>,
+    cores: &Vec<usize>,
 ) {
     let mut rng = StdRng::seed_from_u64(0_u64);
     let mut csv_writer = Writer::from_writer(stdout());
@@ -254,7 +254,7 @@ fn update_multicore_benchmark<AVD: FullHistoryAVD>(
             csv_writer.write_record(&[
                 scheme_name.clone(),
                 "setup".to_string(),
-                batch_size.to_string(),
+                "0".to_string(),
                 setup_pool.current_num_threads().to_string(),
                 end.to_string(),
             ]).unwrap();
@@ -263,70 +263,114 @@ fn update_multicore_benchmark<AVD: FullHistoryAVD>(
     }
 
     { // Update
-        let mut epoch_update = vec![];
-        for i in 0..batch_size {
-            let mut arr = [0_u8; 32];
-            for (j, b) in (i as u32).to_be_bytes().iter().enumerate() {
-                arr[28 + j] = b.clone();
+        for batch_size in batch_sizes.iter() {
+            let mut epoch_update = vec![];
+            for i in 0..*batch_size {
+                let mut arr = [0_u8; 32];
+                for (j, b) in (i as u32).to_be_bytes().iter().enumerate() {
+                    arr[28 + j] = b.clone();
+                }
+                epoch_update.push((arr.clone(), arr.clone()));
             }
-            epoch_update.push((arr.clone(), arr.clone()));
-        }
+            for num_cores in cores.iter() {
+                if *num_cores > num_cpus::get_physical() {
+                    continue;
+                }
+                let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+                update_pool.install(|| {
+                    let mut avd = AVD::new(&mut rng, &pp.clone().unwrap()).unwrap();
+                    let start = Instant::now();
+                    let _ = avd.batch_update(&mut rng, &epoch_update).unwrap();
+                    let end = start.elapsed().as_secs();
 
-        for num_cores in [1, 2].iter() {
-            let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
-            update_pool.install(|| {
-                let mut avd = AVD::new(&mut rng, &pp.clone().unwrap()).unwrap();
-                let start = Instant::now();
-                let _ = avd.batch_update(&mut rng, &epoch_update).unwrap();
-                let end = start.elapsed().as_secs();
-
-                csv_writer.write_record(&[
-                    scheme_name.clone(),
-                    "update".to_string(),
-                    batch_size.to_string(),
-                    num_cores.to_string(),
-                    end.to_string(),
-                ]).unwrap();
-                csv_writer.flush().unwrap();
-            });
+                    csv_writer.write_record(&[
+                        scheme_name.clone(),
+                        "update".to_string(),
+                        batch_size.to_string(),
+                        num_cores.to_string(),
+                        end.to_string(),
+                    ]).unwrap();
+                    csv_writer.flush().unwrap();
+                });
+            }
         }
     }
 }
 
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
+    println!("args: {:?}", args);
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (batch_size, num_cores): (usize, usize) = if args.len() < 1
-        || args[1] == "-h"
-        || args[1] == "--help"
+    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 0 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench update_multicore -- <batch_size>``");
+        println!("Usage: ``cargo bench --bench update_epoch_0_rsa --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
     } else {
-        (
-            String::from(args[1].clone())
-                .parse()
-                .expect("<batch_size> should be integer"),
-            2,
-        )
-    };
+        let mut args = args.into_iter().skip(1);
+        let mut next_arg = args.next();
+        let mut batch_sizes = vec![];
+        let mut num_cores = vec![];
+            while let Some(arg) = next_arg.clone() {
+            match arg.as_str() {
+                "--batch_size" => {
+                    next_arg = args.next();
+                    'batch_size: while let Some(batch_arg) = next_arg.clone() {
+                        match batch_arg.parse::<usize>() {
+                            Ok(batch_size) => batch_sizes.push(batch_size),
+                            Err(_) => break 'batch_size,
+                        }
+                        next_arg = args.next();
+                    }
+                },
+                "--num_cores" => {
+                    'num_cores: while let Some(cores_arg) = next_arg.clone() {
+                        match cores_arg.parse::<usize>() {
+                            Ok(cores) => num_cores.push(cores),
+                            Err(_) => break 'num_cores,
+                        }
+                        next_arg = args.next();
+                    }
+                },
+                _ => {
+                    println!("Invalid argument: {}", arg);
+                    return
+                }
+            }
 
-    update_multicore_benchmark::<TestRecursionRsaFHAVD>(
+        }
+        (batch_sizes, num_cores)
+    };
+    if batch_sizes.len() == 0 {
+        if cfg!(feature = "local") {
+            batch_sizes.push(4);
+        } else {
+            batch_sizes.push(100);
+        }
+    }
+    if num_cores.len() == 0 {
+        num_cores.push(num_cpus::get_physical());
+    }
+
+    benchmark::<TestRecursionRsaFHAVD>(
         "ca_rsa_pedersen_recurse".to_string(),
-        batch_size,
+        &batch_sizes,
+        &num_cores,
     );
-    update_multicore_benchmark::<TestPoseidonRecursionRsaFHAVD>(
+    benchmark::<TestPoseidonRecursionRsaFHAVD>(
         "ca_rsa_poseidon_recurse".to_string(),
-        batch_size,
+        &batch_sizes,
+        &num_cores,
     );
-    update_multicore_benchmark::<TestRsaAggregatedFHAVD>(
+    benchmark::<TestRsaAggregatedFHAVD>(
         "ca_rsa_aggr".to_string(),
-        batch_size,
+        &batch_sizes,
+        &num_cores,
     );
-    update_multicore_benchmark::<TestRsaFHAVD>(
+    benchmark::<TestRsaFHAVD>(
         "ca_rsa_alg".to_string(),
-        batch_size,
+        &batch_sizes,
+        &num_cores,
     );
 }
