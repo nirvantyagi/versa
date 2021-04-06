@@ -20,7 +20,7 @@ use ark_ff::ToBytes;
 use std::{
     error::Error as ErrorTrait,
     marker::PhantomData,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Debug},
     io::{Result as IoResult, Write},
 };
@@ -59,8 +59,8 @@ impl<P: RsaKVACParams> ToBytes for Commitment<P> {
 impl<P: RsaKVACParams> Default for Commitment<P> {
     fn default() -> Self {
         Commitment {
-            c1: Hog:: <P>::identity(),
-            c2: Hog:: <P>::generator(),
+            c1: Hog::<P>::identity(),
+            c2: Hog::<P>::generator(),
             _params: PhantomData,
         }
     }
@@ -86,7 +86,7 @@ pub type UpdateProof<P, H> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams, H
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RsaKVAC<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> {
-    pub map: HashMap<BigNat, (BigNat, WitnessWrapper<P>, usize)>, // key -> (value, witness, last_epoch_witness_updated)
+    pub map: HashMap<BigNat, (BigNat, usize, WitnessWrapper<P>, usize)>, // key -> (value, version, witness, last_epoch_witness_updated)
     pub commitment: Commitment<P>,
     pub counter_dict_exp: BigNat,
     pub deferred_counter_dict_exp_updates: Vec<BigNat>,
@@ -126,8 +126,8 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     pub fn lookup(&mut self, k: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error> {
         match self.map.get(k) {
-            Some((value, witness_status, last_update_epoch)) => {
-                let value = value.clone(); // Needed for borrow checker
+            Some((value, version, witness_status, last_update_epoch)) => {
+                let (value, version) = (value.clone(), version.clone()); // Needed for borrow checker
                 let updated_witness = match witness_status {
                     WitnessWrapper::Complete(witness) => {
                         let updated_witness = self._full_update_witness(k, *last_update_epoch, witness)?;
@@ -149,7 +149,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         updated_incomplete_witness
                     }
                 };
-                self.map.insert(k.clone(), (value.clone(), WitnessWrapper::Complete(updated_witness.clone()), self.epoch));
+                self.map.insert(k.clone(), (value.clone(), version, WitnessWrapper::Complete(updated_witness.clone()), self.epoch));
                 Ok((Some(value.clone()), updated_witness))
             },
             None => {
@@ -224,19 +224,19 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         kvs: &Vec<(BigNat, BigNat)>,
     ) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>, (BigNat, BigNat)), Error> {
         // Update individual values and compute batched update values
-        let mut z_product = BigNat::from(1);
         let mut z_vals = vec![];
         let mut delta_vals= vec![];
         for (k, v) in kvs.iter() {
             let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(k)?, P::PRIME_LEN)?;
-            z_product = z_product * z.clone();
             z_vals.push(z);
             delta_vals.push(self._update_value(k.clone(), v.clone())?);
         }
-        let mut delta_sum = BigNat::from(0);
-        for (z, delta) in z_vals.iter().zip(&delta_vals) {
-            delta_sum = delta_sum + BigNat::from(delta * &BigNat::from(z_product.div_exact_ref(z)));
-        }
+
+        let (z_product, delta_sum) = Self::_compute_batch_z_delta(
+            &z_vals.iter().zip(&delta_vals)
+                .map(|(z, delta)| (z.clone(), BigNat::from(1), delta.clone()))
+                .collect::<Vec<_>>()
+        );
 
         // Update commitment
         let update_proof = self._update_commitment(&z_product, &delta_sum)?;
@@ -271,8 +271,8 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         // Update value (but not witness - create incomplete witness for new keys) and returns "value delta" to be incorporated in commitment update
         let (c1, c2) = (self.commitment.c1.clone(), self.commitment.c2.clone());
         if let Some(map_value) = self.map.get(&k) {
-            let (prev_v, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
-            self.map.insert(k.clone(), (v.clone(), prev_witness, last_update_epoch));
+            let (prev_v, version, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
+            self.map.insert(k.clone(), (v.clone(), version + 1, prev_witness, last_update_epoch));
             Ok(v - prev_v)
         } else {
             // Defer computation of (a,b) coprime proof by creating incomplete witness
@@ -283,7 +283,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                 b: Hog::<P>::generator(), // dummy
                 u: 0,
             };
-            self.map.insert(k.clone(), (v.clone(), WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch));
+            self.map.insert(k.clone(), (v.clone(), 1, WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch));
             // Set u=0 and last_epoch_updated=self.epoch so that future witness update catches other updates in this epoch batch
             Ok(v)
         }
@@ -355,8 +355,120 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         }
     }
 
-}
+    pub fn batch_update_membership_witnesses(&mut self, keys: &HashSet<BigNat>) -> Result<(), Error> {
+        let mut keys_to_update = vec![];
+        let mut keys_to_update_values = vec![];
+        let mut keys_no_update_values = vec![];
+        for (k, (v, u, _, _)) in self.map.iter() {
+            let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(k)?, P::PRIME_LEN)?;
+            let z_u1 = z.clone().pow(*u as u32 - 1);
+            let z_u = BigNat::from(&z_u1 * &z);
+            if keys.contains(k) {
+                keys_to_update.push(k.clone());
+                keys_to_update_values.push((z_u, z_u1, v.clone()))
+            } else {
+                keys_no_update_values.push((z_u, z_u1, v.clone()))
+            }
+        }
 
+        // Compute initial values from keys not being updated
+        let (initial_z, initial_delta) =  if keys_no_update_values.len() == 0 {
+            (BigNat::from(1), BigNat::from(0))
+        } else {
+            Self::_compute_batch_z_delta(&keys_no_update_values)
+        };
+        std::mem::drop(keys_no_update_values);
+        let initial_g = Hog::<P>::generator().power(&initial_z);
+        let initial_h = Hog::<P>::generator().power(&initial_delta);
+        let (update_z, _) = Self::_compute_batch_z_delta(&keys_to_update_values); //TODO: Wasted computation on delta
+        let ((initial_a, initial_b), _) = extended_euclidean_gcd(&initial_z, &update_z);
+
+        // Compute witnesses
+        let witnesses = Self::mem_witness_recurse_helper(
+            initial_h,
+            initial_g,
+            initial_a,
+            Hog::<P>::generator().power(&initial_b),
+            keys_to_update_values,
+        );
+
+        // Update witnesses in state
+        assert_eq!(witnesses.len(), keys_to_update.len());
+        for (k, (h, g, a, b)) in keys_to_update.iter().zip(witnesses.into_iter()) {
+            let (v, u, _, _) = self.map.get(k).unwrap();
+            let (v, u) = (v.clone(), u.clone()); // For borrow checker
+            let updated_witness = MembershipWitness {
+                pi_1: h,
+                pi_3: g,
+                a: a,
+                b: b,
+                u: u,
+            };
+            self.map.insert(k.clone(), (v, u, WitnessWrapper::Complete(updated_witness), self.epoch));
+        }
+        Ok(())
+    }
+
+    fn mem_witness_recurse_helper(
+        h: Hog<P>,
+        g: Hog<P>,
+        a: BigNat,
+        b: Hog<P>,
+        values: Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
+    ) -> Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)> { // (h, g, a, b)
+        assert!(values.len() > 0);
+        if values.len() == 1 {
+            vec![(h, g, a, b)]
+        } else {
+            let mut l_values = values;
+            let r_values = l_values.split_off(l_values.len() / 2);
+            let (z_l, delta_l) = Self::_compute_batch_z_delta(&l_values);
+            let (z_r, delta_r) = Self::_compute_batch_z_delta(&r_values);
+            let (h_l, g_l) = (h.power(&z_l).op(&g.power(&delta_l)), g.power(&z_l));
+            let (h_r, g_r) = (h.power(&z_r).op(&g.power(&delta_r)), g.power(&z_r));
+            let ((s, t), _) = extended_euclidean_gcd(&z_l, &z_r);
+            let (a_t, a_s) = (a.clone() * t.clone(), a.clone() * s.clone());
+            let (q_l, r_l) = a_t.clone().div_rem(z_l.clone());
+            let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
+            let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
+            let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
+            let mut witnesses = Self::mem_witness_recurse_helper(h_r, g_r, r_r, b_r, l_values);
+            witnesses.append(&mut Self::mem_witness_recurse_helper(h_l, g_l, r_l, b_l, r_values));
+            witnesses
+        }
+    }
+
+    fn _compute_batch_z_delta(
+        values: &Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
+    ) -> (BigNat, BigNat) { // (z_prod, delta_sum)
+        assert!(values.len() > 0);
+        let mut values = values.iter()
+            .map(|(zu, zu_minus1, v)| (zu.clone(), v.clone() * zu_minus1.clone()))
+            .collect::<Vec<(BigNat, BigNat)>>();
+        let result = 'recurse: loop {
+            if values.len() == 1 {
+                // base case
+                break 'recurse values[0].clone();
+            } else {
+                values = values.chunks(2)
+                    .map(|chunk| {
+                        if chunk.len() == 2 {
+                            let (l_prod, l_delta) = &chunk[0];
+                            let (r_prod, r_delta) = &chunk[1];
+                            let lr_prod = l_prod.clone() * r_prod.clone();
+                            let lr_delta = l_prod.clone() * r_delta.clone() + r_prod.clone() * l_delta.clone();
+                            (lr_prod, lr_delta)
+                        } else {
+                            chunk[0].clone()
+                        }
+                    }).collect::<Vec<(BigNat, BigNat)>>();
+            }
+        };
+        result
+    }
+
+
+}
 
 #[derive(Debug)]
 pub enum RsaKVACError {
@@ -624,6 +736,59 @@ mod tests {
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), kvs3[2].1);
         let b = Kvac::verify_witness(&k1, &v, &c3, &witness).unwrap();
+        assert!(b);
+    }
+
+
+    #[test]
+    fn kvac_witness_batch_update_test() {
+        let mut kvac = Kvac::new();
+
+        let k1 = BigNat::from(100);
+        let k2 = BigNat::from(200);
+        let k3 = BigNat::from(300);
+
+        // Insert (k1, k2, k3)
+        let kvs1 = vec![
+            (k1.clone(), BigNat::from(101)),
+            (k2.clone(), BigNat::from(201)),
+            (k3.clone(), BigNat::from(301)),
+        ];
+        kvac.batch_update(&kvs1).unwrap();
+
+        // Update (k1, k2, k3)
+        let kvs2 = vec![
+            (k1.clone(), BigNat::from(102)),
+            (k2.clone(), BigNat::from(202)),
+            (k3.clone(), BigNat::from(302)),
+        ];
+        kvac.batch_update(&kvs2).unwrap();
+
+        // Update (k1, k2) (repeat k1)
+        let kvs3 = vec![
+            (k1.clone(), BigNat::from(103)),
+            (k2.clone(), BigNat::from(203)),
+            (k1.clone(), BigNat::from(104)),
+            (k3.clone(), BigNat::from(303)),
+        ];
+        let (c3, _) = kvac.batch_update(&kvs3).unwrap();
+
+        let (_, _, _, u) = kvac.map.get(&k1).unwrap();
+        assert_eq!(*u, 0);
+
+        // Batch update all witnesses
+        kvac.batch_update_membership_witnesses(
+            &vec![k1.clone(), k2.clone(), k3.clone()].iter().cloned().collect(),
+        ).unwrap();
+
+        // Lookup k1
+        let (v, _, w, u) = kvac.map.get(&k1).unwrap();
+        let witness = match w {
+            WitnessWrapper::Complete(witness) => witness.clone(),
+            WitnessWrapper::IncompleteCoprimeProof(_) => unreachable!(),
+        };
+        assert_eq!(*u, 3);
+        let b = Kvac::verify_witness(&k1, &Some(v.clone()), &c3, &witness).unwrap();
         assert!(b);
     }
 
