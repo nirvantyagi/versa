@@ -357,6 +357,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     pub fn batch_update_membership_witnesses(&mut self, keys: &HashSet<BigNat>) -> Result<(), Error> {
         let mut keys_to_update = vec![];
+        let mut keys_to_update_u1 = vec![];
         let mut keys_to_update_values = vec![];
         let mut keys_no_update_values = vec![];
         for (k, (v, u, _, _)) in self.map.iter() {
@@ -365,9 +366,10 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             let z_u = BigNat::from(&z_u1 * &z);
             if keys.contains(k) {
                 keys_to_update.push(k.clone());
-                keys_to_update_values.push((z_u, z_u1, v.clone()))
+                keys_to_update_u1.push(z_u1.clone());
+                keys_to_update_values.push((z_u, z_u1, v.clone()));
             } else {
-                keys_no_update_values.push((z_u, z_u1, v.clone()))
+                keys_no_update_values.push((z_u, z_u1, v.clone()));
             }
         }
 
@@ -381,7 +383,9 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         let initial_g = Hog::<P>::generator().power(&initial_z);
         let initial_h = Hog::<P>::generator().power(&initial_delta);
         let (update_z, _) = Self::_compute_batch_z_delta(&keys_to_update_values); //TODO: Wasted computation on delta
-        let ((initial_a, initial_b), _) = extended_euclidean_gcd(&initial_z, &update_z);
+        let ((initial_a, initial_b), gcd) = extended_euclidean_gcd(&initial_z, &update_z);
+        assert_eq!(gcd, 1);
+        debug_assert!(initial_g.power(&initial_a).op(&Hog::<P>::generator().power(&initial_b).power(&update_z)) == Hog::<P>::generator());
 
         // Compute witnesses
         let witnesses = Self::mem_witness_recurse_helper(
@@ -394,14 +398,17 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
         // Update witnesses in state
         assert_eq!(witnesses.len(), keys_to_update.len());
-        for (k, (h, g, a, b)) in keys_to_update.iter().zip(witnesses.into_iter()) {
+        for ((k, (h, g, a, b)), z_u1) in keys_to_update.iter()
+            .zip(witnesses.into_iter())
+            .zip(keys_to_update_u1.into_iter())
+        {
             let (v, u, _, _) = self.map.get(k).unwrap();
             let (v, u) = (v.clone(), u.clone()); // For borrow checker
             let updated_witness = MembershipWitness {
                 pi_1: h,
                 pi_3: g,
                 a: a,
-                b: b,
+                b: b.power(&z_u1),
                 u: u,
             };
             self.map.insert(k.clone(), (v, u, WitnessWrapper::Complete(updated_witness), self.epoch));
@@ -424,16 +431,20 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             let r_values = l_values.split_off(l_values.len() / 2);
             let (z_l, delta_l) = Self::_compute_batch_z_delta(&l_values);
             let (z_r, delta_r) = Self::_compute_batch_z_delta(&r_values);
+            debug_assert!(g.power(&a).op(&b.power(&(z_l.clone()*z_r.clone()))) == Hog::<P>::generator());
             let (h_l, g_l) = (h.power(&z_l).op(&g.power(&delta_l)), g.power(&z_l));
             let (h_r, g_r) = (h.power(&z_r).op(&g.power(&delta_r)), g.power(&z_r));
-            let ((s, t), _) = extended_euclidean_gcd(&z_l, &z_r);
+            let ((s, t), gcd) = extended_euclidean_gcd(&z_l, &z_r);
+            assert_eq!(gcd, 1);
             let (a_t, a_s) = (a.clone() * t.clone(), a.clone() * s.clone());
             let (q_l, r_l) = a_t.clone().div_rem(z_l.clone());
             let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
             let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
             let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
-            let mut witnesses = Self::mem_witness_recurse_helper(h_r, g_r, r_r, b_r, l_values);
-            witnesses.append(&mut Self::mem_witness_recurse_helper(h_l, g_l, r_l, b_l, r_values));
+            debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<P>::generator());
+            debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<P>::generator());
+            let mut witnesses = Self::mem_witness_recurse_helper(h_r, g_r, r_l, b_l, l_values);
+            witnesses.append(&mut Self::mem_witness_recurse_helper(h_l, g_l, r_r, b_r, r_values));
             witnesses
         }
     }
