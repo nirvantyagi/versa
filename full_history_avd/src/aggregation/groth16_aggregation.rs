@@ -171,13 +171,12 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
         FastH: HashDigest,
         SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
-    pub(crate) fn setup_inner_product<R: Rng>(rng: &mut R, size: usize) -> Result<SRS<Pairing>, Error>
+    pub fn setup_inner_product<R: Rng>(rng: &mut R, size: usize) -> Result<SRS<Pairing>, Error>
     {
         let (srs, _) = PairingInnerProductAB::<Pairing, FastH>::setup(rng, size)?;
         Ok(srs)
     }
 
-    //TODO: Make stateless instead of dependent on `self` - easier for benchmarking
     pub(crate) fn aggregate_proofs(
         &self,
         start_i: usize,
@@ -186,7 +185,6 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
         let size = end_i - start_i;
         assert!(size.is_power_of_two() && size < (1_usize << Params::MAX_EPOCH_LOG_2));
         assert!(end_i <= self.proofs.len());
-        // Truncate SRS
         let ip_srs = SRS{
             g_alpha_powers: self.ip_pp.g_alpha_powers[0..(2*size - 1)].to_vec(),
             h_beta_powers: self.ip_pp.h_beta_powers[0..(2*size - 1)].to_vec(),
@@ -194,8 +192,24 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
             h_alpha: self.ip_pp.h_alpha.clone(),
         };
         let kzg_srs = &ip_srs.g_alpha_powers[0..size];
-
         let proofs = &self.proofs[start_i..end_i];
+        let digests = &self.digests[start_i..end_i];
+
+        let (full_ck_1, full_ck_2) = self.ip_pp.get_commitment_keys();
+        let ck_1 = &full_ck_1[0..size];
+        let ck_2 = &full_ck_2[0..size];
+
+        Self::_aggregate_proofs(&ip_srs, kzg_srs, ck_1, ck_2, proofs, digests)
+    }
+
+    pub fn _aggregate_proofs(
+        ip_srs: &SRS<Pairing>,
+        kzg_srs: &[Pairing::G1Projective],
+        ck_1: &[Pairing::G2Projective],
+        ck_2: &[Pairing::G1Projective],
+        proofs: &[<Groth16<Pairing> as SNARK<Pairing::Fr>>::Proof],
+        digests: &[SSAVD::Digest],
+    ) -> Result<AggregateDigestProof<Pairing, FastH>, Error> {
         let a = proofs
             .iter()
             .map(|proof| proof.a.into_projective())
@@ -210,15 +224,11 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
             .collect::<Vec<Pairing::G1Projective>>();
 
         //TODO: Keep as iters instead of collecting to vector
-        let digest_size = self.digests[start_i].to_field_elements().unwrap().len();
-        let digests_as_field = self.digests[start_i..end_i].iter().map(|d| d.to_field_elements().unwrap()).collect::<Vec<Vec<Pairing::Fr>>>();
+        let digest_size = digests[0].to_field_elements().unwrap().len();
+        let digests_as_field = digests.iter().map(|d| d.to_field_elements().unwrap()).collect::<Vec<Vec<Pairing::Fr>>>();
         let digest_cross_slices = (0..digest_size).map(|i| {
             digests_as_field.iter().map(|d| d[i].clone()).collect::<Vec<Pairing::Fr>>()
         }).collect::<Vec<_>>();
-
-        let (full_ck_1, full_ck_2) = self.ip_pp.get_commitment_keys();
-        let ck_1 = &full_ck_1[0..size];
-        let ck_2 = &full_ck_2[0..size];
 
         let com_a = PairingInnerProduct::<Pairing>::inner_product(&a, ck_1)?;
         let com_b = PairingInnerProduct::<Pairing>::inner_product(ck_2, &b)?;
@@ -295,7 +305,7 @@ AggregatedFullHistoryAVD<Params, SSAVD, SSAVDGadget, Pairing, FastH>
         })
     }
 
-    pub(crate) fn verify_aggregate_proof(
+    pub fn verify_aggregate_proof(
         ip_verifier_srs: &VerifierSRS<Pairing>,
         vk: &VerifyingKey<Pairing>,
         leading_digest: &SSAVD::Digest,

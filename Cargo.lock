@@ -187,6 +187,7 @@ dependencies = [
  "digest",
  "itertools",
  "num-traits",
+ "rayon",
 ]
 
 [[package]]
@@ -362,11 +363,17 @@ dependencies = [
  "ark-ec",
  "ark-ed-on-bls12-381",
  "ark-ed-on-mnt4-298",
+ "ark-ff",
+ "ark-groth16",
+ "ark-ip-proofs",
  "ark-mnt4-298",
  "ark-mnt6-298",
+ "ark-r1cs-std",
+ "ark-relations",
  "blake3",
  "crypto_primitives",
  "csv",
+ "digest",
  "full_history_avd",
  "num_cpus",
  "rand",

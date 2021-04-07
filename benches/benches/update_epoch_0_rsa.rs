@@ -299,11 +299,10 @@ fn benchmark<AVD: FullHistoryAVD>(
 
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
-    println!("args: {:?}", args);
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 0 && (args[1] == "-h" || args[1] == "--help")
+    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench update_epoch_0_rsa --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
