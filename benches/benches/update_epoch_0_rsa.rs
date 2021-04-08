@@ -324,6 +324,7 @@ fn main() {
                     }
                 },
                 "--num_cores" => {
+                    next_arg = args.next();
                     'num_cores: while let Some(cores_arg) = next_arg.clone() {
                         match cores_arg.parse::<usize>() {
                             Ok(cores) => num_cores.push(cores),

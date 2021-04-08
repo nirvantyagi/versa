@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use ark_ed_on_bls12_381::{Fq as BLS381Fr, EdwardsProjective, constraints::EdwardsVar};
 use ark_bls12_381::Bls12_381;
 use ark_ff::{PrimeField, ToConstraintField};

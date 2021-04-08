@@ -102,8 +102,8 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         RsaKVAC {
             map: HashMap::new(),
             commitment: Commitment {
-                c1: Hog:: <P>::identity(),
-                c2: Hog:: <P>::generator(),
+                c1: Hog::<P>::identity(),
+                c2: Hog::<P>::generator(),
                 _params: PhantomData,
             },
             counter_dict_exp: BigNat::from(1),

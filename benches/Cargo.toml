@@ -46,3 +46,8 @@ name = "aggregate_groth16"
 path = "benches/aggregate_groth16.rs"
 harness = false
 
+[[bench]]
+name = "aggregate_rsa"
+path = "benches/aggregate_rsa.rs"
+harness = false
+
