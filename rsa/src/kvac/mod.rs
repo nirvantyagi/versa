@@ -26,6 +26,7 @@ use std::{
 };
 
 use rug::ops::Pow;
+use rayon::prelude::*;
 
 pub trait RsaKVACParams: Clone + Eq + Debug {
     const KEY_LEN: usize;
@@ -355,21 +356,62 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         }
     }
 
-    pub fn batch_update_membership_witnesses(&mut self, keys: &HashSet<BigNat>) -> Result<(), Error> {
+    pub fn batch_update_membership_witnesses(&mut self, keys: Option<&HashSet<BigNat>>) -> Result<(), Error> {
+        let witnesses = Self::_batch_update_membership_witnesses(
+            self.map.iter()
+                .map(|(k, (v, u, _, _))| (k.clone(), v.clone(), *u)),
+            keys,
+        )?;
+
+        // Update witnesses in state
+        for ((k, (h, g, a, b)), z_u1) in witnesses.into_iter() {
+            let (v, u, _, _) = self.map.get(&k).unwrap();
+            let (v, u) = (v.clone(), u.clone()); // For borrow checker
+            let updated_witness = MembershipWitness {
+                pi_1: h,
+                pi_3: g,
+                a: a,
+                b: b.power(&z_u1),
+                u: u,
+            };
+            self.map.insert(k, (v, u, WitnessWrapper::Complete(updated_witness), self.epoch));
+        }
+        Ok(())
+    }
+
+    // Note: split off for easier entry point for benchmarking
+    pub fn _batch_update_membership_witnesses(
+        kvs: impl Iterator<Item = (BigNat, BigNat, usize)>,
+        keys: Option<&HashSet<BigNat>>,
+    ) -> Result<Vec<((BigNat, (Hog<P>, Hog<P>, BigNat, Hog<P>)), BigNat)>, Error> { // ((k, (witness)), z_u1)
+        let update_all_keys = keys.is_none();
         let mut keys_to_update = vec![];
         let mut keys_to_update_u1 = vec![];
         let mut keys_to_update_values = vec![];
         let mut keys_no_update_values = vec![];
-        for (k, (v, u, _, _)) in self.map.iter() {
-            let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(k)?, P::PRIME_LEN)?;
-            let z_u1 = z.clone().pow(*u as u32 - 1);
-            let z_u = BigNat::from(&z_u1 * &z);
-            if keys.contains(k) {
+
+        if update_all_keys {
+            for (k, v, u) in kvs.into_iter() {
+                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                let z_u1 = z.clone().pow(u as u32 - 1);
+                let z_u = BigNat::from(&z_u1 * &z);
                 keys_to_update.push(k.clone());
                 keys_to_update_u1.push(z_u1.clone());
                 keys_to_update_values.push((z_u, z_u1, v.clone()));
-            } else {
-                keys_no_update_values.push((z_u, z_u1, v.clone()));
+            }
+        } else {
+            let keys = keys.unwrap();
+            for (k, v, u) in kvs.into_iter() {
+                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                let z_u1 = z.clone().pow(u as u32 - 1);
+                let z_u = BigNat::from(&z_u1 * &z);
+                if keys.contains(&k) {
+                    keys_to_update.push(k.clone());
+                    keys_to_update_u1.push(z_u1.clone());
+                    keys_to_update_values.push((z_u, z_u1, v.clone()));
+                } else {
+                    keys_no_update_values.push((z_u, z_u1, v.clone()));
+                }
             }
         }
 
@@ -395,25 +437,11 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             Hog::<P>::generator().power(&initial_b),
             keys_to_update_values,
         );
-
-        // Update witnesses in state
         assert_eq!(witnesses.len(), keys_to_update.len());
-        for ((k, (h, g, a, b)), z_u1) in keys_to_update.iter()
-            .zip(witnesses.into_iter())
-            .zip(keys_to_update_u1.into_iter())
-        {
-            let (v, u, _, _) = self.map.get(k).unwrap();
-            let (v, u) = (v.clone(), u.clone()); // For borrow checker
-            let updated_witness = MembershipWitness {
-                pi_1: h,
-                pi_3: g,
-                a: a,
-                b: b.power(&z_u1),
-                u: u,
-            };
-            self.map.insert(k.clone(), (v, u, WitnessWrapper::Complete(updated_witness), self.epoch));
-        }
-        Ok(())
+        Ok(keys_to_update.into_iter()
+               .zip(witnesses.into_iter())
+               .zip(keys_to_update_u1.into_iter())
+               .collect::<Vec<_>>())
     }
 
     fn mem_witness_recurse_helper(
@@ -461,7 +489,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                 // base case
                 break 'recurse values[0].clone();
             } else {
-                values = values.chunks(2)
+                values = values.par_chunks(2)
                     .map(|chunk| {
                         if chunk.len() == 2 {
                             let (l_prod, l_delta) = &chunk[0];
@@ -789,7 +817,7 @@ mod tests {
 
         // Batch update all witnesses
         kvac.batch_update_membership_witnesses(
-            &vec![k1.clone(), k2.clone(), k3.clone()].iter().cloned().collect(),
+            Some(&vec![k1.clone(), k2.clone(), k3.clone()].iter().cloned().collect()),
         ).unwrap();
 
         // Lookup k1

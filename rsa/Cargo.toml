@@ -19,6 +19,7 @@ rand = { version = "0.7" }
 num-traits = { version = "0.2" }
 digest = { version = "0.9" }
 tracing = { version = "0.1", default-features = false }
+rayon = { version = "1", optional = true }
 
 crypto_primitives = { path = "../crypto_primitives" }
 
@@ -28,6 +29,7 @@ tracing-subscriber = { version = "0.2" }
 ark-ed-on-bls12-381 = { version = "0.2", default-features = false, features = ["r1cs"] }
 
 [features]
-default = ["std"]
+default = ["std", "parallel" ]
 std = [ "ark-ff/std", "ark-ec/std", "ark-std/std", "ark-relations/std" ]
+parallel = [ "rayon" ]
 print-trace = [ "ark-std/print-trace" ]

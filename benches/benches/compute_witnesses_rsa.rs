@@ -2,12 +2,9 @@ use ark_ed_on_bls12_381::{Fq as BLS381Fr};
 
 use rsa::{
     bignat::constraints::BigNatCircuitParams,
-    kvac::RsaKVACParams,
+    kvac::{RsaKVACParams, RsaKVAC},
     poker::{
         PoKERParams,
-        PoKER,
-        Statement as PoKERStatement,
-        Witness as PoKERWitness,
     },
     hog::{RsaGroupParams, RsaHiddenOrderGroup},
     hash::{
@@ -58,8 +55,8 @@ impl BigNatCircuitParams for BigNatTestParams {
 
 #[cfg(not(feature = "local"))]
 impl BigNatCircuitParams for BigNatTestParams {
-    const LIMB_WIDTH: usize = 254;
-    const N_LIMBS: usize = 9;
+    const LIMB_WIDTH: usize = 32;
+    const N_LIMBS: usize = 64;
 }
 
 
@@ -115,29 +112,18 @@ fn benchmark<P: RsaKVACParams>
         .unwrap();
     csv_writer.flush().unwrap();
 
-    let c1 = Hog::<P>::generator().power(&hash_to_integer::<H>(&[BLS381Fr::from(1 as u8)], 256));
-    let c2 = Hog::<P>::generator().power(&hash_to_integer::<H>(&[BLS381Fr::from(2 as u8)], 256));
     for batch_size in batch_sizes.iter() {
         for log_len in range_lengths.iter() {
             let len = 1_usize << *log_len;
-            let half_len = len >> 1;
 
-            // Create dummy exponents of proper size
-            let int_len = half_len * batch_size * P::PRIME_LEN;
-            let z1 = hash_to_integer::<H>(&[BLS381Fr::from(1 as u8)], int_len);
-            let z2 = hash_to_integer::<H>(&[BLS381Fr::from(2 as u8)], int_len);
-            let delta1 = hash_to_integer::<H>(&[BLS381Fr::from(3 as u8)], int_len);
-            let delta2 = hash_to_integer::<H>(&[BLS381Fr::from(4 as u8)], int_len);
-
-            let c1_new = c1.power(&z1).power(&z2)
-                .op(&c2.power(&z1).power(&delta2).op(&c2.power(&z2).power(&delta1)));
-            let c2_new = c2.power(&z1).power(&z2);
-            let statement = PoKERStatement {
-                u1: c1.clone(),
-                u2: c2.clone(),
-                w1: c1_new,
-                w2: c2_new,
-            };
+            // Create key-values
+            let mut kvs = vec![];
+            for i in 0..len {
+                kvs.push((hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::KEY_LEN),
+                          hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::VALUE_LEN),
+                          1,
+                ))
+            }
 
             for num_cores in cores.iter() {
                 if *num_cores > num_cpus::get_physical() {
@@ -146,29 +132,11 @@ fn benchmark<P: RsaKVACParams>
                 let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
                 update_pool.install(|| {
                     let start = Instant::now();
-                    let witness = PoKERWitness {
-                        a: z1.clone() * z2.clone(),
-                        b: z1.clone() * delta2.clone() + z2.clone() * delta1.clone(),
-                    };
-                    let proof = PoKER::<PoKParams<P>, RsaParams<P>, H, BigNatTestParams>::prove(&statement, &witness).unwrap();
+                    let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned(), None).unwrap();
                     let end = start.elapsed().as_secs();
                     csv_writer.write_record(&[
                         scheme_name.clone(),
-                        "aggregate".to_string(),
-                        log_len.to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
-                    csv_writer.flush().unwrap();
-
-                    let start = Instant::now();
-                    let b = PoKER::<PoKParams<P>, RsaParams<P>, HasherFromDigest<BLS381Fr, blake3::Hasher>, BigNatTestParams>::verify(&statement, &proof).unwrap();
-                    let end = start.elapsed().as_millis();
-                    assert!(b);
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "verify".to_string(),
+                        "witness_compute".to_string(),
                         log_len.to_string(),
                         batch_size.to_string(),
                         num_cores.to_string(),
@@ -188,7 +156,7 @@ fn main() {
     }
     let (mut range_lengths, mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench aggregate_rsa --  [--ranges <RANGE_LEN>...][--batch_sizes <SIZE>...][--num_cores <NUM_CORES>...]``");
+        println!("Usage: ``cargo bench --bench compute_witnesses_rsa --  [--ranges <RANGE_LEN>...][--batch_sizes <SIZE>...][--num_cores <NUM_CORES>...]``");
         return;
     } else {
         let mut args = args.into_iter().skip(1);

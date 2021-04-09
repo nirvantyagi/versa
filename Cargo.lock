@@ -972,6 +972,7 @@ dependencies = [
  "digest",
  "num-traits",
  "rand",
+ "rayon",
  "rug",
  "tracing",
  "tracing-subscriber",
