@@ -278,14 +278,30 @@ fn benchmark<AVD: FullHistoryAVD>(
                 }
                 let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
                 update_pool.install(|| {
-                    let mut avd = AVD::new(&mut rng, &pp.clone().unwrap()).unwrap();
+                    let mut avd = AVD::new(&mut rng, pp.as_ref().unwrap()).unwrap();
                     let start = Instant::now();
-                    let _ = avd.batch_update(&mut rng, &epoch_update).unwrap();
+                    let d = avd.batch_update(&mut rng, &epoch_update).unwrap();
                     let end = start.elapsed().as_secs();
 
                     csv_writer.write_record(&[
                         scheme_name.clone(),
                         "update".to_string(),
+                        batch_size.to_string(),
+                        num_cores.to_string(),
+                        end.to_string(),
+                    ]).unwrap();
+                    csv_writer.flush().unwrap();
+
+                    let (_, proof) = avd.audit(0, 1).unwrap();
+                    let start = Instant::now();
+                    let b = AVD::verify_audit(
+                        pp.as_ref().unwrap(), 0, 1, &d, &proof,
+                    ).unwrap();
+                    let end = start.elapsed().as_millis();
+                    assert!(b);
+                    csv_writer.write_record(&[
+                        scheme_name.clone(),
+                        "verify".to_string(),
                         batch_size.to_string(),
                         num_cores.to_string(),
                         end.to_string(),
@@ -304,7 +320,7 @@ fn main() {
     }
     let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench update_epoch_0_rsa --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
+        println!("Usage: ``cargo bench --bench update_epoch_0_mt --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
     } else {
         let mut args = args.into_iter().skip(1);

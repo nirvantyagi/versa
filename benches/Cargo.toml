@@ -42,6 +42,11 @@ path = "benches/update_epoch_0_rsa.rs"
 harness = false
 
 [[bench]]
+name = "update_epoch_0_mt"
+path = "benches/update_epoch_0_mt.rs"
+harness = false
+
+[[bench]]
 name = "aggregate_groth16"
 path = "benches/aggregate_groth16.rs"
 harness = false
