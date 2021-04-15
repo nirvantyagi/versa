@@ -1,7 +1,19 @@
 #![allow(deprecated)]
+
+#[cfg(feature = "local")]
 use ark_ed_on_mnt4_298::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+#[cfg(feature = "local")]
 use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
+#[cfg(feature = "local")]
 use ark_mnt6_298::{MNT6_298, constraints::PairingVar as MNT6PairingVar};
+
+#[cfg(not(feature = "local"))]
+use ark_ed_on_mnt4_753::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+#[cfg(not(feature = "local"))]
+use ark_mnt4_753::{MNT4_753, constraints::PairingVar as MNT4PairingVar};
+#[cfg(not(feature = "local"))]
+use ark_mnt6_753::{MNT6_753, constraints::PairingVar as MNT6PairingVar};
+
 use ark_ed_on_bls12_381::{Fq as BLS381Fr};
 use ark_bls12_381::Bls12_381;
 use ark_crypto_primitives::{
@@ -45,10 +57,18 @@ use std::{
 
 
 #[derive(Clone, Copy, Debug)]
-pub struct MNT298Cycle;
-impl CycleEngine for MNT298Cycle {
+pub struct MNTCycle;
+
+#[cfg(feature = "local")]
+impl CycleEngine for MNTCycle {
     type E1 = MNT4_298;
     type E2 = MNT6_298;
+}
+
+#[cfg(not(feature = "local"))]
+impl CycleEngine for MNTCycle {
+    type E1 = MNT4_753;
+    type E2 = MNT6_753;
 }
 
 #[derive(Clone)]
@@ -176,7 +196,7 @@ impl AggregatedFullHistoryAVDParameters for AggregatedFHAVDTestParameters {
 
 #[cfg(not(feature = "local"))]
 impl AggregatedFullHistoryAVDParameters for AggregatedFHAVDTestParameters {
-    const MAX_EPOCH_LOG_2: u8 = 32;
+    const MAX_EPOCH_LOG_2: u8 = 16;
 }
 
 
@@ -201,7 +221,7 @@ type TestRecursionRsaFHAVD = RecursionFullHistoryAVD<
     TestRsaAVDGadget<MNT4Fr>,
     MerkleTreeTestParameters,
     HG,
-    MNT298Cycle,
+    MNTCycle,
     MNT4PairingVar,
     MNT6PairingVar,
 >;
@@ -211,7 +231,7 @@ type TestPoseidonRecursionRsaFHAVD = RecursionFullHistoryAVD<
     TestRsaAVDGadget<MNT4Fr>,
     PoseidonMerkleTreeTestParameters,
     PoseidonSpongeVar<MNT4Fr>,
-    MNT298Cycle,
+    MNTCycle,
     MNT4PairingVar,
     MNT6PairingVar,
 >;
