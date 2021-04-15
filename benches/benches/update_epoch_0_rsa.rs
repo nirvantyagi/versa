@@ -320,7 +320,7 @@ fn main() {
     }
     let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench update_epoch_0_mt --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
+        println!("Usage: ``cargo bench --bench update_epoch_0_rsa --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
     } else {
         let mut args = args.into_iter().skip(1);
