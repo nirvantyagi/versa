@@ -188,7 +188,7 @@ impl<F: PrimeField> MerkleTreeParameters for PoseidonMerkleTreeTestParameters<F>
 
 #[cfg(not(feature = "local"))]
 impl<F: PrimeField> MerkleTreeParameters for PoseidonMerkleTreeTestParameters<F> {
-    const DEPTH: MerkleDepth = 4;
+    const DEPTH: MerkleDepth = 32;
     type H = PoseidonSponge<F>;
 }
 
