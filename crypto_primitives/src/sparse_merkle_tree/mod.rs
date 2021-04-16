@@ -40,8 +40,8 @@ pub struct SparseMerkleTree<P: MerkleTreeParameters> {
 }
 
 pub struct MerkleTreePath<P: MerkleTreeParameters> {
-    path: Vec<<P::H as FixedLengthCRH>::Output>,
-    _parameters: PhantomData<P>,
+    pub path: Vec<<P::H as FixedLengthCRH>::Output>,
+    pub _parameters: PhantomData<P>,
 }
 
 impl<P: MerkleTreeParameters> Clone for MerkleTreePath<P> {
