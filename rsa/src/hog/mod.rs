@@ -17,7 +17,7 @@ use crate::Error;
 pub mod constraints;
 
 //TODO: Rug doesn't support const integers
-pub trait RsaGroupParams: Clone + Eq + Debug {
+pub trait RsaGroupParams: Clone + Eq + Debug + Send + Sync {
     const RAW_G: usize;
     const RAW_M: &'static str;
 

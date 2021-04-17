@@ -424,17 +424,12 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         std::mem::drop(keys_no_update_values);
         let initial_g = Hog::<P>::generator().power(&initial_z);
         let initial_h = Hog::<P>::generator().power(&initial_delta);
-        let (update_z, _) = Self::_compute_batch_z_delta(&keys_to_update_values); //TODO: Wasted computation on delta
-        let ((initial_a, initial_b), gcd) = extended_euclidean_gcd(&initial_z, &update_z);
-        assert_eq!(gcd, 1);
-        debug_assert!(initial_g.power(&initial_a).op(&Hog::<P>::generator().power(&initial_b).power(&update_z)) == Hog::<P>::generator());
 
         // Compute witnesses
-        let witnesses = Self::mem_witness_recurse_helper(
+        let witnesses = Self::mem_witness_recurse_helper_unrolled(
             initial_h,
             initial_g,
-            initial_a,
-            Hog::<P>::generator().power(&initial_b),
+            initial_z,
             keys_to_update_values,
         );
         assert_eq!(witnesses.len(), keys_to_update.len());
@@ -444,38 +439,101 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                .collect::<Vec<_>>())
     }
 
-    fn mem_witness_recurse_helper(
-        h: Hog<P>,
-        g: Hog<P>,
-        a: BigNat,
-        b: Hog<P>,
+    //fn mem_witness_recurse_helper(
+    //    h: Hog<P>,
+    //    g: Hog<P>,
+    //    a: BigNat,
+    //    b: Hog<P>,
+    //    values: Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
+    //) -> Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)> { // (h, g, a, b)
+    //    assert!(values.len() > 0);
+    //    if values.len() == 1 {
+    //        vec![(h, g, a, b)]
+    //    } else {
+    //        let mut l_values = values;
+    //        let r_values = l_values.split_off(l_values.len() / 2);
+    //        let (z_l, delta_l) = Self::_compute_batch_z_delta(&l_values);
+    //        let (z_r, delta_r) = Self::_compute_batch_z_delta(&r_values);
+    //        debug_assert!(g.power(&a).op(&b.power(&(z_l.clone()*z_r.clone()))) == Hog::<P>::generator());
+    //        let (h_l, g_l) = (h.power(&z_l).op(&g.power(&delta_l)), g.power(&z_l));
+    //        let (h_r, g_r) = (h.power(&z_r).op(&g.power(&delta_r)), g.power(&z_r));
+    //        let ((s, t), gcd) = extended_euclidean_gcd(&z_l, &z_r);
+    //        assert_eq!(gcd, 1);
+    //        let (a_t, a_s) = (a.clone() * t.clone(), a.clone() * s.clone());
+    //        let (q_l, r_l) = a_t.clone().div_rem(z_l.clone());
+    //        let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
+    //        let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
+    //        let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
+    //        debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<P>::generator());
+    //        debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<P>::generator());
+    //        let mut witnesses = Self::mem_witness_recurse_helper(h_r, g_r, r_l, b_l, l_values);
+    //        witnesses.append(&mut Self::mem_witness_recurse_helper(h_l, g_l, r_r, b_r, r_values));
+    //        witnesses
+    //    }
+    //}
+
+    // Unrolling recursion is more amenable to parallelization
+    fn mem_witness_recurse_helper_unrolled(
+        initial_h: Hog<P>,
+        initial_g: Hog<P>,
+        initial_z: BigNat,
         values: Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
     ) -> Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)> { // (h, g, a, b)
-        assert!(values.len() > 0);
-        if values.len() == 1 {
-            vec![(h, g, a, b)]
-        } else {
-            let mut l_values = values;
-            let r_values = l_values.split_off(l_values.len() / 2);
-            let (z_l, delta_l) = Self::_compute_batch_z_delta(&l_values);
-            let (z_r, delta_r) = Self::_compute_batch_z_delta(&r_values);
-            debug_assert!(g.power(&a).op(&b.power(&(z_l.clone()*z_r.clone()))) == Hog::<P>::generator());
-            let (h_l, g_l) = (h.power(&z_l).op(&g.power(&delta_l)), g.power(&z_l));
-            let (h_r, g_r) = (h.power(&z_r).op(&g.power(&delta_r)), g.power(&z_r));
-            let ((s, t), gcd) = extended_euclidean_gcd(&z_l, &z_r);
-            assert_eq!(gcd, 1);
-            let (a_t, a_s) = (a.clone() * t.clone(), a.clone() * s.clone());
-            let (q_l, r_l) = a_t.clone().div_rem(z_l.clone());
-            let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
-            let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
-            let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
-            debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<P>::generator());
-            debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<P>::generator());
-            let mut witnesses = Self::mem_witness_recurse_helper(h_r, g_r, r_l, b_l, l_values);
-            witnesses.append(&mut Self::mem_witness_recurse_helper(h_l, g_l, r_r, b_r, r_values));
-            witnesses
+        // Compute z and delta values
+        let mut z_deltas = vec![values.iter().map(|v| (v.0.clone(), v.1.clone() * v.2.clone())).collect::<Vec<_>>()];
+        for i in 0..(values.len() - 1).next_power_of_two().count_zeros() as usize {
+            let next_z_delta = z_deltas[i].par_chunks(2)
+                .map(|chunk| {
+                    if chunk.len() == 2 {
+                        let (l_prod, l_delta) = &chunk[0];
+                        let (r_prod, r_delta) = &chunk[1];
+                        let lr_prod = l_prod.clone() * r_prod.clone();
+                        let lr_delta = l_prod.clone() * r_delta.clone() + r_prod.clone() * l_delta.clone();
+                        (lr_prod, lr_delta)
+                    } else {
+                        chunk[0].clone()
+                    }
+                }).collect::<Vec<(BigNat, BigNat)>>();
+            z_deltas.push(next_z_delta);
         }
+        assert_eq!(z_deltas.last().unwrap().len(), 1);
+        let (update_z, _) = &z_deltas.last().unwrap()[0];
+        let ((initial_a, initial_b), gcd) = extended_euclidean_gcd(&initial_z, &update_z);
+        assert_eq!(gcd, 1);
+        let initial_b = Hog::<P>::generator().power(&initial_b);
+
+        // Compute witnesses
+        let mut witnesses = vec![(initial_h, initial_g, initial_a, initial_b)];
+        for z_delta_vec in z_deltas.iter().rev().skip(1) {
+            let next_witnesses = z_delta_vec.par_chunks(2).enumerate()
+                .map(|(j, chunk)| {
+                    if chunk.len() == 2 {
+                        let (z_l, delta_l) = &chunk[0];
+                        let (z_r, delta_r) = &chunk[1];
+                        let (h, g, a, b) = &witnesses[j];
+                        let (h_l, g_l) = (h.power(&z_l).op(&g.power(&delta_l)), g.power(&z_l));
+                        let (h_r, g_r) = (h.power(&z_r).op(&g.power(&delta_r)), g.power(&z_r));
+                        let ((s, t), gcd) = extended_euclidean_gcd(&z_l, &z_r);
+                        assert_eq!(gcd, 1);
+                        let (a_t, a_s) = (a.clone() * t.clone(), a.clone() * s.clone());
+                        let (q_l, r_l) = a_t.clone().div_rem(z_l.clone());
+                        let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
+                        let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
+                        let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
+                        debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<P>::generator());
+                        debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<P>::generator());
+                        vec![(h_r, g_r, r_l, b_l), (h_l, g_l, r_r, b_r)]
+                    } else {
+                        vec![witnesses[j].clone()]
+                    }
+
+                }).flatten().collect::<Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)>>();
+            witnesses = next_witnesses;
+        }
+        witnesses
     }
+
+
 
     fn _compute_batch_z_delta(
         values: &Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
