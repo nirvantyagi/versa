@@ -59,12 +59,13 @@ fn benchmark<P: MerkleTreeParameters>
             .write_record(&["scheme", "operation", "log_range_size", "batch_size", "time"])
             .unwrap();
         csv_writer.flush().unwrap();
+        let start = Instant::now();
         let params = <P::H as FixedLengthCRH>::setup(&mut rng).unwrap();
         let max_range = range_lengths.iter().max().cloned().unwrap();
         let max_batch_size = batch_sizes.iter().max().cloned().unwrap();
         let mut merkle_paths = vec![];
         let mut indices = vec![];
-        for i in 0..(max_range * max_batch_size) {
+        for i in 0..((1 << max_range) * max_batch_size) {
             let mut hashs = vec![];
             for j in 0..(P::DEPTH as usize) {
                 let mut b = i.to_le_bytes().to_vec();
@@ -77,6 +78,15 @@ fn benchmark<P: MerkleTreeParameters>
             });
             indices.push(rng.gen::<u32>() as u64);
         }
+        let end = start.elapsed().as_secs();
+        csv_writer.write_record(&[
+            scheme_name.clone(),
+            "setup".to_string(),
+            max_range.to_string(),
+            max_batch_size.to_string(),
+            end.to_string(),
+        ]).unwrap();
+        csv_writer.flush().unwrap();
 
 
         { // Verify
@@ -150,7 +160,7 @@ fn main() {
         range_lengths.push(8);
     }
     if batch_sizes.len() == 0 {
-        batch_sizes.push(1000);
+        batch_sizes.push(10);
     }
 
     benchmark::<MerkleTreeTestParameters>(

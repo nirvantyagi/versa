@@ -162,7 +162,7 @@ fn benchmark<P: RsaKVACParams>
                         b: z1.clone() * delta2.clone() + z2.clone() * delta1.clone(),
                     };
                     let proof = PoKER::<PoKParams<P>, RsaParams<P>, H, BigNatTestParams>::prove(&statement, &witness).unwrap();
-                    let end = start.elapsed().as_secs();
+                    let end = start.elapsed().as_millis();
                     csv_writer.write_record(&[
                         scheme_name.clone(),
                         "aggregate".to_string(),
