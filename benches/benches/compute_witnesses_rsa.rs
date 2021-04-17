@@ -133,6 +133,7 @@ fn benchmark<P: RsaKVACParams>
     csv_writer.flush().unwrap();
 
     for log_len in range_lengths.iter() {
+        let len = 1_usize << *log_len;
         for num_cores in cores.iter() {
             if *num_cores > num_cpus::get_physical() {
                 continue;
@@ -140,7 +141,7 @@ fn benchmark<P: RsaKVACParams>
             let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
             update_pool.install(|| {
                 let start = Instant::now();
-                let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned(), None).unwrap();
+                let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned().take(len), None).unwrap();
                 let end = start.elapsed().as_millis();
                 csv_writer.write_record(&[
                     scheme_name.clone(),
