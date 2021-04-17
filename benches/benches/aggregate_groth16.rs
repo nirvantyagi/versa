@@ -315,7 +315,7 @@ fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>
                     let start = Instant::now();
                     let agg_proof = AggregatedFullHistoryAVD::<Params, SSAVD, SSAVDGadget, Pairing, FastH>::_aggregate_proofs(
                         &ip_srs, kzg_srs, &ck_1, &ck_2, &proofs, &digests).unwrap();
-                    let end = start.elapsed().as_secs();
+                    let end = start.elapsed().as_millis();
                     csv_writer.write_record(&[
                         scheme_name.clone(),
                         "aggregate".to_string(),

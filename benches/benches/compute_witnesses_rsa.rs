@@ -103,48 +103,54 @@ fn benchmark<P: RsaKVACParams>
 (
     scheme_name: String,
     range_lengths: &Vec<usize>,
-    batch_sizes: &Vec<usize>,
     cores: &Vec<usize>,
 ) where <P as RsaKVACParams>::RsaGroupParams: Sync {
     let mut csv_writer = Writer::from_writer(stdout());
     csv_writer
-        .write_record(&["scheme", "operation", "log_range_size", "batch_size", "num_cores", "time"])
+        .write_record(&["scheme", "operation", "log_range_size", "num_cores", "time"])
         .unwrap();
     csv_writer.flush().unwrap();
 
-    for batch_size in batch_sizes.iter() {
-        for log_len in range_lengths.iter() {
-            let len = 1_usize << *log_len;
+    // Create key-values
+    let max_range = range_lengths.iter().max().cloned().unwrap();
+    let len = 1_usize << max_range;
+    let start = Instant::now();
+    let mut kvs = vec![];
+    for i in 0..len {
+        kvs.push((hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::KEY_LEN),
+                  hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::VALUE_LEN),
+                  1,
+        ))
+    }
+    let end = start.elapsed().as_secs();
+    csv_writer.write_record(&[
+        scheme_name.clone(),
+        "setup".to_string(),
+        max_range.to_string(),
+        "0".to_string(),
+        end.to_string(),
+    ]).unwrap();
+    csv_writer.flush().unwrap();
 
-            // Create key-values
-            let mut kvs = vec![];
-            for i in 0..len {
-                kvs.push((hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::KEY_LEN),
-                          hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::VALUE_LEN),
-                          1,
-                ))
+    for log_len in range_lengths.iter() {
+        for num_cores in cores.iter() {
+            if *num_cores > num_cpus::get_physical() {
+                continue;
             }
-
-            for num_cores in cores.iter() {
-                if *num_cores > num_cpus::get_physical() {
-                    continue;
-                }
-                let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
-                update_pool.install(|| {
-                    let start = Instant::now();
-                    let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned(), None).unwrap();
-                    let end = start.elapsed().as_secs();
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "witness_compute".to_string(),
-                        log_len.to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
-                    csv_writer.flush().unwrap();
-                });
-            }
+            let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+            update_pool.install(|| {
+                let start = Instant::now();
+                let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned(), None).unwrap();
+                let end = start.elapsed().as_millis();
+                csv_writer.write_record(&[
+                    scheme_name.clone(),
+                    "witness_compute".to_string(),
+                    log_len.to_string(),
+                    num_cores.to_string(),
+                    end.to_string(),
+                ]).unwrap();
+                csv_writer.flush().unwrap();
+            });
         }
     }
 }
@@ -154,15 +160,14 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut range_lengths, mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut range_lengths, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench compute_witnesses_rsa --  [--ranges <RANGE_LEN>...][--batch_sizes <SIZE>...][--num_cores <NUM_CORES>...]``");
+        println!("Usage: ``cargo bench --bench compute_witnesses_rsa --  [--ranges <RANGE_LEN>...][--num_cores <NUM_CORES>...]``");
         return;
     } else {
         let mut args = args.into_iter().skip(1);
         let mut next_arg = args.next();
         let mut range_lengths = vec![];
-        let mut batch_sizes = vec![];
         let mut num_cores = vec![];
         while let Some(arg) = next_arg.clone() {
             match arg.as_str() {
@@ -172,16 +177,6 @@ fn main() {
                         match subarg.parse::<usize>() {
                             Ok(range) => range_lengths.push(range),
                             Err(_) => break 'subargs,
-                        }
-                        next_arg = args.next();
-                    }
-                },
-                "--batch_size" => {
-                    next_arg = args.next();
-                    'batch_size: while let Some(batch_arg) = next_arg.clone() {
-                        match batch_arg.parse::<usize>() {
-                            Ok(batch_size) => batch_sizes.push(batch_size),
-                            Err(_) => break 'batch_size,
                         }
                         next_arg = args.next();
                     }
@@ -202,13 +197,10 @@ fn main() {
                 }
             }
         }
-        (range_lengths, batch_sizes, num_cores)
+        (range_lengths, num_cores)
     };
     if range_lengths.len() == 0 {
-        range_lengths.push(5);
-    }
-    if batch_sizes.len() == 0 {
-        batch_sizes.push(50);
+        range_lengths.push(10);
     }
     if num_cores.len() == 0 {
         num_cores.push(num_cpus::get_physical());
@@ -217,7 +209,6 @@ fn main() {
     benchmark::<TestKVACParams>(
         "ca_rsa_alg".to_string(),
         &range_lengths,
-        &batch_sizes,
         &num_cores,
     );
 }
