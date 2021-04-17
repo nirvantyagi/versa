@@ -123,6 +123,7 @@ fn benchmark<P: RsaKVACParams>
             let half_len = len >> 1;
 
             // Create dummy exponents of proper size
+            let start = Instant::now();
             let int_len = half_len * batch_size * P::PRIME_LEN;
             let z1 = hash_to_integer::<H>(&[BLS381Fr::from(1 as u8)], int_len);
             let z2 = hash_to_integer::<H>(&[BLS381Fr::from(2 as u8)], int_len);
@@ -138,6 +139,16 @@ fn benchmark<P: RsaKVACParams>
                 w1: c1_new,
                 w2: c2_new,
             };
+            let end = start.elapsed().as_secs();
+            csv_writer.write_record(&[
+                scheme_name.clone(),
+                "setup".to_string(),
+                log_len.to_string(),
+                batch_size.to_string(),
+                "0".to_string(),
+                end.to_string(),
+            ]).unwrap();
+            csv_writer.flush().unwrap();
 
             for num_cores in cores.iter() {
                 if *num_cores > num_cpus::get_physical() {
