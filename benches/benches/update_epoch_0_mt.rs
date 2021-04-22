@@ -235,47 +235,47 @@ mt_poseidon_avd_impl!(Pos1P, Pos1AVD, Pos1AVDG, PoseidonRecurseBatch1, PoseidonA
 
 mt_pedersen_recurse_avd_impl!(RPed50P, RPed50AVD, RPed50AVDG, PedersenRecurseBatch50, 50);
 mt_pedersen_aggr_avd_impl!(APed50P, APed50AVD, APed50AVDG, PedersenAggrBatch50, 50);
-mt_poseidon_avd_impl!(Pos50P, Pos50AVD, Pos50AVDG, PoseidonRecurseBatch50, PoseidonAggrBatch50, 50);
+//mt_poseidon_avd_impl!(Pos50P, Pos50AVD, Pos50AVDG, PoseidonRecurseBatch50, PoseidonAggrBatch50, 50);
 
 mt_pedersen_recurse_avd_impl!(RPed100P, RPed100AVD, RPed100AVDG, PedersenRecurseBatch100, 100);
 mt_pedersen_aggr_avd_impl!(APed100P, APed100AVD, APed100AVDG, PedersenAggrBatch100, 100);
-mt_poseidon_avd_impl!(Pos100P, Pos100AVD, Pos100AVDG, PoseidonRecurseBatch100, PoseidonAggrBatch100, 100);
+//mt_poseidon_avd_impl!(Pos100P, Pos100AVD, Pos100AVDG, PoseidonRecurseBatch100, PoseidonAggrBatch100, 100);
 
 mt_pedersen_recurse_avd_impl!(RPed150P, RPed150AVD, RPed150AVDG, PedersenRecurseBatch150, 150);
 mt_pedersen_aggr_avd_impl!(APed150P, APed150AVD, APed150AVDG, PedersenAggrBatch150, 150);
-mt_poseidon_avd_impl!(Pos150P, Pos150AVD, Pos150AVDG, PoseidonRecurseBatch150, PoseidonAggrBatch150, 150);
+//mt_poseidon_avd_impl!(Pos150P, Pos150AVD, Pos150AVDG, PoseidonRecurseBatch150, PoseidonAggrBatch150, 150);
 
 mt_pedersen_recurse_avd_impl!(RPed200P, RPed200AVD, RPed200AVDG, PedersenRecurseBatch200, 200);
 mt_pedersen_aggr_avd_impl!(APed200P, APed200AVD, APed200AVDG, PedersenAggrBatch200, 200);
-mt_poseidon_avd_impl!(Pos200P, Pos200AVD, Pos200AVDG, PoseidonRecurseBatch200, PoseidonAggrBatch200, 200);
+//mt_poseidon_avd_impl!(Pos200P, Pos200AVD, Pos200AVDG, PoseidonRecurseBatch200, PoseidonAggrBatch200, 200);
 
-mt_pedersen_recurse_avd_impl!(RPed500P, RPed500AVD, RPed500AVDG, PedersenRecurseBatch500, 500);
-mt_pedersen_aggr_avd_impl!(APed500P, APed500AVD, APed500AVDG, PedersenAggrBatch500, 500);
+//mt_pedersen_recurse_avd_impl!(RPed500P, RPed500AVD, RPed500AVDG, PedersenRecurseBatch500, 500);
+//mt_pedersen_aggr_avd_impl!(APed500P, APed500AVD, APed500AVDG, PedersenAggrBatch500, 500);
 mt_poseidon_avd_impl!(Pos500P, Pos500AVD, Pos500AVDG, PoseidonRecurseBatch500, PoseidonAggrBatch500, 500);
 
-mt_pedersen_recurse_avd_impl!(RPed1000P, RPed1000AVD, RPed1000AVDG, PedersenRecurseBatch1000, 1000);
-mt_pedersen_aggr_avd_impl!(APed1000P, APed1000AVD, APed1000AVDG, PedersenAggrBatch1000, 1000);
+//mt_pedersen_recurse_avd_impl!(RPed1000P, RPed1000AVD, RPed1000AVDG, PedersenRecurseBatch1000, 1000);
+//mt_pedersen_aggr_avd_impl!(APed1000P, APed1000AVD, APed1000AVDG, PedersenAggrBatch1000, 1000);
 mt_poseidon_avd_impl!(Pos1000P, Pos1000AVD, Pos1000AVDG, PoseidonRecurseBatch1000, PoseidonAggrBatch1000, 1000);
 
-mt_pedersen_recurse_avd_impl!(RPed1500P, RPed1500AVD, RPed1500AVDG, PedersenRecurseBatch1500, 1500);
-mt_pedersen_aggr_avd_impl!(APed1500P, APed1500AVD, APed1500AVDG, PedersenAggrBatch1500, 1500);
+//mt_pedersen_recurse_avd_impl!(RPed1500P, RPed1500AVD, RPed1500AVDG, PedersenRecurseBatch1500, 1500);
+//mt_pedersen_aggr_avd_impl!(APed1500P, APed1500AVD, APed1500AVDG, PedersenAggrBatch1500, 1500);
 mt_poseidon_avd_impl!(Pos1500P, Pos1500AVD, Pos1500AVDG, PoseidonRecurseBatch1500, PoseidonAggrBatch1500, 1500);
 
-mt_pedersen_recurse_avd_impl!(RPed2000P, RPed2000AVD, RPed2000AVDG, PedersenRecurseBatch2000, 2000);
-mt_pedersen_aggr_avd_impl!(APed2000P, APed2000AVD, APed2000AVDG, PedersenAggrBatch2000, 2000);
+//mt_pedersen_recurse_avd_impl!(RPed2000P, RPed2000AVD, RPed2000AVDG, PedersenRecurseBatch2000, 2000);
+//mt_pedersen_aggr_avd_impl!(APed2000P, APed2000AVD, APed2000AVDG, PedersenAggrBatch2000, 2000);
 mt_poseidon_avd_impl!(Pos2000P, Pos2000AVD, Pos2000AVDG, PoseidonRecurseBatch2000, PoseidonAggrBatch2000, 2000);
 
-mt_pedersen_recurse_avd_impl!(RPed3000P, RPed3000AVD, RPed3000AVDG, PedersenRecurseBatch3000, 3000);
-mt_pedersen_aggr_avd_impl!(APed3000P, APed3000AVD, APed3000AVDG, PedersenAggrBatch3000, 3000);
+//mt_pedersen_recurse_avd_impl!(RPed3000P, RPed3000AVD, RPed3000AVDG, PedersenRecurseBatch3000, 3000);
+//mt_pedersen_aggr_avd_impl!(APed3000P, APed3000AVD, APed3000AVDG, PedersenAggrBatch3000, 3000);
 mt_poseidon_avd_impl!(Pos3000P, Pos3000AVD, Pos3000AVDG, PoseidonRecurseBatch3000, PoseidonAggrBatch3000, 3000);
 
-mt_pedersen_recurse_avd_impl!(RPed4000P, RPed4000AVD, RPed4000AVDG, PedersenRecurseBatch4000, 4000);
-mt_pedersen_aggr_avd_impl!(APed4000P, APed4000AVD, APed4000AVDG, PedersenAggrBatch4000, 4000);
-mt_poseidon_avd_impl!(Pos4000P, Pos4000AVD, Pos4000AVDG, PoseidonRecurseBatch4000, PoseidonAggrBatch4000, 4000);
+//mt_pedersen_recurse_avd_impl!(RPed4000P, RPed4000AVD, RPed4000AVDG, PedersenRecurseBatch4000, 4000);
+//mt_pedersen_aggr_avd_impl!(APed4000P, APed4000AVD, APed4000AVDG, PedersenAggrBatch4000, 4000);
+//mt_poseidon_avd_impl!(Pos4000P, Pos4000AVD, Pos4000AVDG, PoseidonRecurseBatch4000, PoseidonAggrBatch4000, 4000);
 
-mt_pedersen_recurse_avd_impl!(RPed5000P, RPed5000AVD, RPed5000AVDG, PedersenRecurseBatch5000, 5000);
-mt_pedersen_aggr_avd_impl!(APed5000P, APed5000AVD, APed5000AVDG, PedersenAggrBatch5000, 5000);
-mt_poseidon_avd_impl!(Pos5000P, Pos5000AVD, Pos5000AVDG, PoseidonRecurseBatch5000, PoseidonAggrBatch5000, 5000);
+//mt_pedersen_recurse_avd_impl!(RPed5000P, RPed5000AVD, RPed5000AVDG, PedersenRecurseBatch5000, 5000);
+//mt_pedersen_aggr_avd_impl!(APed5000P, APed5000AVD, APed5000AVDG, PedersenAggrBatch5000, 5000);
+//mt_poseidon_avd_impl!(Pos5000P, Pos5000AVD, Pos5000AVDG, PoseidonRecurseBatch5000, PoseidonAggrBatch5000, 5000);
 
 fn benchmark<AVD: FullHistoryAVD, P: MerkleTreeAVDParameters>(
     scheme_name: String,
@@ -441,14 +441,14 @@ fn main() {
                     "ca_mt_pedersen_aggr".to_string(),
                     &num_cores,
                 );
-                benchmark::<PoseidonRecurseBatch50, Pos50P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch50, Pos50P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
+                //benchmark::<PoseidonRecurseBatch50, Pos50P<MNT4Fr>>(
+                //    "ca_mt_poseidon_recurse".to_string(),
+                //    &num_cores,
+                //);
+                //benchmark::<PoseidonAggrBatch50, Pos50P<BLS381Fr>>(
+                //    "ca_mt_poseidon_aggr".to_string(),
+                //    &num_cores,
+                //);
             },
             100 => {
                 benchmark::<PedersenRecurseBatch100, RPed100P>(
@@ -459,14 +459,14 @@ fn main() {
                     "ca_mt_pedersen_aggr".to_string(),
                     &num_cores,
                 );
-                benchmark::<PoseidonRecurseBatch100, Pos100P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch100, Pos100P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
+                //benchmark::<PoseidonRecurseBatch100, Pos100P<MNT4Fr>>(
+                //    "ca_mt_poseidon_recurse".to_string(),
+                //    &num_cores,
+                //);
+                //benchmark::<PoseidonAggrBatch100, Pos100P<BLS381Fr>>(
+                //    "ca_mt_poseidon_aggr".to_string(),
+                //    &num_cores,
+                //);
             },
             150 => {
                 benchmark::<PedersenRecurseBatch150, RPed150P>(
@@ -477,14 +477,14 @@ fn main() {
                     "ca_mt_pedersen_aggr".to_string(),
                     &num_cores,
                 );
-                benchmark::<PoseidonRecurseBatch150, Pos150P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch150, Pos150P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
+                //benchmark::<PoseidonRecurseBatch150, Pos150P<MNT4Fr>>(
+                //    "ca_mt_poseidon_recurse".to_string(),
+                //    &num_cores,
+                //);
+                //benchmark::<PoseidonAggrBatch150, Pos150P<BLS381Fr>>(
+                //    "ca_mt_poseidon_aggr".to_string(),
+                //    &num_cores,
+                //);
             },
             200 => {
                 benchmark::<PedersenRecurseBatch200, RPed200P>(
@@ -495,14 +495,14 @@ fn main() {
                     "ca_mt_pedersen_aggr".to_string(),
                     &num_cores,
                 );
-                benchmark::<PoseidonRecurseBatch200, Pos200P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch200, Pos200P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
+                //benchmark::<PoseidonRecurseBatch200, Pos200P<MNT4Fr>>(
+                //    "ca_mt_poseidon_recurse".to_string(),
+                //    &num_cores,
+                //);
+                //benchmark::<PoseidonAggrBatch200, Pos200P<BLS381Fr>>(
+                //    "ca_mt_poseidon_aggr".to_string(),
+                //    &num_cores,
+                //);
             },
             500 => {
                 //benchmark::<PedersenRecurseBatch500, RPed500P>(
@@ -577,14 +577,14 @@ fn main() {
                 );
             },
             3000 => {
-                benchmark::<PedersenRecurseBatch3000, RPed3000P>(
-                    "ca_mt_pedersen_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PedersenAggrBatch3000, APed3000P>(
-                    "ca_mt_pedersen_aggr".to_string(),
-                    &num_cores,
-                );
+                //benchmark::<PedersenRecurseBatch3000, RPed3000P>(
+                //    "ca_mt_pedersen_recurse".to_string(),
+                //    &num_cores,
+                //);
+                //benchmark::<PedersenAggrBatch3000, APed3000P>(
+                //    "ca_mt_pedersen_aggr".to_string(),
+                //    &num_cores,
+                //);
                 benchmark::<PoseidonRecurseBatch3000, Pos3000P<MNT4Fr>>(
                     "ca_mt_poseidon_recurse".to_string(),
                     &num_cores,
@@ -594,42 +594,42 @@ fn main() {
                     &num_cores,
                 );
             },
-            4000 => {
-                benchmark::<PedersenRecurseBatch4000, RPed4000P>(
-                    "ca_mt_pedersen_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PedersenAggrBatch4000, APed4000P>(
-                    "ca_mt_pedersen_aggr".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonRecurseBatch4000, Pos4000P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch4000, Pos4000P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
-            },
-            5000 => {
-                benchmark::<PedersenRecurseBatch5000, RPed5000P>(
-                    "ca_mt_pedersen_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PedersenAggrBatch5000, APed5000P>(
-                    "ca_mt_pedersen_aggr".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonRecurseBatch5000, Pos5000P<MNT4Fr>>(
-                    "ca_mt_poseidon_recurse".to_string(),
-                    &num_cores,
-                );
-                benchmark::<PoseidonAggrBatch5000, Pos5000P<BLS381Fr>>(
-                    "ca_mt_poseidon_aggr".to_string(),
-                    &num_cores,
-                );
-            },
+            //4000 => {
+            //    benchmark::<PedersenRecurseBatch4000, RPed4000P>(
+            //        "ca_mt_pedersen_recurse".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PedersenAggrBatch4000, APed4000P>(
+            //        "ca_mt_pedersen_aggr".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PoseidonRecurseBatch4000, Pos4000P<MNT4Fr>>(
+            //        "ca_mt_poseidon_recurse".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PoseidonAggrBatch4000, Pos4000P<BLS381Fr>>(
+            //        "ca_mt_poseidon_aggr".to_string(),
+            //        &num_cores,
+            //    );
+            //},
+            //5000 => {
+            //    benchmark::<PedersenRecurseBatch5000, RPed5000P>(
+            //        "ca_mt_pedersen_recurse".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PedersenAggrBatch5000, APed5000P>(
+            //        "ca_mt_pedersen_aggr".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PoseidonRecurseBatch5000, Pos5000P<MNT4Fr>>(
+            //        "ca_mt_poseidon_recurse".to_string(),
+            //        &num_cores,
+            //    );
+            //    benchmark::<PoseidonAggrBatch5000, Pos5000P<BLS381Fr>>(
+            //        "ca_mt_poseidon_aggr".to_string(),
+            //        &num_cores,
+            //    );
+            //},
             _ => println!("Batch size not supported: {}", batch_size),
         }
     }
