@@ -69,10 +69,10 @@ impl<P: RsaKVACParams> Default for Commitment<P> {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct MembershipWitness<P: RsaKVACParams> {
-    pi_1: Hog<P>,
-    pi_3: Hog<P>,
-    a: BigNat,
-    b: Hog<P>,
+    pub pi_1: Hog<P>,
+    pub pi_3: Hog<P>,
+    pub a: BigNat,
+    pub b: Hog<P>,
     pub u: usize,
 }
 
@@ -317,16 +317,21 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
         let mut witness = witness.clone();
         for epoch in last_update_epoch..self.epoch {
-            for upd in self.epoch_updates[epoch].iter() {
-                witness = self._update_witness(k, upd, &witness)?;
+            for (uk, delta) in self.epoch_updates[epoch].iter() {
+                let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(uk)?, P::PRIME_LEN)?;
+                witness = Self::_update_witness(k, (uk, &uz, delta), &witness)?;
             }
         }
         Ok(witness)
     }
 
     // Updates membership witness with update from epoch 'update_epoch'
-    fn _update_witness(&self, k: &BigNat, update: &(BigNat, BigNat), witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
-        let (uk, delta) = update;
+    pub fn _update_witness(
+        k: &BigNat,
+        update: (&BigNat, &BigNat, &BigNat),
+        witness: &MembershipWitness<P>,
+    ) -> Result<MembershipWitness<P>, Error> {
+        let (uk, uz, delta) = update;
         let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
         if k == uk {
             // If k = uk, then only need to perform a simple update
@@ -339,16 +344,14 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             })
         } else {
             // Otherwise need to recompute co-primality proof
-            let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(uk)?, P::PRIME_LEN)?;
-
-            let ((_alpha, beta), gcd) = extended_euclidean_gcd(&z, &uz);
+            let ((_alpha, beta), gcd) = extended_euclidean_gcd(&z, uz);
             assert_eq!(gcd, 1);
             let gamma = BigNat::from(&BigNat::from(&witness.a * &beta) % &z);
-            let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * &uz)) / &z);
+            let eta = BigNat::from(&BigNat::from(&witness.a - (&gamma * uz)) / &z);
 
             Ok(MembershipWitness {
-                pi_1: witness.pi_1.power(&uz).op(&witness.pi_3.power(delta)),
-                pi_3: witness.pi_3.power(&uz),
+                pi_1: witness.pi_1.power(uz).op(&witness.pi_3.power(delta)),
+                pi_3: witness.pi_3.power(uz),
                 a: gamma,
                 b: witness.b.op(&witness.pi_3.power(&eta)),
                 u: witness.u,

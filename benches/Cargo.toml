@@ -66,6 +66,11 @@ path = "benches/compute_witnesses_rsa.rs"
 harness = false
 
 [[bench]]
+name = "update_witness_rsa"
+path = "benches/update_witness_rsa.rs"
+harness = false
+
+[[bench]]
 name = "verify_merkle_paths"
 path = "benches/verify_merkle_paths.rs"
 harness = false
