@@ -10,6 +10,7 @@ use crate::{
     Error,
 };
 
+pub mod store;
 pub mod constraints;
 
 // Tips on optimizing implementation: https://ethresear.ch/t/optimizing-sparse-merkle-trees/3751/5
@@ -31,12 +32,8 @@ pub trait MerkleTreeParameters {
     }
 }
 
-pub struct SparseMerkleTree<P: MerkleTreeParameters> {
-    tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
-    pub root: <P::H as FixedLengthCRH>::Output,
-    sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
-    pub hash_parameters: <P::H as FixedLengthCRH>::Parameters,
-    _parameters: PhantomData<P>,
+pub struct SparseMerkleTree<T: store::Storer> {
+    pub store: T,
 }
 
 pub struct MerkleTreePath<P: MerkleTreeParameters> {
@@ -62,41 +59,19 @@ impl<P: MerkleTreeParameters> Default for MerkleTreePath<P> {
     }
 }
 
-impl<P: MerkleTreeParameters> SparseMerkleTree<P> {
-    pub fn new(
-        initial_leaf_value: &[u8],
-        hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
-    ) -> Result<Self, Error> {
-        // Compute initial hashes for each depth of tree
-        let mut sparse_initial_hashes =
-            vec![hash_leaf::<P::H>(&hash_parameters, initial_leaf_value)?];
-        for i in 1..=(P::DEPTH as usize) {
-            let child_hash = sparse_initial_hashes[i - 1].clone();
-            sparse_initial_hashes.push(hash_inner_node::<P::H>(
-                hash_parameters,
-                &child_hash,
-                &child_hash,
-            )?);
-        }
-        sparse_initial_hashes.reverse();
-
-        Ok(SparseMerkleTree {
-            tree: HashMap::new(),
-            root: sparse_initial_hashes[0].clone(),
-            sparse_initial_hashes: sparse_initial_hashes,
-            hash_parameters: hash_parameters.clone(),
-            _parameters: PhantomData,
-        })
+impl<T: store::Storer> SparseMerkleTree<T> {
+    pub fn new(s: T) -> SparseMerkleTree<T> {
+        SparseMerkleTree { store: s }
     }
 
     pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error> {
-        if index >= 1_u64 << (P::DEPTH as u64) {
+        if index >= 1_u64 << (T::P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
 
         let mut i = index;
-        self.tree.insert(
-            (P::DEPTH, i),
+        self.store.set(
+            (T::P::DEPTH, i),
             hash_leaf::<P::H>(&self.hash_parameters, leaf_value)?,
         );
 
