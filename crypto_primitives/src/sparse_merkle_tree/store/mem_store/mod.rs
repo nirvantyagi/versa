@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    error::Error as ErrorTrait,
-    fmt,
     marker::PhantomData,
 };
 
@@ -13,19 +11,16 @@ use crate::sparse_merkle_tree::{
     MerkleDepth,
     MerkleIndex,
     MerkleTreeParameters,
-    MerkleTreePath,
-    SparseMerkleTree,
-    MerkleTreeError,
     store::Storer,
 };
 
 // #[derive(Debug)] TODO: implement debug
-pub struct MemStore<P: MerkleTreeParameters> {
-    tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
-    pub root: <P::H as FixedLengthCRH>::Output,
-    sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
-    pub hash_parameters: <P::H as FixedLengthCRH>::Parameters,
-    _parameters: PhantomData<P>,
+pub struct MemStore<M: MerkleTreeParameters> {
+    tree: HashMap<(MerkleDepth, MerkleIndex), <M::H as FixedLengthCRH>::Output>,
+    pub root: <M::H as FixedLengthCRH>::Output,
+    sparse_initial_hashes: Vec<<M::H as FixedLengthCRH>::Output>,
+    pub hash_parameters: <M::H as FixedLengthCRH>::Parameters,
+    _parameters: PhantomData<M>,
 }
 
 impl<P: MerkleTreeParameters> MemStore<P> {
@@ -62,7 +57,40 @@ impl<P: MerkleTreeParameters> MemStore<P> {
 //     }
 // }
 
-impl<P: MerkleTreeParameters> Storer for MemStore<P> {
+impl<M: MerkleTreeParameters> Storer for MemStore<M> {
+    type P = M;
+
+    fn get(
+        & self,
+        index: &(MerkleDepth, MerkleIndex),
+    ) -> Option<&<<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
+        return self.tree.get(index);
+    }
+
+    fn set(
+        &mut self,
+        index: (MerkleDepth, MerkleIndex),
+        value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
+    ) {
+        self.tree.insert(index, value);
+    }
+
+    fn set_root(
+        &mut self,
+        value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
+    ) {
+        self.root = value.clone();
+    }
+
+    fn get_hash_parameters(& self) ->
+        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters {
+        return self.hash_parameters.clone();
+    }
+
+    fn get_sparse_initial_hashes(& self, index: usize) ->
+        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
+        return self.sparse_initial_hashes[index].clone();
+    }
 
 }
 

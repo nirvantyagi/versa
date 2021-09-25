@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     error::Error as ErrorTrait,
     fmt,
     marker::PhantomData,
@@ -72,41 +71,44 @@ impl<T: store::Storer> SparseMerkleTree<T> {
         let mut i = index;
         self.store.set(
             (T::P::DEPTH, i),
-            hash_leaf::<P::H>(&self.hash_parameters, leaf_value)?,
+            hash_leaf::<<T::P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), leaf_value)?,
         );
 
-        for d in (0..P::DEPTH).rev() {
+        for d in (0..T::P::DEPTH).rev() {
             i >>= 1;
             let lc_i = i << 1;
             let rc_i = lc_i + 1;
-            let lc_hash = match self.tree.get(&(d + 1, lc_i)) {
+            let lc_hash = match self.store.get(&(d + 1, lc_i)) {
                 Some(h) => h.clone(),
-                None => self.sparse_initial_hashes[(d + 1) as usize].clone(),
+                None => self.store.get_sparse_initial_hashes((d + 1) as usize).clone(),
             };
-            let rc_hash = match self.tree.get(&(d + 1, rc_i)) {
+            let rc_hash = match self.store.get(&(d + 1, rc_i)) {
                 Some(h) => h.clone(),
-                None => self.sparse_initial_hashes[(d + 1) as usize].clone(),
+                None => self.store.get_sparse_initial_hashes((d + 1) as usize).clone(),
             };
-            self.tree.insert(
+            self.store.set(
                 (d, i),
-                hash_inner_node::<P::H>(&self.hash_parameters, &lc_hash, &rc_hash)?,
+                hash_inner_node::<<T::P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), &lc_hash, &rc_hash)?,
             );
         }
-        self.root = self.tree.get(&(0, 0)).expect("root lookup failed").clone();
+        // TODO: double borrow makes it possible to create two mutable references for the same data,
+        //  which is a violation of Rust aliasing guarantees https://stackoverflow.com/questions/31281155/cannot-borrow-x-as-mutable-more-than-once-at-a-time
+        // Is this really needed?
+        // self.store.set_root(self.store.get(&(0, 0)).expect("root lookup failed").clone());
         Ok(())
     }
 
-    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
-        if index >= 1_u64 << (P::DEPTH as u64) {
+    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<T::P>, Error> {
+        if index >= 1_u64 << (T::P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
         let mut path = Vec::new();
 
         let mut i = index;
-        for d in (1..=P::DEPTH).rev() {
-            let sibling_hash = match self.tree.get(&(d, i ^ 1)) {
+        for d in (1..=T::P::DEPTH).rev() {
+            let sibling_hash = match self.store.get(&(d, i ^ 1)) {
                 Some(h) => h.clone(),
-                None => self.sparse_initial_hashes[d as usize].clone(),
+                None => self.store.get_sparse_initial_hashes(d as usize).clone(),
             };
             path.push(sibling_hash);
             i >>= 1;
