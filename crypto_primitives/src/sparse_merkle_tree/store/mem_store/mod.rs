@@ -72,14 +72,16 @@ impl<M: MerkleTreeParameters> Storer for MemStore<M> {
         index: (MerkleDepth, MerkleIndex),
         value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     ) {
-        self.tree.insert(index, value);
+        self.tree.insert(index, value.clone());
+        // TODO: is setting the root this way necessary? Can we simply always access (0, 0)?
+        if index.0 == 0 && index.1 == 0 {
+            self.root = value.clone();
+        }
     }
 
-    fn set_root(
-        &mut self,
-        value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
-    ) {
-        self.root = value.clone();
+    fn get_root(& self) ->
+        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
+        return self.root.clone();
     }
 
     fn get_hash_parameters(& self) ->

@@ -10,7 +10,7 @@ use crate::sparse_merkle_tree::{
 pub trait Storer {
     type P: MerkleTreeParameters;
 
-    fn get(& self, index: &(MerkleDepth, MerkleIndex)) ->
+    fn get(&self, index: &(MerkleDepth, MerkleIndex)) ->
         Option<&<<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output>;
 
     fn set(
@@ -19,10 +19,8 @@ pub trait Storer {
         value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     );
 
-    fn set_root(
-        &mut self,
-        value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
-    );
+    fn get_root(&self) ->
+        <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
 
     fn get_hash_parameters(&self) ->
         <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
