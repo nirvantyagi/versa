@@ -401,6 +401,7 @@ mod tests {
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
     };
+    use crypto_primitives::sparse_merkle_tree::store::mem_store::MemStore;
 
     #[derive(Clone)]
     pub struct Window4x256;
