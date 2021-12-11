@@ -23,6 +23,7 @@ pub struct MemStore<M: MerkleTreeParameters> {
     _parameters: PhantomData<M>,
 }
 
+// TODO: @z-tech is this needed?
 impl<P: MerkleTreeParameters> MemStore<P> {
     pub fn new(
         initial_leaf_value: &[u8],
@@ -59,6 +60,32 @@ impl<P: MerkleTreeParameters> MemStore<P> {
 
 impl<M: MerkleTreeParameters> Storer for MemStore<M> {
     type P = M;
+
+    fn new(
+        initial_leaf_value: &[u8],
+        hash_parameters: &<<M as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters,
+    ) -> Result<Self, Error> {
+        // Compute initial hashes for each depth of tree
+        let mut sparse_initial_hashes =
+            vec![hash_leaf::<<M as MerkleTreeParameters>::H>(&hash_parameters, initial_leaf_value)?];
+        for i in 1..=(<M as MerkleTreeParameters>::DEPTH as usize) {
+            let child_hash = sparse_initial_hashes[i - 1].clone();
+            sparse_initial_hashes.push(hash_inner_node::<<M as MerkleTreeParameters>::H>(
+                hash_parameters,
+                &child_hash,
+                &child_hash,
+            )?);
+        }
+        sparse_initial_hashes.reverse();
+
+        Ok(MemStore {
+            tree: HashMap::new(),
+            root: sparse_initial_hashes[0].clone(),
+            sparse_initial_hashes: sparse_initial_hashes,
+            hash_parameters: hash_parameters.clone(),
+            _parameters: PhantomData,
+        })
+    }
 
     fn get(
         & self,

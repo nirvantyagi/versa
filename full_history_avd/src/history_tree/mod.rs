@@ -2,6 +2,7 @@ use ark_ff::bytes::ToBytes;
 
 use crypto_primitives::{
     sparse_merkle_tree::{
+        store::Storer,
         MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree, MerkleTreeError,
     },
     hash::FixedLengthCRH,
@@ -18,16 +19,19 @@ use rand::Rng;
 
 pub mod constraints;
 
-pub struct HistoryTree<P: MerkleTreeParameters, D: ToBytes + Eq + Clone> {
-    pub tree: SparseMerkleTree<P>,
+pub struct HistoryTree<T: Storer, D: ToBytes + Eq + Clone> {
+    pub tree: SparseMerkleTree<T>,
     digest_d: HashMap<MerkleIndex, D>,
     epoch: MerkleIndex,
 }
 
-impl<P: MerkleTreeParameters, D: ToBytes + Eq + Clone> HistoryTree<P, D> {
-    pub fn new(hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> {
+impl<T: Storer, D: ToBytes + Eq + Clone> HistoryTree<T, D> {
+    pub fn new(hash_parameters: &<<<T as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> {
+        let initial_leaf = <[u8; 32]>::default();
+        let store = T::new(&initial_leaf, hash_parameters).unwrap();
+        let smt: SparseMerkleTree<T> = SparseMerkleTree::new(store);
         Ok(HistoryTree {
-            tree: SparseMerkleTree::<P>::new(&<[u8; 32]>::default(), hash_parameters)?,
+            tree: smt,
             digest_d: HashMap::new(),
             epoch: 0,
         })
@@ -41,7 +45,7 @@ impl<P: MerkleTreeParameters, D: ToBytes + Eq + Clone> HistoryTree<P, D> {
         Ok(())
     }
 
-    pub fn lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
+    pub fn lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<T::P>, Error> {
         self.tree.lookup(epoch)
     }
 
@@ -89,10 +93,10 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for SingleStepU
     }
 }
 
-pub struct SingleStepAVDWithHistory<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters>{
+pub struct SingleStepAVDWithHistory<SSAVD: SingleStepAVD, HTStorer: Storer>{
     pub ssavd: SSAVD,
-    pub history_tree: HistoryTree<HTParams, <HTParams::H as FixedLengthCRH>::Output>,
-    digest: <HTParams::H as FixedLengthCRH>::Output,
+    pub history_tree: HistoryTree<HTStorer, <<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output>,
+    digest: <<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output,
 }
 
 pub struct Digest<HTParams: MerkleTreeParameters> {
@@ -160,12 +164,12 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for HistoryProo
     }
 }
 
-impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHistory<SSAVD, HTParams> {
+impl<SSAVD: SingleStepAVD, HTStorer: Storer> SingleStepAVDWithHistory<SSAVD, HTStorer> {
 
     pub fn setup<R: Rng>(rng: &mut R)
-        -> Result<(SSAVD::PublicParameters, <HTParams::H as FixedLengthCRH>::Parameters), Error> {
+        -> Result<(SSAVD::PublicParameters, <<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters), Error> {
         let ssavd_pp = SSAVD::setup(rng)?;
-        let crh_pp = <HTParams::H as FixedLengthCRH>::setup(rng)?;
+        let crh_pp = <<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?;
         Ok((
             ssavd_pp,
             crh_pp,
@@ -176,14 +180,17 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     pub fn new<R: Rng>(
         rng: &mut R,
         ssavd_pp: &SSAVD::PublicParameters,
-        history_tree_parameters: &<HTParams::H as FixedLengthCRH>::Parameters,
+        history_tree_parameters: &<<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters,
     ) -> Result<Self, Error>{
         let ssavd = SSAVD::new(rng, ssavd_pp)?;
-        let history_tree = HistoryTree::new(history_tree_parameters)?;
-        let digest = hash_to_final_digest::<SSAVD, HTParams::H>(
+        // TODO(z-tech): I think this is right from the comments but not sure:
+        let store = HTStorer::new(ssavd_pp, history_tree_parameters).unwrap();
+        let smt: SparseMerkleTree<HTStorer> = SparseMerkleTree::new(store);
+        let history_tree = HistoryTree::new(&smt)?;
+        let digest = hash_to_final_digest::<SSAVD, <<HTStorer as Storer>::P as MerkleTreeParameters>::H>(
             history_tree_parameters,
             &ssavd.digest()?,
-            &history_tree.tree.root,
+            &history_tree.tree.store.get_root(),
             &history_tree.epoch,
         )?;
         Ok(SingleStepAVDWithHistory{
@@ -193,7 +200,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         })
     }
 
-    pub fn digest(&self) -> Digest<HTParams> {
+    pub fn digest(&self) -> Digest<HTStorer::P> {
         Digest {
             epoch: self.history_tree.epoch.clone(),
             digest: self.digest.clone(),
@@ -204,7 +211,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         &mut self,
         key: &[u8; 32],
         value: &[u8; 32],
-    ) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error>{
+    ) -> Result<SingleStepUpdateProof<SSAVD, HTStorer::P>, Error>{
         let prev_ssavd_digest = self.ssavd.digest()?;
         let (new_ssavd_digest, ssavd_proof) = self.ssavd.update(key, value)?;
         let prev_epoch = self.history_tree.epoch.clone();
@@ -213,10 +220,10 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         let history_tree_proof = self.history_tree.lookup_path(prev_epoch)?;
 
         // Update digest
-        self.digest = hash_to_final_digest::<SSAVD, HTParams::H>(
-            &self.history_tree.tree.hash_parameters,
+        self.digest = hash_to_final_digest::<SSAVD, <<HTStorer as Storer>::P as MerkleTreeParameters>::H>(
+            &self.history_tree.tree.store.get_hash_parameters(),
             &new_ssavd_digest,
-            &self.history_tree.tree.root,
+            &self.history_tree.tree.store.get_root(),
             &self.history_tree.epoch,
         )?;
 
@@ -234,7 +241,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     pub fn batch_update(
         &mut self,
         kvs: &Vec<([u8; 32], [u8; 32])>,
-    ) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error>{
+    ) -> Result<SingleStepUpdateProof<SSAVD, HTStorer::P>, Error>{
         let prev_ssavd_digest = self.ssavd.digest()?;
         let (new_ssavd_digest, ssavd_proof) = self.ssavd.batch_update(kvs)?;
         let prev_epoch = self.history_tree.epoch.clone();
@@ -243,10 +250,10 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
         let history_tree_proof = self.history_tree.lookup_path(prev_epoch)?;
 
         // Update digest
-        self.digest = hash_to_final_digest::<SSAVD, HTParams::H>(
-            &self.history_tree.tree.hash_parameters,
+        self.digest = hash_to_final_digest::<SSAVD, <<HTStorer as Storer>::P as MerkleTreeParameters>::H>(
+            &self.history_tree.tree.store.get_hash_parameters(),
             &new_ssavd_digest,
-            &self.history_tree.tree.root,
+            &self.history_tree.tree.store.get_root(),
             &self.history_tree.epoch,
         )?;
 
@@ -264,30 +271,30 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     pub fn lookup(
         &mut self,
         key: &[u8; 32],
-    ) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error>{
+    ) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTStorer::P>), Error>{
         let (result, ssavd_digest, ssavd_proof) = self.ssavd.lookup(key)?;
         Ok((
             result,
             LookupProof {
                 ssavd_proof: ssavd_proof,
                 ssavd_digest: ssavd_digest,
-                history_tree_digest: self.history_tree.tree.root.clone(),
+                history_tree_digest: self.history_tree.tree.store.get_root().clone(),
             }
         ))
     }
 
     pub fn verify_lookup(
         ssavd_pp: &SSAVD::PublicParameters,
-        history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
+        history_tree_pp: &<<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters,
         key: &[u8; 32],
         value: &Option<(u64, [u8; 32])>,
-        digest: &Digest<HTParams>,
-        proof: &LookupProof<SSAVD, HTParams>,
+        digest: &Digest<HTStorer::P>,
+        proof: &LookupProof<SSAVD, HTStorer::P>,
     ) -> Result<bool, Error>{
         Ok(
             SSAVD::verify_lookup(ssavd_pp, key, value, &proof.ssavd_digest, &proof.ssavd_proof)? &&
                 digest.digest ==
-                    hash_to_final_digest::<SSAVD, HTParams::H>(
+                    hash_to_final_digest::<SSAVD, <<HTStorer as Storer>::P as MerkleTreeParameters>::H>(
                         history_tree_pp,
                         &proof.ssavd_digest,
                         &proof.history_tree_digest,
@@ -299,7 +306,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     pub fn lookup_history(
         &self,
         prev_epoch: usize,
-    ) -> Result<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>), Error> {
+    ) -> Result<(Digest<HTStorer::P>, HistoryProof<SSAVD, HTStorer::P>), Error> {
         if prev_epoch as u64 > self.history_tree.epoch {
             Err(Box::new(MerkleTreeError::LeafIndex(prev_epoch as u64)))
         } else if prev_epoch as u64 == self.history_tree.epoch {
@@ -311,7 +318,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
                         PrevEpochHistoryProof {
                             path: self.history_tree.lookup_path(prev_epoch as u64)?,
                             ssavd_digest: self.ssavd.digest()?,
-                            history_tree_digest: self.history_tree.tree.root.clone(),
+                            history_tree_digest: self.history_tree.tree.store.get_root().clone(),
                         }
                    )
             ))
@@ -319,11 +326,11 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
     }
 
     pub fn verify_history(
-        history_tree_pp: &<HTParams::H as FixedLengthCRH>::Parameters,
+        history_tree_pp: &<<<HTStorer as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters,
         prev_epoch: usize,
-        prev_digest: &Digest<HTParams>,
-        digest: &Digest<HTParams>,
-        proof: &HistoryProof<SSAVD, HTParams>,
+        prev_digest: &Digest<HTStorer::P>,
+        digest: &Digest<HTStorer::P>,
+        proof: &HistoryProof<SSAVD, HTStorer::P>,
     ) -> Result<bool, Error> {
         match proof {
             HistoryProof::CurrEpoch() => Ok(digest.epoch == prev_epoch as u64),
@@ -336,7 +343,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> SingleStepAVDWithHist
                         history_tree_pp,
                     )? &&
                         digest.digest ==
-                            hash_to_final_digest::<SSAVD, HTParams::H>(
+                            hash_to_final_digest::<SSAVD, <<HTStorer as Storer>::P as MerkleTreeParameters>::H>(
                             history_tree_pp,
                             &proof.ssavd_digest,
                             &proof.history_tree_digest,
@@ -392,7 +399,10 @@ mod tests {
             MerkleTreeAVD,
         },
     };
-    use crypto_primitives::sparse_merkle_tree::MerkleDepth;
+    use crypto_primitives::sparse_merkle_tree::{
+        MerkleDepth,
+        store::mem_store::MemStore
+    };
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -418,7 +428,7 @@ mod tests {
     impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
         const MAX_UPDATE_BATCH_SIZE: u64 = 4;
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
-        type MerkleTreeParameters = MerkleTreeTestParameters;
+        type Storer = MemStore<MerkleTreeTestParameters>;
     }
 
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
