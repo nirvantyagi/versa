@@ -432,7 +432,7 @@ mod tests {
     }
 
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
-    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters>;
+    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, dyn Storer<P = MerkleTreeTestParameters>>;
 
     #[test]
     fn lookup_test() {
