@@ -166,8 +166,8 @@ mod tests {
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
     use crate::sparse_merkle_tree::store::{
-        mem_store::MemStore,
-        Storer
+        mem_store::SMTMemStore,
+        SMTStorer
     };
 
     #[derive(Clone)]
@@ -189,7 +189,7 @@ mod tests {
         type H = H;
     }
 
-    type TestMerkleTree = SparseMerkleTree<MemStore<MerkleTreeTestParameters>>;
+    type TestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     type PH = PoseidonSponge<Fq>;
@@ -202,14 +202,14 @@ mod tests {
         type H = PH;
     }
 
-    type PoseidonTestMerkleTree = SparseMerkleTree<MemStore<PoseidonMerkleTreeTestParameters>>;
+    type PoseidonTestMerkleTree = SparseMerkleTree<SMTMemStore<PoseidonMerkleTreeTestParameters>>;
 
 
     #[test]
     fn valid_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
@@ -265,7 +265,7 @@ mod tests {
     fn poseidon_valid_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = PH::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = PoseidonTestMerkleTree::new(mem_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
@@ -320,7 +320,7 @@ mod tests {
     fn invalid_root_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
@@ -375,7 +375,7 @@ mod tests {
     fn invalid_leaf_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
@@ -430,7 +430,7 @@ mod tests {
     fn invalid_index_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();

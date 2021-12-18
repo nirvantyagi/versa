@@ -11,11 +11,11 @@ use crate::sparse_merkle_tree::{
     MerkleDepth,
     MerkleIndex,
     MerkleTreeParameters,
-    store::Storer,
+    store::SMTStorer,
 };
 
 // #[derive(Debug)] TODO: implement debug
-pub struct MemStore<M: MerkleTreeParameters> {
+pub struct SMTMemStore<M: MerkleTreeParameters> {
     tree: HashMap<(MerkleDepth, MerkleIndex), <M::H as FixedLengthCRH>::Output>,
     pub root: <M::H as FixedLengthCRH>::Output,
     sparse_initial_hashes: Vec<<M::H as FixedLengthCRH>::Output>,
@@ -24,7 +24,7 @@ pub struct MemStore<M: MerkleTreeParameters> {
 }
 
 // TODO: @z-tech is this needed?
-impl<P: MerkleTreeParameters> MemStore<P> {
+impl<P: MerkleTreeParameters> SMTMemStore<P> {
     pub fn new(
         initial_leaf_value: &[u8],
         hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
@@ -42,7 +42,7 @@ impl<P: MerkleTreeParameters> MemStore<P> {
         }
         sparse_initial_hashes.reverse();
 
-        Ok(MemStore {
+        Ok(SMTMemStore {
             tree: HashMap::new(),
             root: sparse_initial_hashes[0].clone(),
             sparse_initial_hashes: sparse_initial_hashes,
@@ -52,13 +52,13 @@ impl<P: MerkleTreeParameters> MemStore<P> {
     }
 }
 
-// impl Default for MemStore {
+// impl Default for SMTMemStore {
 //     fn default() -> Self {
-//         MemStore::new()
+//         SMTMemStore::new()
 //     }
 // }
 
-impl<M: MerkleTreeParameters> Storer for MemStore<M> {
+impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
     type P = M;
 
     fn new(
@@ -78,7 +78,7 @@ impl<M: MerkleTreeParameters> Storer for MemStore<M> {
         }
         sparse_initial_hashes.reverse();
 
-        Ok(MemStore {
+        Ok(SMTMemStore {
             tree: HashMap::new(),
             root: sparse_initial_hashes[0].clone(),
             sparse_initial_hashes: sparse_initial_hashes,
@@ -97,7 +97,7 @@ impl<M: MerkleTreeParameters> Storer for MemStore<M> {
     fn set(
         &mut self,
         index: (MerkleDepth, MerkleIndex),
-        value: <<<Self as Storer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
+        value: <<<Self as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     ) {
         self.tree.insert(index, value.clone());
         // TODO: is setting the root this way necessary? Can we simply always access (0, 0)?

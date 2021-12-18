@@ -31,7 +31,7 @@ pub trait MerkleTreeParameters {
     }
 }
 
-pub struct SparseMerkleTree<T: store::Storer> {
+pub struct SparseMerkleTree<T: store::SMTStorer> {
     pub store: T,
 }
 
@@ -58,7 +58,7 @@ impl<P: MerkleTreeParameters> Default for MerkleTreePath<P> {
     }
 }
 
-impl<T: store::Storer> SparseMerkleTree<T> {
+impl<T: store::SMTStorer> SparseMerkleTree<T> {
     pub fn new(s: T) -> SparseMerkleTree<T> {
         SparseMerkleTree { store: s }
     }
@@ -94,7 +94,7 @@ impl<T: store::Storer> SparseMerkleTree<T> {
         // TODO: double borrow makes it possible to create two mutable references for the same data,
         //  which is a violation of Rust aliasing guarantees https://stackoverflow.com/questions/31281155/cannot-borrow-x-as-mutable-more-than-once-at-a-time
         // Is this really needed?
-        // See TODO in MemStore::set
+        // See TODO in SMTMemStore::set
         // self.store.set_root(self.store.get(&(0, 0)).expect("root lookup failed").clone());
         Ok(())
     }
@@ -205,8 +205,8 @@ mod tests {
         pedersen::{CRH, Window},
     };
     use crate::sparse_merkle_tree::store::{
-        mem_store::MemStore,
-        Storer
+        mem_store::SMTMemStore,
+        SMTStorer
     };
 
     #[derive(Clone)]
@@ -234,14 +234,14 @@ mod tests {
         type H = H;
     }
 
-    type TestMerkleTree = SparseMerkleTree<MemStore<MerkleTreeTestParameters>>;
-    type TinyTestMerkleTree = SparseMerkleTree<MemStore<MerkleTreeTestParameters>>;
+    type TestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
+    type TinyTestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
 
     #[test]
     fn initialize_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let tree = TinyTestMerkleTree::new(mem_store);
         let leaf_hash = hash_leaf::<H>(&crh_parameters, &[0u8; 16]).unwrap();
         let root_hash = hash_inner_node::<H>(&crh_parameters, &leaf_hash, &leaf_hash).unwrap();
@@ -252,7 +252,7 @@ mod tests {
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = MemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
         let proof_0 = tree.lookup(0).unwrap();
         let proof_177 = tree.lookup(177).unwrap();

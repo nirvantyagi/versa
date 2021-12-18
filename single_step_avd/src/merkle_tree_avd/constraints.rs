@@ -11,7 +11,7 @@ use crate::{
 };
 use crypto_primitives::{
     sparse_merkle_tree::{
-        store::{Storer},
+        store::{SMTStorer},
         constraints::MerkleTreePathVar, MerkleTreeParameters,
     },
     hash::constraints::FixedLengthCRHGadget,
@@ -23,12 +23,12 @@ pub struct UpdateProofVar<P, HGadget, ConstraintF>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::Storer as Storer>::P as MerkleTreeParameters>::H,
+        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
 {
-    paths: Vec<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::Storer as Storer>::P, HGadget, ConstraintF>>,
+    paths: Vec<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>,
     indices: Vec<UInt64<ConstraintF>>,
     keys: Vec<[UInt8<ConstraintF>; 32]>,
     versions: Vec<UInt64<ConstraintF>>,
@@ -41,7 +41,7 @@ impl<P, HGadget, ConstraintF> AllocVar<UpdateProof<P>, ConstraintF>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::Storer as Storer>::P as MerkleTreeParameters>::H,
+        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
@@ -54,7 +54,7 @@ where
         let ns = cs.into();
         let cs = ns.cs();
         let f_out = f()?;
-        let paths = Vec::<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::Storer as Storer>::P, HGadget, ConstraintF>>::new_variable(
+        let paths = Vec::<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>::new_variable(
             ark_relations::ns!(cs, "merkle_paths"),
             || Ok(&f_out.borrow().paths[..]),
             mode,
@@ -120,7 +120,7 @@ pub struct MerkleTreeAVDGadget<P, HGadget, ConstraintF>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::Storer as Storer>::P as MerkleTreeParameters>::H,
+        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
@@ -135,7 +135,7 @@ impl<P, HGadget, ConstraintF> SingleStepAVDGadget<MerkleTreeAVD<P>, ConstraintF>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::Storer as Storer>::P as MerkleTreeParameters>::H,
+        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: PrimeField,
@@ -240,7 +240,7 @@ mod tests {
 
     use crate::SingleStepAVD;
     use crypto_primitives::{
-        sparse_merkle_tree::{MerkleDepth, store::mem_store::MemStore},
+        sparse_merkle_tree::{MerkleDepth, store::mem_store::SMTMemStore},
         hash::FixedLengthCRH,
     };
 
@@ -269,7 +269,7 @@ mod tests {
     impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
         const MAX_UPDATE_BATCH_SIZE: u64 = 8;
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
-        type Storer = MemStore<MerkleTreeTestParameters>;
+        type SMTStorer = SMTMemStore<MerkleTreeTestParameters>;
     }
 
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
