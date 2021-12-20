@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     marker::PhantomData,
 };
-
 use crate::{
     Error,
     hash::FixedLengthCRH,
@@ -14,7 +13,6 @@ use crate::sparse_merkle_tree::{
     store::SMTStorer,
 };
 
-// #[derive(Debug)] TODO: implement debug
 pub struct SMTMemStore<M: MerkleTreeParameters> {
     tree: HashMap<(MerkleDepth, MerkleIndex), <M::H as FixedLengthCRH>::Output>,
     pub root: <M::H as FixedLengthCRH>::Output,
@@ -22,41 +20,6 @@ pub struct SMTMemStore<M: MerkleTreeParameters> {
     pub hash_parameters: <M::H as FixedLengthCRH>::Parameters,
     _parameters: PhantomData<M>,
 }
-
-// TODO: @z-tech is this needed?
-impl<P: MerkleTreeParameters> SMTMemStore<P> {
-    pub fn new(
-        initial_leaf_value: &[u8],
-        hash_parameters: &<P::H as FixedLengthCRH>::Parameters,
-    ) -> Result<Self, Error> {
-        // Compute initial hashes for each depth of tree
-        let mut sparse_initial_hashes =
-            vec![hash_leaf::<P::H>(&hash_parameters, initial_leaf_value)?];
-        for i in 1..=(P::DEPTH as usize) {
-            let child_hash = sparse_initial_hashes[i - 1].clone();
-            sparse_initial_hashes.push(hash_inner_node::<P::H>(
-                hash_parameters,
-                &child_hash,
-                &child_hash,
-            )?);
-        }
-        sparse_initial_hashes.reverse();
-
-        Ok(SMTMemStore {
-            tree: HashMap::new(),
-            root: sparse_initial_hashes[0].clone(),
-            sparse_initial_hashes: sparse_initial_hashes,
-            hash_parameters: hash_parameters.clone(),
-            _parameters: PhantomData,
-        })
-    }
-}
-
-// impl Default for SMTMemStore {
-//     fn default() -> Self {
-//         SMTMemStore::new()
-//     }
-// }
 
 impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
     type P = M;

@@ -235,7 +235,7 @@ mod tests {
     }
 
     type TestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
-    type TinyTestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
+    type TinyTestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTinyTestParameters>>;
 
     #[test]
     fn initialize_test() {
