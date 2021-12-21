@@ -11,6 +11,8 @@ use crate::sparse_merkle_tree::{
     MerkleIndex,
     MerkleTreeParameters,
     store::SMTStorer,
+    hash_leaf,
+    hash_inner_node,
 };
 
 pub struct SMTMemStore<M: MerkleTreeParameters> {
@@ -83,22 +85,4 @@ impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
         <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
         return self.sparse_initial_hashes[index].clone();
     }
-
-}
-
-// TODO: dup from sparse_merkle_tree
-pub fn hash_leaf<H: FixedLengthCRH>(
-    parameters: &H::Parameters,
-    leaf: &[u8],
-) -> Result<H::Output, Error> {
-    H::evaluate_variable_length(parameters, leaf)
-}
-
-// TODO: dup from sparse_merkle_tree
-pub fn hash_inner_node<H: FixedLengthCRH>(
-    parameters: &H::Parameters,
-    left: &H::Output,
-    right: &H::Output,
-) -> Result<H::Output, Error> {
-    H::merge(&parameters, left, right)
 }

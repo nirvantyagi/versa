@@ -1,17 +1,28 @@
 use rand::Rng;
-use sha3::{digest::Digest, Sha3_256};
-
-use std::{collections::HashMap, error::Error as ErrorTrait, fmt};
-
-use crate::{Error, SingleStepAVD};
+use sha3::{
+    digest::Digest,
+    Sha3_256
+};
+use std::{
+    error::Error as ErrorTrait,
+    fmt
+};
+use crate::{
+    Error,
+    SingleStepAVD
+};
 use crypto_primitives::{
     sparse_merkle_tree::{
         store::SMTStorer,
-        MerkleDepth, MerkleIndex, MerkleTreeParameters, MerkleTreePath, SparseMerkleTree,
+        MerkleDepth,
+        MerkleIndex,
+        MerkleTreeParameters,
+        MerkleTreePath,
     },
     hash::FixedLengthCRH,
 };
 
+pub mod store;
 pub mod constraints;
 
 pub trait MerkleTreeAVDParameters {
@@ -26,11 +37,8 @@ pub trait MerkleTreeAVDParameters {
     }
 }
 
-pub struct MerkleTreeAVD<P: MerkleTreeAVDParameters> {
-    tree: SparseMerkleTree<P::SMTStorer>,
-    key_d: HashMap<[u8; 32], (u8, u64, [u8; 32])>,
-    // key -> probe, version, value
-    index_d: HashMap<MerkleIndex, [u8; 32]>,
+pub struct MerkleTreeAVD<T: store::MTAVDStorer> {
+    pub store: T,
 }
 
 pub struct LookupProof<P: MerkleTreeAVDParameters> {
@@ -86,43 +94,35 @@ impl<P: MerkleTreeAVDParameters> Clone for UpdateProof<P> {
     }
 }
 
-impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
-    type Digest = <<<P::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
+impl<T: store::MTAVDStorer> SingleStepAVD for MerkleTreeAVD<T> {
+    type Digest = <<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
     type PublicParameters =
-        <<<P::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
-    type LookupProof = LookupProof<P>;
-    type UpdateProof = UpdateProof<P>;
+        <<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
+    type LookupProof = LookupProof<<T as store::MTAVDStorer>::S>;
+    type UpdateProof = UpdateProof<<T as store::MTAVDStorer>::S>;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
-        Ok(<<<P::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
+        Ok(<<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
     }
 
-    fn new<R: Rng>(_rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
-        let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let mem_store = <<P as MerkleTreeAVDParameters>::SMTStorer>::new(&initial_leaf, pp).unwrap();
-        let smt: SparseMerkleTree<<P as MerkleTreeAVDParameters>::SMTStorer> = SparseMerkleTree::new(mem_store);
-        Ok(MerkleTreeAVD {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        })
+    fn new(s: T) -> MerkleTreeAVD<T> {
+        MerkleTreeAVD { store: s }
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
-        Ok(self.tree.store.get_root())
+        Ok(self.store.get_smt_root())
     }
 
     fn lookup(
         &mut self,
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
-        let (probe, lookup_value) = match self.key_d.get(key) {
+        let (probe, lookup_value) = match self.store.get_key_d(key) {
             Some((probe, version, val)) => (*probe, Some((*version, val.clone()))),
             None => {
                 // Find the first unpopulated index in probe sequence
-                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
-                    self.index_d
-                        .get(&hash_to_index(key, *i, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))
+                match (0..<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
+                    self.store.get_index_d(hash_to_index(key, *i, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))
                         == None
                 }) {
                     Some(unpopulated_probe) => (unpopulated_probe, None),
@@ -133,22 +133,22 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
         let (mut paths, mut keys, mut versions, mut values) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for p in 0..probe {
-            let i = hash_to_index(key, p, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH);
-            let k = self.index_d.get(&i).unwrap().clone();
-            let (_, version, val) = self.key_d.get(&k).unwrap().clone();
-            let path = self.tree.lookup(i)?;
+            let i: u64 = hash_to_index(key, p, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH);
+            let k = self.store.get_index_d(i).unwrap().clone();
+            let (_, version, val) = self.store.get_key_d(&k).unwrap().clone();
+            let path = self.store.lookup_smt(i).unwrap();
             paths.push(path);
             keys.push(k);
             versions.push(version);
             values.push(val);
         }
         paths.push(
-            self.tree
-                .lookup(hash_to_index(key, probe, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))?,
+            self.store
+                .lookup_smt(hash_to_index(key, probe, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))?,
         );
         Ok((
             lookup_value,
-            self.tree.store.get_root(),
+            self.store.get_smt_root(),
             LookupProof {
                 paths,
                 keys,
@@ -163,13 +163,12 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
         key: &[u8; 32],
         value: &[u8; 32],
     ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
-        let (probe, version, prev_value) = match self.key_d.get(key) {
+        let (probe, version, prev_value) = match self.store.get_key_d(key) {
             Some((probe, version, val)) => (*probe, *version, val.clone()),
             None => {
                 // Find the first unpopulated index in probe sequence
-                match (0..P::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
-                    self.index_d
-                        .get(&hash_to_index(key, *i, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))
+                match (0..<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
+                    self.store.get_index_d(hash_to_index(key, *i, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH))
                         == None
                 }) {
                     Some(unpopulated_probe) => (unpopulated_probe, 0, Default::default()),
@@ -177,20 +176,20 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                 }
             }
         };
-        let i = hash_to_index(key, probe, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH);
-        self.tree
-            .update(i, &concat_leaf_data(key, version + 1, value))?;
-        self.key_d
-            .insert(key.clone(), (probe, version + 1, value.clone()));
-        self.index_d.entry(i).or_insert_with(|| key.clone());
+        let i = hash_to_index(key, probe, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH);
+        self.store
+            .update_smt(i, &concat_leaf_data(key, version + 1, value))?;
+        self.store
+            .insert_key_d(key.clone(), (probe, version + 1, value.clone()));
+        self.store.entry_or_insert_with_index_d(i, key.clone());
 
         Ok((
-            self.tree.store.get_root(),
+            self.store.get_smt_root(),
             UpdateProof {
-                paths: vec![self.tree.lookup(hash_to_index(
+                paths: vec![self.store.lookup_smt(hash_to_index(
                     key,
                     probe,
-                    <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
+                    <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
                 ))?],
                 indices: vec![i],
                 keys: vec![key.clone()],
@@ -206,7 +205,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
         &mut self,
         kvs: &Vec<([u8; 32], [u8; 32])>,
     ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
-        if kvs.len() > P::MAX_UPDATE_BATCH_SIZE as usize {
+        if kvs.len() > <<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::MAX_UPDATE_BATCH_SIZE as usize {
             return Err(Box::new(MerkleTreeAVDError::UpdateBatchSize(kvs.len() as u64)));
         }
         let update_proof = kvs
@@ -237,7 +236,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                     acc_proof
                 },
             );
-        Ok((self.tree.store.get_root(), update_proof))
+        Ok((self.store.get_smt_root(), update_proof))
     }
 
     fn verify_lookup(
@@ -265,7 +264,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                             proof.versions[probe],
                             &proof.values[probe],
                         ),
-                        hash_to_index(key, probe as u8, <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH),
+                        hash_to_index(key, probe as u8, <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH),
                         pp,
                     )?)
             })
@@ -279,7 +278,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                 hash_to_index(
                     key,
                     (proof.paths.len() - 1) as u8,
-                    <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
+                    <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
                 ),
                 pp,
             )?,
@@ -289,7 +288,7 @@ impl<P: MerkleTreeAVDParameters> SingleStepAVD for MerkleTreeAVD<P> {
                 hash_to_index(
                     key,
                     (proof.paths.len() - 1) as u8,
-                    <<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
+                    <<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P::DEPTH,
                 ),
                 pp,
             )?,
@@ -402,6 +401,10 @@ mod tests {
         pedersen::{CRH, Window},
     };
     use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
+    use crate::merkle_tree_avd::store::{
+        mem_store::MTAVDMemStore,
+        MTAVDStorer
+    };
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -434,9 +437,10 @@ mod tests {
 
     #[test]
     fn update_and_verify_test() {
-        let mut rng = StdRng::seed_from_u64(0_u64);
+        let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let mtavd_mem_store = MTAVDMemStore::<MerkleTreeAVDParameters<SMTMemStore<MerkleTreeTestParameters>>>::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(mtavd_mem_store).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(
@@ -449,7 +453,7 @@ mod tests {
     fn invalid_update_proof_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let mut avd = TestMerkleTreeAVD::MTAVDStorer::S::SMTStorer::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(

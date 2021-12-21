@@ -17,4 +17,4 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Run crypto_primitives/src/sparse_merkle_tree test suite
-      run: cd ./crypto_primitives/src/sparse_merkle_tree && cargo test --verbose
+      run: cd ./crypto_primitives/src/sparse_merkle_tree && cargo test
