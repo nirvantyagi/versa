@@ -428,14 +428,14 @@ mod tests {
         type SMTStorer = SMTMemStore<MerkleTreeTestParameters>;
     }
 
-    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
+    type TestMerkleTreeAVD = MerkleTreeAVD<MTAVDMemStore<MerkleTreeAVDTestParameters>>;
 
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         // let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore::<MerkleTreeAVDTestParameters>::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
 
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD::new(mtavd_mem_store).unwrap();

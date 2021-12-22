@@ -17,14 +17,14 @@ use crate::merkle_tree_avd::{
     store::MTAVDStorer,
 };
 
-pub struct MTAVDMemStore<P: MerkleTreeAVDParameters> {
-    tree: SparseMerkleTree<P::SMTStorer>,
+pub struct MTAVDMemStore<M: MerkleTreeAVDParameters> {
+    tree: SparseMerkleTree<M::SMTStorer>,
     key_d: HashMap<[u8; 32], (u8, u64, [u8; 32])>, // key -> probe, version, value
     index_d: HashMap<MerkleIndex, [u8; 32]>,
 }
 
-impl<P: MerkleTreeAVDParameters> MTAVDStorer for MTAVDMemStore<P> {
-    type S = P;
+impl<M: MerkleTreeAVDParameters> MTAVDStorer for MTAVDMemStore<M> {
+    type S = M;
 
     fn new(
         initial_leaf_value: &[u8],

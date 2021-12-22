@@ -44,9 +44,9 @@ where
 impl<P, HGadget, ConstraintF> AllocVar<UpdateProof<P>, ConstraintF>
     for UpdateProofVar<P, HGadget, ConstraintF>
 where
-    P: MerkleTreeAVDParameters,
+    P: MTAVDStorer,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
@@ -59,7 +59,7 @@ where
         let ns = cs.into();
         let cs = ns.cs();
         let f_out = f()?;
-        let paths = Vec::<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>::new_variable(
+        let paths = Vec::<MerkleTreePathVar<<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>::new_variable(
             ark_relations::ns!(cs, "merkle_paths"),
             || Ok(&f_out.borrow().paths[..]),
             mode,
@@ -123,9 +123,9 @@ where
 
 pub struct MerkleTreeAVDGadget<P, HGadget, ConstraintF>
 where
-    P: MerkleTreeAVDParameters,
+    P: MTAVDStorer,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
