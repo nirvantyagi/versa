@@ -19,4 +19,4 @@ jobs:
     - name: Run crypto_primitives/src/sparse_merkle_tree test suite
       run: cd ./crypto_primitives/src/sparse_merkle_tree && cargo test
     - name: Run single_step_avd/merkle_tree_avd test suite
-      run: cd ../../../single_step_avd/merkle_tree_avd && cargo test
+      run: cd ../../../single_step_avd/src/merkle_tree_avd && cargo test
