@@ -28,8 +28,6 @@ pub mod constraints;
 pub trait MerkleTreeAVDParameters {
     const MAX_UPDATE_BATCH_SIZE: u64;
     const MAX_OPEN_ADDRESSING_PROBES: u8;
-
-    // TODO: key_d and index_d need to go in here?
     type SMTStorer: SMTStorer;
 
     fn is_valid(&self) -> Result<bool, Error> {
@@ -401,10 +399,7 @@ mod tests {
         pedersen::{CRH, Window},
     };
     use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
-    use crate::merkle_tree_avd::store::{
-        mem_store::MTAVDMemStore,
-        MTAVDStorer
-    };
+    use crate::merkle_tree_avd::store::mem_store::MTAVDMemStore;
 
     #[derive(Clone)]
     pub struct Window4x256;
@@ -439,8 +434,11 @@ mod tests {
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store = MTAVDMemStore::<MerkleTreeAVDParameters<SMTMemStore<MerkleTreeTestParameters>>>::new(&[0u8; 16], &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(mtavd_mem_store).unwrap();
+        // let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
+
+        let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD::new(mtavd_mem_store).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(

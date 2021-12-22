@@ -4,15 +4,20 @@ use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
-
 use crate::{
     constraints::SingleStepAVDGadget,
-    merkle_tree_avd::{MerkleTreeAVD, MerkleTreeAVDParameters, UpdateProof},
+    merkle_tree_avd::{
+        MerkleTreeAVD,
+        MerkleTreeAVDParameters,
+        UpdateProof,
+        store::MTAVDStorer
+    },
 };
 use crypto_primitives::{
     sparse_merkle_tree::{
         store::{SMTStorer},
-        constraints::MerkleTreePathVar, MerkleTreeParameters,
+        constraints::MerkleTreePathVar,
+        MerkleTreeParameters,
     },
     hash::constraints::FixedLengthCRHGadget,
 };
@@ -21,14 +26,14 @@ use std::{borrow::Borrow, marker::PhantomData, convert::{TryFrom}};
 
 pub struct UpdateProofVar<P, HGadget, ConstraintF>
 where
-    P: MerkleTreeAVDParameters,
+    P: MTAVDStorer,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
 {
-    paths: Vec<MerkleTreePathVar<<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>,
+    paths: Vec<MerkleTreePathVar<<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>,
     indices: Vec<UInt64<ConstraintF>>,
     keys: Vec<[UInt8<ConstraintF>; 32]>,
     versions: Vec<UInt64<ConstraintF>>,
@@ -133,9 +138,9 @@ where
 impl<P, HGadget, ConstraintF> SingleStepAVDGadget<MerkleTreeAVD<P>, ConstraintF>
     for MerkleTreeAVDGadget<P, HGadget, ConstraintF>
 where
-    P: MerkleTreeAVDParameters,
+    P: MTAVDStorer,
     HGadget: FixedLengthCRHGadget<
-        <<<P as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: PrimeField,
