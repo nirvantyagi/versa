@@ -1,6 +1,9 @@
 pub mod mem_store;
 use crate::Error;
-use crate::merkle_tree_avd::MerkleTreeAVDParameters;
+use crate::{
+    SSAVDStorer,
+    merkle_tree_avd::{MerkleTreeAVD, MerkleTreeAVDParameters},
+};
 use crypto_primitives::{
     hash::FixedLengthCRH,
     sparse_merkle_tree::{
@@ -35,3 +38,8 @@ pub trait MTAVDStorer {
     fn get_smt_root(&self) ->
         <<<<<Self as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
 }
+
+// Anything that implements MTAVDStorer implements SSAVDStorer<MTAVD<S>>
+impl<S: MTAVDStorer> SSAVDStorer<MerkleTreeAVD<S>> for S {}
+
+
