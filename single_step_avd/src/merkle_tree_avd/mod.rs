@@ -6,7 +6,6 @@ use sha3::{
 use std::{
     error::Error as ErrorTrait,
     fmt,
-    marker::PhantomData,
 };
 use crate::{
     Error,
@@ -37,7 +36,7 @@ pub trait MerkleTreeAVDParameters {
 }
 
 pub struct MerkleTreeAVD<T: store::MTAVDStorer> {
-    _t: PhantomData<T>,
+    store: T,
 }
 
 pub struct LookupProof<P: MerkleTreeAVDParameters> {
@@ -105,8 +104,8 @@ impl<T: store::MTAVDStorer> SingleStepAVD for MerkleTreeAVD<T> {
         Ok(<<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
     }
 
-    fn new(s: T) -> MerkleTreeAVD<T> {
-        MerkleTreeAVD { store: s }
+    fn new<R: Rng>(rng: &mut R, s: T) -> Result<Self, Error> {
+        Ok(MerkleTreeAVD { store: s })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
