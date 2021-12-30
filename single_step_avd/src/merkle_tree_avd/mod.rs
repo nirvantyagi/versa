@@ -5,7 +5,8 @@ use sha3::{
 };
 use std::{
     error::Error as ErrorTrait,
-    fmt
+    fmt,
+    marker::PhantomData,
 };
 use crate::{
     Error,
@@ -36,7 +37,7 @@ pub trait MerkleTreeAVDParameters {
 }
 
 pub struct MerkleTreeAVD<T: store::MTAVDStorer> {
-    pub store: T,
+    _t: PhantomData<T>,
 }
 
 pub struct LookupProof<P: MerkleTreeAVDParameters> {
@@ -93,6 +94,7 @@ impl<P: MerkleTreeAVDParameters> Clone for UpdateProof<P> {
 }
 
 impl<T: store::MTAVDStorer> SingleStepAVD for MerkleTreeAVD<T> {
+    type Storer = T;
     type Digest = <<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
     type PublicParameters =
         <<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
