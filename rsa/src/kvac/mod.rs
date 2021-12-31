@@ -1,10 +1,7 @@
 use crate::{
     bignat::{BigNat, Order, extended_euclidean_gcd, fit_nat_to_limb_capacity, constraints::BigNatCircuitParams},
     hog::{RsaHiddenOrderGroup, RsaGroupParams},
-    hash::{
-        Hasher,
-        hash_to_prime::{hash_to_prime},
-    },
+    hash::hash_to_prime::{hash_to_prime},
     poker::{
         PoKER,
         Statement as PoKERStatement,
@@ -20,13 +17,15 @@ use ark_ff::ToBytes;
 use std::{
     error::Error as ErrorTrait,
     marker::PhantomData,
-    collections::{HashMap, HashSet},
     fmt::{self, Debug},
     io::{Result as IoResult, Write},
+    collections::HashSet,
 };
 
 use rug::ops::Pow;
 use rayon::prelude::*;
+
+pub mod store;
 
 pub trait RsaKVACParams: Clone + Eq + Debug {
     const KEY_LEN: usize;
@@ -86,47 +85,25 @@ pub enum WitnessWrapper<P: RsaKVACParams> {
 pub type UpdateProof<P, H> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams, H>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RsaKVAC<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> {
-    pub map: HashMap<BigNat, (BigNat, usize, WitnessWrapper<P>, usize)>, // key -> (value, version, witness, last_epoch_witness_updated)
-    pub commitment: Commitment<P>,
-    pub counter_dict_exp: BigNat,
-    pub deferred_counter_dict_exp_updates: Vec<BigNat>,
-    pub epoch: usize,
-    pub epoch_updates: Vec<Vec<(BigNat, BigNat)>>,
-    _hash: PhantomData<H>,
-    _circuit_hash: PhantomData<CircuitH>,
-    _circuit_params: PhantomData<C>,
+pub struct RsaKVAC<T: store::RsaKVACStorer> {
+    store: T,
 }
 
-impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaKVAC<P, H, CircuitH, C> {
-    pub fn new() -> Self {
-        RsaKVAC {
-            map: HashMap::new(),
-            commitment: Commitment {
-                c1: Hog::<P>::identity(),
-                c2: Hog::<P>::generator(),
-                _params: PhantomData,
-            },
-            counter_dict_exp: BigNat::from(1),
-            deferred_counter_dict_exp_updates: vec![],
-            epoch: 0,
-            epoch_updates: vec![],
-            _hash: PhantomData,
-            _circuit_hash: PhantomData,
-            _circuit_params: PhantomData,
-        }
+impl<T: store::RsaKVACStorer> RsaKVAC<T> {
+    pub fn new(s: T) -> Self {
+        RsaKVAC { store: s }
     }
 
-    pub fn get_counter_dict_exp(&mut self) -> &BigNat {
+    pub fn get_counter_dict_exp(&mut self) -> BigNat {
         let mut deferred_updates = vec![];
-        deferred_updates.append(&mut self.deferred_counter_dict_exp_updates);
-        assert_eq!(self.deferred_counter_dict_exp_updates, Vec::<BigNat>::new());
-        self.counter_dict_exp = deferred_updates.into_iter().fold(self.counter_dict_exp.clone(), |exp, z| exp * z);
-        &self.counter_dict_exp
+        deferred_updates.append(&mut self.store.get_deferred_counter_dict_exp_updates());
+        assert_eq!(self.store.get_deferred_counter_dict_exp_updates(), Vec::<BigNat>::new());
+        self.store.set_counter_dict_exp(deferred_updates.into_iter().fold(self.store.get_counter_dict_exp(), |exp, z| exp * z));
+        self.store.get_counter_dict_exp()
     }
 
-    pub fn lookup(&mut self, k: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error> {
-        match self.map.get(k) {
+    pub fn lookup(&mut self, k: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<T::P>), Error> {
+        match self.store.get_map(k) {
             Some((value, version, witness_status, last_update_epoch)) => {
                 let (value, version) = (value.clone(), version.clone()); // Needed for borrow checker
                 let updated_witness = match witness_status {
@@ -138,7 +115,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         // Finish witness proof
                         // TODO: Optimization: updating this witness also updates the filler coprime proof values
                         let mut updated_incomplete_witness = self._full_update_witness(k, *last_update_epoch, witness)?;
-                        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                        let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
                         let z_u = z.clone().pow(updated_incomplete_witness.u as u32);
                         let ((a, b), gcd) = extended_euclidean_gcd(
                             &BigNat::from(self.get_counter_dict_exp().div_exact_ref(&z_u)),
@@ -146,15 +123,15 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         );
                         assert_eq!(gcd, 1);
                         updated_incomplete_witness.a = a;
-                        updated_incomplete_witness.b = Hog::<P>::generator().power(&b);
+                        updated_incomplete_witness.b = Hog::<T::P>::generator().power(&b);
                         updated_incomplete_witness
                     }
                 };
-                self.map.insert(k.clone(), (value.clone(), version, WitnessWrapper::Complete(updated_witness.clone()), self.epoch));
+                self.store.insert_map(k.clone(), (value.clone(), version, WitnessWrapper::Complete(updated_witness.clone()), self.store.get_epoch()));
                 Ok((Some(value.clone()), updated_witness))
             },
             None => {
-                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
                 let ((a, b), gcd) = extended_euclidean_gcd(&self.get_counter_dict_exp(), &z);
                 assert_eq!(gcd, 1);
                 Ok((
@@ -163,7 +140,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                            pi_1: Default::default(),
                            pi_3: Default::default(),
                            a,
-                           b: Hog::<P>::generator().power(&b),
+                           b: Hog::<T::P>::generator().power(&b),
                            u: 0,
                        }),
                 )
@@ -174,14 +151,14 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     pub fn verify_witness(
         k: &BigNat,
         v: &Option<BigNat>,
-        c: &Commitment<P>,
-        witness: &MembershipWitness<P>,
+        c: &Commitment<T::P>,
+        witness: &MembershipWitness<T::P>,
     ) -> Result<bool, Error> {
         let (c1, c2) = (c.c1.clone(), c.c2.clone());
-        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+        let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
         if  v.is_none() {
             // Non-membership proof
-            Ok(c2.power(&witness.a).op(&witness.b.power(&z)) == Hog::<P>::generator())
+            Ok(c2.power(&witness.a).op(&witness.b.power(&z)) == Hog::<T::P>::generator())
         } else {
             // Membership proof
             //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
@@ -189,17 +166,17 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             let z_u = BigNat::from(&z_u1 * &z);
             let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.as_ref().unwrap() * &z_u1))) == c1.clone();
             let b_2 = witness.pi_3.power(&z_u) == c2.clone();
-            let b_3 = witness.pi_3.power(&witness.a).op(&witness.b.power(&z)) == Hog::<P>::generator();
+            let b_3 = witness.pi_3.power(&witness.a).op(&witness.b.power(&z)) == Hog::<T::P>::generator();
             Ok(b_1 && b_2 && b_3)
         }
     }
 
-    pub fn update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error> {
+    pub fn update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<T::P>, UpdateProof<T::P, T::CircuitH>), Error> {
         let (c, proof, _) = self._update(k, v)?;
         Ok((c, proof))
     }
 
-    pub fn batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error> {
+    pub fn batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<T::P>, UpdateProof<T::P, T::CircuitH>), Error> {
         let (c, proof, _) = self._batch_update(kvs)?;
         Ok((c, proof))
     }
@@ -207,28 +184,27 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     fn _update(
         &mut self, k: BigNat,
         v: BigNat,
-    ) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>, (BigNat, BigNat)), Error> {
+    ) -> Result<(Commitment<T::P>, UpdateProof<T::P, T::CircuitH>, (BigNat, BigNat)), Error> {
         // Update value
         let v_delta = self._update_value(k.clone(), v.clone())?;
 
         // Update commitment
-        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+        let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
         let update_proof = self._update_commitment(&z, &v_delta)?;
-        self.epoch_updates.push(vec![(k.clone(), v_delta.clone())]);
-
-        Ok((self.commitment.clone(), update_proof, (z, v_delta)))
+        self.store.push_epoch_updates(vec![(k.clone(), v_delta.clone())]);
+        Ok((self.store.get_commitment(), update_proof, (z, v_delta)))
     }
 
 
     pub fn _batch_update(
         &mut self,
         kvs: &Vec<(BigNat, BigNat)>,
-    ) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>, (BigNat, BigNat)), Error> {
+    ) -> Result<(Commitment<T::P>, UpdateProof<T::P, T::CircuitH>, (BigNat, BigNat)), Error> {
         // Update individual values and compute batched update values
         let mut z_vals = vec![];
         let mut delta_vals= vec![];
         for (k, v) in kvs.iter() {
-            let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(k)?, P::PRIME_LEN)?;
+            let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(k)?, T::P::PRIME_LEN)?;
             z_vals.push(z);
             delta_vals.push(self._update_value(k.clone(), v.clone())?);
         }
@@ -241,84 +217,84 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
         // Update commitment
         let update_proof = self._update_commitment(&z_product, &delta_sum)?;
-        self.epoch_updates.push(kvs.iter().zip(&delta_vals).map(|((k, _v), d)| (k.clone(), d.clone())).collect());
+        self.store.push_epoch_updates(kvs.iter().zip(&delta_vals).map(|((k, _v), d)| (k.clone(), d.clone())).collect());
 
-        Ok((self.commitment.clone(), update_proof, (z_product, delta_sum)))
+        Ok((self.store.get_commitment(), update_proof, (z_product, delta_sum)))
     }
 
     pub fn verify_update_append_only(
-        c: &Commitment<P>,
-        c_new: &Commitment<P>,
-        proof: &UpdateProof<P, CircuitH>,
+        c: &Commitment<T::P>,
+        c_new: &Commitment<T::P>,
+        proof: &UpdateProof<T::P, T::CircuitH>,
     ) -> Result<bool, Error> {
         let statement = PoKERStatement {
-            u1: Hog::<P>::clone(&c.c1),
-            u2: Hog::<P>::clone(&c.c2),
-            w1: Hog::<P>::clone(&c_new.c1),
-            w2: Hog::<P>::clone(&c_new.c2),
+            u1: Hog::<T::P>::clone(&c.c1),
+            u2: Hog::<T::P>::clone(&c.c2),
+            w1: Hog::<T::P>::clone(&c_new.c1),
+            w2: Hog::<T::P>::clone(&c_new.c2),
         };
-        PoKER::<PoKParams<P>, RsaParams<P>, CircuitH, C>::verify(&statement, &proof)
+        PoKER::<PoKParams<T::P>, RsaParams<T::P>, T::CircuitH, T::C>::verify(&statement, &proof)
     }
 
 
 
     fn _update_value(&mut self, k: BigNat, v: BigNat) -> Result<BigNat, Error> {
-        if v.significant_bits() > P::VALUE_LEN as u32 || v < 0 {
+        if v.significant_bits() > T::P::VALUE_LEN as u32 || v < 0 {
             return Err(Box::new(RsaKVACError::InvalidValue(v)))
         }
-        if k.significant_bits() > P::KEY_LEN as u32 || k < 0 {
+        if k.significant_bits() > T::P::KEY_LEN as u32 || k < 0 {
             return Err(Box::new(RsaKVACError::InvalidKey(k)))
         }
         // Update value (but not witness - create incomplete witness for new keys) and returns "value delta" to be incorporated in commitment update
-        let (c1, c2) = (self.commitment.c1.clone(), self.commitment.c2.clone());
-        if let Some(map_value) = self.map.get(&k) {
+        let (c1, c2) = (self.store.get_commitment().c1.clone(), self.store.get_commitment().c2.clone());
+        if let Some(map_value) = self.store.get_map(&k) {
             let (prev_v, version, prev_witness, last_update_epoch) = map_value.clone(); // Needed for borrow checker
-            self.map.insert(k.clone(), (v.clone(), version + 1, prev_witness, last_update_epoch));
+            self.store.insert_map(k.clone(), (v.clone(), version + 1, prev_witness, last_update_epoch));
             Ok(v - prev_v)
         } else {
             // Defer computation of (a,b) coprime proof by creating incomplete witness
             let incomplete_witness = MembershipWitness {
-                pi_1: <Hog<P>>::clone(&c1),
-                pi_3: <Hog<P>>::clone(&c2),
+                pi_1: <Hog<T::P>>::clone(&c1),
+                pi_3: <Hog<T::P>>::clone(&c2),
                 a: BigNat::from(1), // dummy
-                b: Hog::<P>::generator(), // dummy
+                b: Hog::<T::P>::generator(), // dummy
                 u: 0,
             };
-            self.map.insert(k.clone(), (v.clone(), 1, WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.epoch));
+            self.store.insert_map(k.clone(), (v.clone(), 1, WitnessWrapper::IncompleteCoprimeProof(incomplete_witness), self.store.get_epoch()));
             // Set u=0 and last_epoch_updated=self.epoch so that future witness update catches other updates in this epoch batch
             Ok(v)
         }
     }
 
-    fn _update_commitment(&mut self, z: &BigNat, delta: &BigNat) -> Result<UpdateProof<P, CircuitH>, Error> {
-        let (c1, c2) = (self.commitment.c1.clone(), self.commitment.c2.clone());
+    fn _update_commitment(&mut self, z: &BigNat, delta: &BigNat) -> Result<UpdateProof<T::P, T::CircuitH>, Error> {
+        let (c1, c2) = (self.store.get_commitment().c1.clone(), self.store.get_commitment().c2.clone());
         let c1_new = c1.power(z).op(&c2.power(delta));
         let c2_new = c2.power(z);
-        self.commitment = Commitment { c1: c1_new, c2: c2_new, _params: PhantomData };
-        self.deferred_counter_dict_exp_updates.push(z.clone());
-        self.epoch += 1;
+        self.store.set_commitment(Commitment { c1: c1_new, c2: c2_new, _params: PhantomData });
+        self.store.push_deferred_counter_dict_exp_updates(z.clone());
+        self.store.increment_epoch();
 
         // Prove update append-only
         let statement = PoKERStatement {
-            u1: Hog::<P>::clone(&c1),
-            u2: Hog::<P>::clone(&c2),
-            w1: self.commitment.c1.clone(),
-            w2: self.commitment.c2.clone(),
+            u1: Hog::<T::P>::clone(&c1),
+            u2: Hog::<T::P>::clone(&c2),
+            w1: self.store.get_commitment().c1.clone(),
+            w2: self.store.get_commitment().c2.clone(),
         };
         let witness = PoKERWitness {
             a: z.clone(),
             b: delta.clone(),
         };
-        PoKER::<PoKParams<P>, RsaParams<P>, CircuitH, C>::prove(&statement, &witness)
+        PoKER::<PoKParams<T::P>, RsaParams<T::P>, T::CircuitH, T::C>::prove(&statement, &witness)
     }
 
 
         // Updates membership witness for all updates from 'last_update_epoch' to self.epoch.
-    fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<P>) -> Result<MembershipWitness<P>, Error> {
+    fn _full_update_witness(&self, k: &BigNat, last_update_epoch: usize, witness: &MembershipWitness<T::P>) -> Result<MembershipWitness<T::P>, Error> {
         let mut witness = witness.clone();
-        for epoch in last_update_epoch..self.epoch {
-            for (uk, delta) in self.epoch_updates[epoch].iter() {
-                let (uz, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(uk)?, P::PRIME_LEN)?;
+        for epoch in last_update_epoch..self.store.get_epoch() {
+            for (uk, delta) in self.store.get_epoch_updates()[epoch].iter() {
+                let (uz, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(uk)?, T::P::PRIME_LEN)?;
                 witness = Self::_update_witness(k, (uk, &uz, delta), &witness)?;
             }
         }
@@ -329,10 +305,10 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     pub fn _update_witness(
         k: &BigNat,
         update: (&BigNat, &BigNat, &BigNat),
-        witness: &MembershipWitness<P>,
-    ) -> Result<MembershipWitness<P>, Error> {
+        witness: &MembershipWitness<T::P>,
+    ) -> Result<MembershipWitness<T::P>, Error> {
         let (uk, uz, delta) = update;
-        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+        let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
         if k == uk {
             // If k = uk, then only need to perform a simple update
             Ok(MembershipWitness {
@@ -361,14 +337,14 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     pub fn batch_update_membership_witnesses(&mut self, keys: Option<&HashSet<BigNat>>) -> Result<(), Error> {
         let witnesses = Self::_batch_update_membership_witnesses(
-            self.map.iter()
+            self.store.get_iterable_map()
                 .map(|(k, (v, u, _, _))| (k.clone(), v.clone(), *u)),
             keys,
         )?;
 
         // Update witnesses in state
         for ((k, (h, g, a, b)), z_u1) in witnesses.into_iter() {
-            let (v, u, _, _) = self.map.get(&k).unwrap();
+            let (v, u, _, _) = self.store.get_map(&k).unwrap();
             let (v, u) = (v.clone(), u.clone()); // For borrow checker
             let updated_witness = MembershipWitness {
                 pi_1: h,
@@ -377,7 +353,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                 b: b.power(&z_u1),
                 u: u,
             };
-            self.map.insert(k, (v, u, WitnessWrapper::Complete(updated_witness), self.epoch));
+            self.store.insert_map(k, (v, u, WitnessWrapper::Complete(updated_witness), self.store.get_epoch()));
         }
         Ok(())
     }
@@ -386,7 +362,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     pub fn _batch_update_membership_witnesses(
         kvs: impl Iterator<Item = (BigNat, BigNat, usize)>,
         keys: Option<&HashSet<BigNat>>,
-    ) -> Result<Vec<((BigNat, (Hog<P>, Hog<P>, BigNat, Hog<P>)), BigNat)>, Error> { // ((k, (witness)), z_u1)
+    ) -> Result<Vec<((BigNat, (Hog<T::P>, Hog<T::P>, BigNat, Hog<T::P>)), BigNat)>, Error> { // ((k, (witness)), z_u1)
         let update_all_keys = keys.is_none();
         let mut keys_to_update = vec![];
         let mut keys_to_update_u1 = vec![];
@@ -395,7 +371,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
         if update_all_keys {
             for (k, v, u) in kvs.into_iter() {
-                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
                 let z_u1 = z.clone().pow(u as u32 - 1);
                 let z_u = BigNat::from(&z_u1 * &z);
                 keys_to_update.push(k.clone());
@@ -405,7 +381,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         } else {
             let keys = keys.unwrap();
             for (k, v, u) in kvs.into_iter() {
-                let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+                let (z, _) = hash_to_prime::<T::H>(&fit_nat_to_limb_capacity(&k)?, T::P::PRIME_LEN)?;
                 let z_u1 = z.clone().pow(u as u32 - 1);
                 let z_u = BigNat::from(&z_u1 * &z);
                 if keys.contains(&k) {
@@ -425,8 +401,8 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             Self::_compute_batch_z_delta(&keys_no_update_values)
         };
         std::mem::drop(keys_no_update_values);
-        let initial_g = Hog::<P>::generator().power(&initial_z);
-        let initial_h = Hog::<P>::generator().power(&initial_delta);
+        let initial_g = Hog::<T::P>::generator().power(&initial_z);
+        let initial_h = Hog::<T::P>::generator().power(&initial_delta);
 
         // Compute witnesses
         let witnesses = Self::mem_witness_recurse_helper_unrolled(
@@ -477,11 +453,11 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
 
     // Unrolling recursion is more amenable to parallelization
     fn mem_witness_recurse_helper_unrolled(
-        initial_h: Hog<P>,
-        initial_g: Hog<P>,
+        initial_h: Hog<T::P>,
+        initial_g: Hog<T::P>,
         initial_z: BigNat,
         values: Vec<(BigNat, BigNat, BigNat)>, // (z^{u}, z^{u-1}, value)
-    ) -> Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)> { // (h, g, a, b)
+    ) -> Vec<(Hog<T::P>, Hog<T::P>, BigNat, Hog<T::P>)> { // (h, g, a, b)
         // Compute z and delta values
         let mut z_deltas = vec![values.iter().map(|v| (v.0.clone(), v.1.clone() * v.2.clone())).collect::<Vec<_>>()];
         for i in 0..(values.len() - 1).next_power_of_two().count_zeros() as usize {
@@ -503,7 +479,7 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         let (update_z, _) = &z_deltas.last().unwrap()[0];
         let ((initial_a, initial_b), gcd) = extended_euclidean_gcd(&initial_z, &update_z);
         assert_eq!(gcd, 1);
-        let initial_b = Hog::<P>::generator().power(&initial_b);
+        let initial_b = Hog::<T::P>::generator().power(&initial_b);
 
         // Compute witnesses
         let mut witnesses = vec![(initial_h, initial_g, initial_a, initial_b)];
@@ -523,14 +499,14 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
                         let (q_r, r_r) = a_s.clone().div_rem(z_r.clone());
                         let b_l = g_r.power(&q_l).op(&g.power(&a_s)).op(&b.power(&z_r));
                         let b_r = g_l.power(&q_r).op(&g.power(&a_t)).op(&b.power(&z_l));
-                        debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<P>::generator());
-                        debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<P>::generator());
+                        debug_assert!(g_r.power(&r_l).op(&b_l.power(&z_l)) == Hog::<T::P>::generator());
+                        debug_assert!(g_l.power(&r_r).op(&b_r.power(&z_r)) == Hog::<T::P>::generator());
                         vec![(h_r, g_r, r_l, b_l), (h_l, g_l, r_r, b_r)]
                     } else {
                         vec![witnesses[j].clone()]
                     }
 
-                }).flatten().collect::<Vec<(Hog<P>, Hog<P>, BigNat, Hog<P>)>>();
+                }).flatten().collect::<Vec<(Hog<T::P>, Hog<T::P>, BigNat, Hog<T::P>)>>();
             witnesses = next_witnesses;
         }
         witnesses
@@ -599,6 +575,10 @@ mod tests {
     use ark_ed_on_bls12_381::{Fq};
 
     use crate::hash::{HasherFromDigest, PoseidonHasher};
+    use crate::kvac::{
+        store::mem_store::RsaKVACMemStore,
+        store::RsaKVACStorer,
+    };
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsaParams;
@@ -640,16 +620,12 @@ mod tests {
         type PoKERParams = TestPokerParams;
     }
 
-    pub type Kvac = RsaKVAC<
-        TestKVACParams,
-        HasherFromDigest<Fq, blake3::Hasher>,
-        PoseidonHasher<Fq>,
-        CircuitParams,
-    >;
+    pub type KvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonHasher<Fq>, CircuitParams>;
+    pub type Kvac = RsaKVAC<KvacStore>;
 
     #[test]
     fn lookup_test() {
-        let mut kvac = Kvac::new();
+        let mut kvac = Kvac::new(KvacStore::new());
 
         let k1 = BigNat::from(100);
         let v1 = BigNat::from(101);
@@ -687,8 +663,8 @@ mod tests {
 
     #[test]
     fn update_value_test() {
-        let mut kvac = Kvac::new();
-        let c0 = kvac.commitment.clone();
+        let mut kvac = Kvac::new(KvacStore::new());
+        let c0 = kvac.store.commitment.clone();
 
         // Insert and lookup (k1, v1) and verify update
         let k1 = BigNat::from(100);
@@ -737,7 +713,7 @@ mod tests {
 
     #[test]
     fn defer_witness_multiple_update_test() {
-        let mut kvac = Kvac::new();
+        let mut kvac = Kvac::new(KvacStore::new());
 
         // Insert and (k1, v1)
         let k1 = BigNat::from(100);
@@ -776,8 +752,8 @@ mod tests {
 
     #[test]
     fn kvac_batch_update_test() {
-        let mut kvac = Kvac::new();
-        let c0 = kvac.commitment.clone();
+        let mut kvac = Kvac::new(KvacStore::new());
+        let c0 = kvac.store.commitment.clone();
 
         let k1 = BigNat::from(100);
         let k2 = BigNat::from(200);
@@ -842,7 +818,7 @@ mod tests {
 
     #[test]
     fn kvac_witness_batch_update_test() {
-        let mut kvac = Kvac::new();
+        let mut kvac = Kvac::new(KvacStore::new());
 
         let k1 = BigNat::from(100);
         let k2 = BigNat::from(200);
@@ -873,7 +849,7 @@ mod tests {
         ];
         let (c3, _) = kvac.batch_update(&kvs3).unwrap();
 
-        let (_, _, _, u) = kvac.map.get(&k1).unwrap();
+        let (_, _, _, u) = kvac.store.map.get(&k1).unwrap();
         assert_eq!(*u, 0);
 
         // Batch update all witnesses
@@ -882,7 +858,7 @@ mod tests {
         ).unwrap();
 
         // Lookup k1
-        let (v, _, w, u) = kvac.map.get(&k1).unwrap();
+        let (v, _, w, u) = kvac.store.map.get(&k1).unwrap();
         let witness = match w {
             WitnessWrapper::Complete(witness) => witness.clone(),
             WitnessWrapper::IncompleteCoprimeProof(_) => unreachable!(),
