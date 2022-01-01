@@ -84,6 +84,9 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     fn get_deferred_counter_dict_exp_updates(&self) -> Vec<BigNat> {
         return self.deferred_counter_dict_exp_updates.clone();
     }
+    fn clear_deferred_counter_dict_exp_updates(&mut self) {
+        self.deferred_counter_dict_exp_updates.clear();
+    }
     fn push_deferred_counter_dict_exp_updates(&mut self, value: BigNat) {
         self.deferred_counter_dict_exp_updates.push(value);
     }

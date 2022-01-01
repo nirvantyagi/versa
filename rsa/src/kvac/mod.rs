@@ -97,7 +97,7 @@ impl<T: store::RsaKVACStorer> RsaKVAC<T> {
     pub fn get_counter_dict_exp(&mut self) -> BigNat {
         let mut deferred_updates = vec![];
         deferred_updates.append(&mut self.store.get_deferred_counter_dict_exp_updates());
-        println!("HERE");
+        self.store.clear_deferred_counter_dict_exp_updates();
         assert_eq!(self.store.get_deferred_counter_dict_exp_updates(), Vec::<BigNat>::new());
         self.store.set_counter_dict_exp(deferred_updates.into_iter().fold(self.store.get_counter_dict_exp(), |exp, z| exp * z));
         self.store.get_counter_dict_exp()
@@ -272,9 +272,7 @@ impl<T: store::RsaKVACStorer> RsaKVAC<T> {
         let c1_new = c1.power(z).op(&c2.power(delta));
         let c2_new = c2.power(z);
         self.store.set_commitment(Commitment { c1: c1_new, c2: c2_new, _params: PhantomData });
-        println!("deferred_counter_dict_exp_updates 2: {:?}", self.store.get_deferred_counter_dict_exp_updates());
         self.store.push_deferred_counter_dict_exp_updates(z.clone());
-        println!("deferred_counter_dict_exp_updates 3: {:?}", self.store.get_deferred_counter_dict_exp_updates());
         self.store.increment_epoch();
 
         // Prove update append-only
@@ -629,11 +627,9 @@ mod tests {
     #[test]
     fn lookup_test() {
         let mut kvac = Kvac::new(KvacStore::new());
-        println!("deferred_counter_dict_exp_updates 1: {:?}", kvac.store.deferred_counter_dict_exp_updates);
         let k1 = BigNat::from(100);
         let v1 = BigNat::from(101);
         let (c1, _) = kvac.update(k1.clone(), v1.clone()).unwrap();
-        println!("deferred_counter_dict_exp_updates X: {:?}", kvac.store.deferred_counter_dict_exp_updates);
 
         let (v, witness) = kvac.lookup(&k1).unwrap();
         assert_eq!(v.clone().unwrap(), v1);

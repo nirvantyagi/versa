@@ -34,6 +34,7 @@ pub trait RsaKVACStorer {
 
     // deferred counter dict
     fn get_deferred_counter_dict_exp_updates(&self) -> Vec<BigNat>;
+    fn clear_deferred_counter_dict_exp_updates(&mut self);
     fn push_deferred_counter_dict_exp_updates(&mut self, value: BigNat);
 
     // counter dict
