@@ -92,8 +92,6 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     fn get_counter_dict_exp(&self) -> BigNat {
         return self.counter_dict_exp.clone();
     }
-
-    // dict exp
     fn set_counter_dict_exp(&mut self, value: BigNat) {
         self.counter_dict_exp = value;
     }
