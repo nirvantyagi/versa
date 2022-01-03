@@ -4,7 +4,7 @@ use ark_r1cs_std::{
     prelude::*,
 };
 
-use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, UpdateProofWrapper}};
+use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, UpdateProofWrapper, store::RSAAVDStorer}};
 
 use rsa::{
     hog::constraints::RsaHogVar,
@@ -154,7 +154,7 @@ pub struct RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
     _circuit_params: PhantomData<C>,
 }
 
-impl<ConstraintF, P, H, CircuitH, CircuitHG, C> SingleStepAVDGadget<RsaAVD<P, H, CircuitH, C>, ConstraintF>
+impl<ConstraintF, P, H, CircuitH, CircuitHG, C, T> SingleStepAVDGadget<RsaAVD<T>, ConstraintF>
 for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
     where
         ConstraintF: PrimeField,
@@ -163,6 +163,7 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
         CircuitH: Hasher<F = ConstraintF>,
         CircuitHG: HasherGadget<CircuitH, ConstraintF>,
         C: BigNatCircuitParams,
+        T: RSAAVDStorer,
 {
     type PublicParametersVar = EmptyVar;
     type DigestVar = DigestVar<ConstraintF, P, C>;
@@ -211,7 +212,11 @@ mod tests {
     use crate::SingleStepAVD;
 
     use rand::{SeedableRng, rngs::StdRng};
-
+    use rsa::kvac::{
+        store::mem_store::RsaKVACMemStore,
+        store::RsaKVACStorer,
+    };
+    use crate::rsa_avd::store::mem_store::RSAAVDMemStore;
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     pub struct TestRsa512Params;
@@ -252,12 +257,13 @@ mod tests {
     pub type H = PoseidonHasher<Fq>;
     pub type HG = PoseidonHasherGadget<Fq>;
 
-    pub type TestRsaAVD = RsaAVD<
+    pub type TestKvacStore = RsaKVACMemStore<
         TestKVACParams,
         HasherFromDigest<Fq, blake3::Hasher>,
         PoseidonHasher<Fq>,
         BigNatTestParams,
     >;
+    pub type TestRsaAVD = RsaAVD<RSAAVDMemStore<TestKvacStore>>;
 
     pub type TestRsaAVDGadget = RsaAVDGadget<
         Fq,

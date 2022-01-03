@@ -8,7 +8,7 @@ use ark_ff::{
 use crate::{Error, SingleStepAVD};
 
 use rsa::{
-    kvac::{RsaKVAC, RsaKVACParams, Commitment, MembershipWitness, UpdateProof},
+    kvac::{store::RsaKVACStorer, RsaKVAC, RsaKVACParams, Commitment, MembershipWitness, UpdateProof},
     hash::{Hasher, hash_to_prime::{PocklingtonCertificate, PocklingtonPlan, ExtensionCertificate, PlannedExtension}},
     bignat::{BigNat, Order, nat_to_limbs, constraints::BigNatCircuitParams},
     poker::PoKERParams,
@@ -118,10 +118,10 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams, ConstraintF: PrimeField> ToConstr
 }
 
 impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
-    type Digest = DigestWrapper<T::P, T::C>;
+    type Digest = DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C>;
     type PublicParameters = ();
-    type LookupProof = MembershipWitness<T::P>;
-    type UpdateProof = UpdateProofWrapper<T::P, T::CircuitH>;
+    type LookupProof = MembershipWitness<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>;
+    type UpdateProof = UpdateProofWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::PublicParameters, Error> {
         Ok(())
@@ -193,11 +193,11 @@ pub fn from_bignat(n: &BigNat) -> [u8; 32] {
 }
 
 impl<T: store::RSAAVDStorer> RsaAVD<T> {
-    fn wrap_digest(d: Commitment<T::P>) -> DigestWrapper<T::P, T::C> {
+    fn wrap_digest(d: Commitment<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>) -> DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C> {
         DigestWrapper { digest: d, _params: PhantomData, _circuit_params: PhantomData }
     }
 
-    fn wrap_proof(proof: UpdateProof<T::P, T::CircuitH>) -> UpdateProofWrapper<T::P, T::CircuitH> {
+    fn wrap_proof(proof: UpdateProof<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>) -> UpdateProofWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH> {
         UpdateProofWrapper { proof: proof, _params: PhantomData }
     }
 }

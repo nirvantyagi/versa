@@ -86,7 +86,7 @@ pub type UpdateProof<P, H> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams, H
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RsaKVAC<T: store::RsaKVACStorer> {
-    store: T,
+    pub store: T,
 }
 
 impl<T: store::RsaKVACStorer> RsaKVAC<T> {
