@@ -8,7 +8,7 @@ use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, U
 
 use rsa::{
     hog::constraints::RsaHogVar,
-    kvac::{RsaKVACParams, Commitment},
+    kvac::{store::RsaKVACStorer, RsaKVACParams, Commitment},
     hash::{Hasher, constraints::HasherGadget},
     bignat::{constraints::BigNatCircuitParams},
     poker::constraints::{ProofVar, StatementVar, conditional_enforce_poker_valid},
@@ -166,8 +166,18 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
         T: RSAAVDStorer,
 {
     type PublicParametersVar = EmptyVar;
-    type DigestVar = DigestVar<ConstraintF, P, C>;
-    type UpdateProofVar = UpdateProofVar<ConstraintF, P, C, CircuitH, CircuitHG>;
+    type DigestVar = DigestVar<
+        ConstraintF,
+        <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
+        <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
+    >;
+    type UpdateProofVar = UpdateProofVar<
+        ConstraintF,
+        <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
+        <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
+        <<T as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH,
+        CircuitHG,
+    >;
 
     fn conditional_check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
         let statement = StatementVar {

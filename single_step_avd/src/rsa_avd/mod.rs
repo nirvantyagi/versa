@@ -118,6 +118,7 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams, ConstraintF: PrimeField> ToConstr
 }
 
 impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
+    type Storer = T;
     type Digest = DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C>;
     type PublicParameters = ();
     type LookupProof = MembershipWitness<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>;
@@ -160,7 +161,7 @@ impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
     }
 
     fn verify_update(_pp: &Self::PublicParameters, prev_digest: &Self::Digest, new_digest: &Self::Digest, proof: &Self::UpdateProof) -> Result<bool, Error> {
-        RsaKVAC::<T>::verify_update_append_only(
+        RsaKVAC::<T::S>::verify_update_append_only(
             &prev_digest.digest,
             &new_digest.digest,
             &proof.proof,
@@ -172,7 +173,7 @@ impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
             Some((version, v_arr)) => (*version == proof.u as u64, Some(to_bignat(v_arr))),
             None => (true, None),
         };
-        let witness_verifies = RsaKVAC::<T>::verify_witness(
+        let witness_verifies = RsaKVAC::<T::S>::verify_witness(
             &to_bignat(key),
             &v,
             &digest.digest,
