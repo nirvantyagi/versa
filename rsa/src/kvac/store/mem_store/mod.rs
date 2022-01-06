@@ -29,11 +29,7 @@ pub struct RsaKVACMemStore<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: Big
     _circuit_params: PhantomData<C>,
 }
 
-impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaKVACStorer for RsaKVACMemStore<P, H, CircuitH, C> {
-    type P = P;
-    type H = H;
-    type CircuitH = CircuitH;
-    type C = C;
+impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaKVACStorer<P, H, CircuitH, C> for RsaKVACMemStore<P, H, CircuitH, C> {
 
     fn new() -> Self {
         RsaKVACMemStore {
@@ -100,10 +96,10 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
     }
 
     // commitment
-    fn get_commitment(&self) -> Commitment<Self::P> {
+    fn get_commitment(&self) -> Commitment<P> {
         return self.commitment.clone();
     }
-    fn set_commitment(&mut self, value: Commitment<Self::P>) {
+    fn set_commitment(&mut self, value: Commitment<P>) {
         self.commitment = value;
     }
 }
