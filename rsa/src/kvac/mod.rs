@@ -86,11 +86,11 @@ pub type UpdateProof<P, H> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams, H
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RsaKVAC<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> {
-    pub store: &store::RsaKVACStorer<P, H, CircuitH, C>,
+    pub store: store::RsaKVACStorer<P, H, CircuitH, C>,
 }
 
 impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaKVAC<P, H, CircuitH, C> {
-    pub fn new(s: &store::RsaKVACStorer<P, H, CircuitH, C>) -> Self {
+    pub fn new(s: store::RsaKVACStorer<P, H, CircuitH, C>) -> Self {
         RsaKVAC { store: s }
     }
 
