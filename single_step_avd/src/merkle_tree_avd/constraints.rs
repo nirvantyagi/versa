@@ -236,7 +236,6 @@ fn concat_leaf_var<ConstraintF: Field>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use ark_ed_on_bls12_381::{EdwardsProjective as JubJub, Fq, constraints::EdwardsVar};
     use ark_relations::r1cs::ConstraintSystem;
     use rand::{rngs::StdRng, SeedableRng};
@@ -247,11 +246,9 @@ mod tests {
     use crate::SingleStepAVD;
     use crypto_primitives::{
         sparse_merkle_tree::{
-            store::SMTStorer,
             store::mem_store::SMTMemStore,
             MerkleDepth,
             MerkleTreeParameters,
-            SparseMerkleTree,
         },
         hash::FixedLengthCRH,
     };
@@ -287,22 +284,16 @@ mod tests {
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
         type SMTStorer = SMTMemStore<MerkleTreeTestParameters>;
     }
-
+    type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MTAVDMemStore<MerkleTreeAVDTestParameters>>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MTAVDMemStore<MerkleTreeAVDTestParameters>, HG, Fq>;
 
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
-        let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();

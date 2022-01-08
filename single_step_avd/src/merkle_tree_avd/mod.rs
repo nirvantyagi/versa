@@ -104,7 +104,7 @@ impl<T: store::MTAVDStorer> SingleStepAVD for MerkleTreeAVD<T> {
         Ok(<<<<<T as store::MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
     }
 
-    fn new<R: Rng>(rng: &mut R, s: T) -> Result<Self, Error> {
+    fn new<R: Rng>(_rng: &mut R, s: T) -> Result<Self, Error> {
         Ok(MerkleTreeAVD { store: s })
     }
 
@@ -394,18 +394,15 @@ impl fmt::Display for MerkleTreeAVDError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use ark_ed_on_bls12_381::EdwardsProjective as JubJub;
     use rand::{rngs::StdRng, SeedableRng};
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
     };
     use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
-    use crate::merkle_tree_avd::store::mem_store::MTAVDMemStore;
-    use crypto_primitives::{
-        sparse_merkle_tree::{
-            SparseMerkleTree
-        },
+    use crate::merkle_tree_avd::store::{
+        mem_store::MTAVDMemStore,
+        MTAVDStorer
     };
 
     #[derive(Clone)]
@@ -434,7 +431,7 @@ mod tests {
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
         type SMTStorer = SMTMemStore<MerkleTreeTestParameters>;
     }
-
+    type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MTAVDMemStore<MerkleTreeAVDTestParameters>>;
 
     #[test]
@@ -442,13 +439,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
@@ -463,13 +454,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
@@ -520,13 +505,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
@@ -546,13 +525,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
@@ -572,13 +545,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[10_u8; 32]).unwrap();
@@ -598,13 +565,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value_1, digest_1, proof_1) = avd.lookup(&[1_u8; 32]).unwrap();
@@ -635,13 +596,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
@@ -685,13 +640,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
@@ -751,13 +700,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
-        let smt_mem_store: SMTMemStore<MerkleTreeTestParameters> = SMTMemStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let smt = SparseMerkleTree::new(smt_mem_store);
-        let mtavd_mem_store: MTAVDMemStore<MerkleTreeAVDTestParameters> = MTAVDMemStore {
-            tree: smt,
-            key_d: HashMap::new(),
-            index_d: HashMap::new(),
-        };
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
         let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),

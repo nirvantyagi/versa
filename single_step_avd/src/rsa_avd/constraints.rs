@@ -171,13 +171,7 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
         <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
         <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
     >;
-    type UpdateProofVar = UpdateProofVar<
-        ConstraintF,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH,
-        CircuitHG,
-    >;
+    type UpdateProofVar = UpdateProofVar<ConstraintF, P, C, CircuitH, CircuitHG>;
 
     fn conditional_check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
         let statement = StatementVar {
