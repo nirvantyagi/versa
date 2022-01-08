@@ -4,7 +4,7 @@ use std::{error::Error as ErrorTrait, hash::Hash};
 
 pub mod constraints;
 pub mod merkle_tree_avd;
-pub mod rsa_avd;
+// pub mod rsa_avd;
 
 pub type Error = Box<dyn ErrorTrait>;
 

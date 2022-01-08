@@ -122,7 +122,10 @@ impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
     type Digest = DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C>;
     type PublicParameters = ();
     type LookupProof = MembershipWitness<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>;
-    type UpdateProof = UpdateProofWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>;
+    type UpdateProof = UpdateProofWrapper<
+        <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P,
+        <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH
+    >;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::PublicParameters, Error> {
         Ok(())

@@ -5,19 +5,28 @@ use crate::Error;
 use crypto_primitives::{
     sparse_merkle_tree::{
         store::SMTStorer,
-        MerkleDepth, MerkleIndex, MerkleTreeParameters,
+        MerkleIndex,
+        MerkleTreePath,
+        MerkleTreeParameters
     },
-    hash::FixedLengthCRH,
+    hash::FixedLengthCRH
 };
 
 pub trait HTStorer {
     type S: SMTStorer;
     type D: ToBytes + Eq + Clone;
 
+    fn get_root(&self) ->
+        <<<<Self as HTStorer>::S as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
+
     fn get_epoch(&self) -> MerkleIndex;
     fn set_epoch(&mut self, index: MerkleIndex) -> Result<(), Error>;
-    fn smt_update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
-    fn digest_d_insert(&mut self, index: MerkleIndex, digest: Self::D) -> Result<(), Error>;
+
+    fn get_digest_d(&self, key: &MerkleIndex) -> Option<&Self::D>;
+    fn insert_digest_d(&mut self, index: MerkleIndex, digest: Self::D) -> Option<Self::D>;
+
+    fn lookup_smt(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<<<Self as HTStorer>::S as SMTStorer>::P>, Error>;
+    fn update_smt(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
 
     // fn new(
     //     initial_leaf_value: &[u8],
