@@ -31,8 +31,13 @@ pub trait MerkleTreeParameters {
     }
 }
 
-pub struct SparseMerkleTree<T: store::SMTStorer> {
+pub struct SparseMerkleTree<P, T>
+where
+    P: MerkleTreeParameters,
+    T: store::SMTStorer<P>,
+{
     pub store: T,
+    _p: PhantomData<P>,
 }
 
 pub struct MerkleTreePath<P: MerkleTreeParameters> {
@@ -58,23 +63,30 @@ impl<P: MerkleTreeParameters> Default for MerkleTreePath<P> {
     }
 }
 
-impl<T: store::SMTStorer> SparseMerkleTree<T> {
-    pub fn new(s: T) -> SparseMerkleTree<T> {
-        SparseMerkleTree { store: s }
+impl<P, T> SparseMerkleTree<P, T>
+where
+    P: MerkleTreeParameters,
+    T: store::SMTStorer<P>,
+{
+    pub fn new(s: T) -> Self {
+        SparseMerkleTree {
+            store: s,
+            _p: PhantomData,
+        }
     }
 
     pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error> {
-        if index >= 1_u64 << (T::P::DEPTH as u64) {
+        if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
 
         let mut i = index;
         self.store.set(
-            (T::P::DEPTH, i),
-            hash_leaf::<<T::P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), leaf_value)?,
+            (P::DEPTH, i),
+            hash_leaf::<<P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), leaf_value)?,
         );
 
-        for d in (0..T::P::DEPTH).rev() {
+        for d in (0..P::DEPTH).rev() {
             i >>= 1;
             let lc_i = i << 1;
             let rc_i = lc_i + 1;
@@ -88,7 +100,7 @@ impl<T: store::SMTStorer> SparseMerkleTree<T> {
             };
             self.store.set(
                 (d, i),
-                hash_inner_node::<<T::P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), &lc_hash, &rc_hash)?,
+                hash_inner_node::<<P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), &lc_hash, &rc_hash)?,
             );
         }
         // TODO: double borrow makes it possible to create two mutable references for the same data,
@@ -99,14 +111,14 @@ impl<T: store::SMTStorer> SparseMerkleTree<T> {
         Ok(())
     }
 
-    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<T::P>, Error> {
-        if index >= 1_u64 << (T::P::DEPTH as u64) {
+    pub fn lookup(&self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
+        if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
         }
         let mut path = Vec::new();
 
         let mut i = index;
-        for d in (1..=T::P::DEPTH).rev() {
+        for d in (1..=P::DEPTH).rev() {
             let sibling_hash = match self.store.get(&(d, i ^ 1)) {
                 Some(h) => h.clone(),
                 None => self.store.get_sparse_initial_hashes(d as usize).clone(),
@@ -234,14 +246,17 @@ mod tests {
         type H = H;
     }
 
-    type TestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTestParameters>>;
-    type TinyTestMerkleTree = SparseMerkleTree<SMTMemStore<MerkleTreeTinyTestParameters>>;
+    type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters, SMTStore>;
+
+    type TinySMTStore = SMTMemStore<MerkleTreeTinyTestParameters>;
+    type TinyTestMerkleTree = SparseMerkleTree<MerkleTreeTinyTestParameters, TinySMTStore>;
 
     #[test]
     fn initialize_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mem_store = TinySMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let tree = TinyTestMerkleTree::new(mem_store);
         let leaf_hash = hash_leaf::<H>(&crh_parameters, &[0u8; 16]).unwrap();
         let root_hash = hash_inner_node::<H>(&crh_parameters, &leaf_hash, &leaf_hash).unwrap();

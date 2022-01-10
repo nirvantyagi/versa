@@ -15,27 +15,28 @@ use crate::sparse_merkle_tree::{
     hash_inner_node,
 };
 
-pub struct SMTMemStore<M: MerkleTreeParameters> {
-    tree: HashMap<(MerkleDepth, MerkleIndex), <M::H as FixedLengthCRH>::Output>,
-    pub root: <M::H as FixedLengthCRH>::Output,
-    sparse_initial_hashes: Vec<<M::H as FixedLengthCRH>::Output>,
-    pub hash_parameters: <M::H as FixedLengthCRH>::Parameters,
-    _parameters: PhantomData<M>,
+pub struct SMTMemStore<P: MerkleTreeParameters> {
+    tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
+    pub root: <P::H as FixedLengthCRH>::Output,
+    sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
+    pub hash_parameters: <P::H as FixedLengthCRH>::Parameters,
+    _parameters: PhantomData<P>,
 }
 
-impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
-    type P = M;
-
+impl<P> SMTStorer<P> for SMTMemStore<P>
+where
+    P: MerkleTreeParameters,
+{
     fn new(
         initial_leaf_value: &[u8],
-        hash_parameters: &<<M as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters,
+        hash_parameters: &<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
     ) -> Result<Self, Error> {
         // Compute initial hashes for each depth of tree
         let mut sparse_initial_hashes =
-            vec![hash_leaf::<<M as MerkleTreeParameters>::H>(&hash_parameters, initial_leaf_value)?];
-        for i in 1..=(<M as MerkleTreeParameters>::DEPTH as usize) {
+            vec![hash_leaf::<<P as MerkleTreeParameters>::H>(&hash_parameters, initial_leaf_value)?];
+        for i in 1..=(<P as MerkleTreeParameters>::DEPTH as usize) {
             let child_hash = sparse_initial_hashes[i - 1].clone();
-            sparse_initial_hashes.push(hash_inner_node::<<M as MerkleTreeParameters>::H>(
+            sparse_initial_hashes.push(hash_inner_node::<<P as MerkleTreeParameters>::H>(
                 hash_parameters,
                 &child_hash,
                 &child_hash,
@@ -55,14 +56,14 @@ impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
     fn get(
         & self,
         index: &(MerkleDepth, MerkleIndex),
-    ) -> Option<&<<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
+    ) -> Option<&<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
         return self.tree.get(index);
     }
 
     fn set(
         &mut self,
         index: (MerkleDepth, MerkleIndex),
-        value: <<<Self as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
+        value: <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     ) {
         self.tree.insert(index, value.clone());
         // TODO: is setting the root this way necessary? Can we simply always access (0, 0)?
@@ -72,17 +73,17 @@ impl<M: MerkleTreeParameters> SMTStorer for SMTMemStore<M> {
     }
 
     fn get_root(& self) ->
-        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
+        <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
         return self.root.clone();
     }
 
     fn get_hash_parameters(& self) ->
-        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters {
+        <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters {
         return self.hash_parameters.clone();
     }
 
     fn get_sparse_initial_hashes(& self, index: usize) ->
-        <<M as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
+        <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
         return self.sparse_initial_hashes[index].clone();
     }
 }
