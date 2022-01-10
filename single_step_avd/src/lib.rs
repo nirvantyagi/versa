@@ -13,11 +13,10 @@ pub trait SingleStepAVD: Sized {
     type PublicParameters: Clone + Default + Send + Sync;
     type LookupProof;
     type UpdateProof: Clone + Default;
-    type Storer: SSAVDStorer<Self>;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng>(rng: &mut R, store: Self::Storer) -> Result<Self, Error>;
+    fn new<R: Rng>(rng: &mut R, store: SSAVDStorer<Self>) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 

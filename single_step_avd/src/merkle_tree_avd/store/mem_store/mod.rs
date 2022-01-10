@@ -17,21 +17,27 @@ use crate::merkle_tree_avd::{
     store::MTAVDStorer,
 };
 
-pub struct MTAVDMemStore<M: MerkleTreeAVDParameters> {
-    tree: SparseMerkleTree<M::SMTStorer>,
+pub struct MTAVDMemStore<M, S>
+where
+    M: MerkleTreeAVDParameters,
+    S: SMTStorer<M::MerkleTreeParameters>,
+{
+    tree: SparseMerkleTree<M::MerkleTreeParameters, S>,
     key_d: HashMap<[u8; 32], (u8, u64, [u8; 32])>, // key -> probe, version, value
     index_d: HashMap<MerkleIndex, [u8; 32]>,
 }
 
-impl<M: MerkleTreeAVDParameters> MTAVDStorer for MTAVDMemStore<M> {
-    type S = M;
-
+impl<M, S> MTAVDStorer<M, S> for MTAVDMemStore<M, S>
+where
+    M: MerkleTreeAVDParameters,
+    S: SMTStorer<M::MerkleTreeParameters>,
+{
     fn new(
         initial_leaf: &[u8],
-        pp: &<<<<Self::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
-    ) -> Result<Self, Error> {
-        let smt_store = <<Self::S as MerkleTreeAVDParameters>::SMTStorer>::new(&initial_leaf, pp).unwrap();
-        let smt: SparseMerkleTree<<Self::S as MerkleTreeAVDParameters>::SMTStorer> = SparseMerkleTree::new(smt_store);
+        pp: &<<<M as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
+    ) -> Result<Self, Error> where Self: Sized {
+        let smt_store = S::new(&initial_leaf, pp).unwrap();
+        let smt: SparseMerkleTree<<M as MerkleTreeAVDParameters>::MerkleTreeParameters, S> = SparseMerkleTree::new(smt_store);
         Ok(MTAVDMemStore {
             tree: smt,
             key_d: HashMap::new(),
@@ -59,13 +65,14 @@ impl<M: MerkleTreeAVDParameters> MTAVDStorer for MTAVDMemStore<M> {
     }
 
     // smt
-    fn lookup_smt(&self, index: MerkleIndex) ->  Result<MerkleTreePath<<<<Self as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P>, Error> {
+    fn lookup_smt(&self, index: MerkleIndex) ->  Result<MerkleTreePath<<M as MerkleTreeAVDParameters>::MerkleTreeParameters>, Error> {
         return self.tree.lookup(index);
     }
     fn update_smt(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error> {
         return self.tree.update(index, leaf_value);
     }
-    fn get_smt_root(&self) -> <<<<<Self as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
+    fn get_smt_root(&self) ->
+        <<<M as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Output {
         return self.tree.store.get_root();
     }
 }

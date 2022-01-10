@@ -4,20 +4,16 @@ use ark_r1cs_std::{
     prelude::*,
     uint64::UInt64,
 };
+
 use crate::{
     constraints::SingleStepAVDGadget,
-    merkle_tree_avd::{
-        MerkleTreeAVD,
-        MerkleTreeAVDParameters,
-        UpdateProof,
-        store::MTAVDStorer
-    },
+    merkle_tree_avd::{MerkleTreeAVD, MerkleTreeAVDParameters, UpdateProof, store::MTAVDStorer},
 };
 use crypto_primitives::{
     sparse_merkle_tree::{
-        store::{SMTStorer},
         constraints::MerkleTreePathVar,
         MerkleTreeParameters,
+        store::SMTStorer,
     },
     hash::constraints::FixedLengthCRHGadget,
 };
@@ -26,14 +22,14 @@ use std::{borrow::Borrow, marker::PhantomData, convert::{TryFrom}};
 
 pub struct UpdateProofVar<P, HGadget, ConstraintF>
 where
-    P: MTAVDStorer,
+    P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<P as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
 {
-    paths: Vec<MerkleTreePathVar<<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>,
+    paths: Vec<MerkleTreePathVar<P::MerkleTreeParameters, HGadget, ConstraintF>>,
     indices: Vec<UInt64<ConstraintF>>,
     keys: Vec<[UInt8<ConstraintF>; 32]>,
     versions: Vec<UInt64<ConstraintF>>,
@@ -41,17 +37,17 @@ where
     new_values: Vec<[UInt8<ConstraintF>; 32]>,
 }
 
-impl<P, HGadget, ConstraintF> AllocVar<UpdateProof<P::S>, ConstraintF>
+impl<P, HGadget, ConstraintF> AllocVar<UpdateProof<P>, ConstraintF>
     for UpdateProofVar<P, HGadget, ConstraintF>
 where
-    P: MTAVDStorer,
+    P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<P as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
 {
-    fn new_variable<T: Borrow<UpdateProof<P::S>>>(
+    fn new_variable<T: Borrow<UpdateProof<P>>>(
         cs: impl Into<Namespace<ConstraintF>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
@@ -59,7 +55,7 @@ where
         let ns = cs.into();
         let cs = ns.cs();
         let f_out = f()?;
-        let paths = Vec::<MerkleTreePathVar<<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P, HGadget, ConstraintF>>::new_variable(
+        let paths = Vec::<MerkleTreePathVar<P::MerkleTreeParameters, HGadget, ConstraintF>>::new_variable(
             ark_relations::ns!(cs, "merkle_paths"),
             || Ok(&f_out.borrow().paths[..]),
             mode,
@@ -123,9 +119,9 @@ where
 
 pub struct MerkleTreeAVDGadget<P, HGadget, ConstraintF>
 where
-    P: MTAVDStorer,
+    P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<P as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: Field,
@@ -135,15 +131,17 @@ where
     _engine: PhantomData<ConstraintF>,
 }
 
-impl<P, HGadget, ConstraintF> SingleStepAVDGadget<MerkleTreeAVD<P>, ConstraintF>
+impl<P, HGadget, ConstraintF, T, S> SingleStepAVDGadget<MerkleTreeAVD<P, T, S>, ConstraintF>
     for MerkleTreeAVDGadget<P, HGadget, ConstraintF>
 where
-    P: MTAVDStorer,
+    P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
-        <<<<P as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H,
+        <<P as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H,
         ConstraintF,
     >,
     ConstraintF: PrimeField,
+    T: SMTStorer<P::MerkleTreeParameters>,
+    S: MTAVDStorer<P, T>,
 {
     type PublicParametersVar = HGadget::ParametersVar;
     type DigestVar = HGadget::OutputVar;
@@ -243,18 +241,15 @@ mod tests {
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
 
-    use crate::SingleStepAVD;
+    use crate::merkle_tree_avd::{
+        store::mem_store::MTAVDMemStore,
+    };
     use crypto_primitives::{
         sparse_merkle_tree::{
-            store::mem_store::SMTMemStore,
             MerkleDepth,
-            MerkleTreeParameters,
+            store::mem_store::SMTMemStore,
         },
         hash::FixedLengthCRH,
-    };
-    use crate::merkle_tree_avd::{
-        concat_leaf_data,
-        store::mem_store::MTAVDMemStore
     };
 
     #[derive(Clone)]
@@ -282,19 +277,29 @@ mod tests {
     impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
         const MAX_UPDATE_BATCH_SIZE: u64 = 8;
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
-        type SMTStorer = SMTMemStore<MerkleTreeTestParameters>;
+        type MerkleTreeParameters = MerkleTreeTestParameters;
     }
-    type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters>;
-    type TestMerkleTreeAVD = MerkleTreeAVD<MTAVDMemStore<MerkleTreeAVDTestParameters>>;
-    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MTAVDMemStore<MerkleTreeAVDTestParameters>, HG, Fq>;
+
+    type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, SMTStore>;
+    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
+    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
+
+    fn concat_leaf_data(key: &[u8; 32], version: u64, value: &[u8; 32]) -> Vec<u8> {
+        key.iter()
+            .chain(&version.to_le_bytes())
+            .chain(value)
+            .cloned()
+            .collect()
+    }
 
     #[test]
     fn update_and_verify_test() {
-        let mut rng = StdRng::seed_from_u64(0u64);
-        let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
+        let mut rng = StdRng::seed_from_u64(0_u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
+        let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
         let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
-        let mut avd: TestMerkleTreeAVD = TestMerkleTreeAVD { store: mtavd_mem_store };
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
 

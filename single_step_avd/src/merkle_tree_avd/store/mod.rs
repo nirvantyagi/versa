@@ -14,12 +14,14 @@ use crypto_primitives::{
     },
 };
 
-pub trait MTAVDStorer {
-    type S: MerkleTreeAVDParameters;
-
+pub trait MTAVDStorer<M, S>
+where
+    M: MerkleTreeAVDParameters,
+    S: SMTStorer<M::MerkleTreeParameters>,
+{
     fn new(
-        initial_leaf_value: &[u8],
-        pp: &<<<<Self::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
+        initial_leaf: &[u8],
+        pp: &<<<M as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
     ) ->
         Result<Self, Error> where Self: Sized;
 
@@ -33,11 +35,11 @@ pub trait MTAVDStorer {
     fn entry_or_insert_with_index_d(&mut self, key: MerkleIndex, value: [u8; 32]) -> &mut [u8; 32];
 
     // smt
-    fn lookup_smt(&self, index: MerkleIndex) ->  Result<MerkleTreePath<<<<Self as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P>, Error>;
+    fn lookup_smt(&self, index: MerkleIndex) ->  Result<MerkleTreePath<<M as MerkleTreeAVDParameters>::MerkleTreeParameters>, Error>;
     fn update_smt(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
     fn get_smt_root(&self) ->
-        <<<<<Self as MTAVDStorer>::S as MerkleTreeAVDParameters>::SMTStorer as SMTStorer>::P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
+        <<<M as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
 }
 
 // Anything that implements MTAVDStorer implements SSAVDStorer<MTAVD<S>>
-impl<S: MTAVDStorer> SSAVDStorer<MerkleTreeAVD<S>> for S {}
+impl<M: MerkleTreeAVDParameters, T: SMTStorer<M::MerkleTreeParameters>, S: MTAVDStorer<M, T>> SSAVDStorer<MerkleTreeAVD<M, T, S>> for S {}
