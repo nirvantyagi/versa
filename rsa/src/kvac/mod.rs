@@ -85,13 +85,37 @@ pub enum WitnessWrapper<P: RsaKVACParams> {
 pub type UpdateProof<P, H> =  PoKERProof<<P as RsaKVACParams>::RsaGroupParams, H>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RsaKVAC<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> {
-    pub store: store::RsaKVACStorer<P, H, CircuitH, C>,
+pub struct RsaKVAC<P, H, CircuitH, C, S>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: store::RsaKVACStorer<P, H, CircuitH, C>
+{
+    pub store: S,
+    _p: PhantomData<P>,
+    _h: PhantomData<H>,
+    _circuith: PhantomData<CircuitH>,
+    _c: PhantomData<C>,
 }
 
-impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaKVAC<P, H, CircuitH, C> {
-    pub fn new(s: store::RsaKVACStorer<P, H, CircuitH, C>) -> Self {
-        RsaKVAC { store: s }
+impl<P, H, CircuitH, C, S> RsaKVAC<P, H, CircuitH, C, S>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: store::RsaKVACStorer<P, H, CircuitH, C>
+{
+    pub fn new(s: S) -> Self {
+        RsaKVAC {
+            store: s,
+            _p: PhantomData,
+            _h: PhantomData,
+            _circuith: PhantomData,
+            _c: PhantomData,
+        }
     }
 
     pub fn get_counter_dict_exp(&mut self) -> BigNat {
@@ -622,7 +646,7 @@ mod tests {
     }
 
     pub type KvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonHasher<Fq>, CircuitParams>;
-    pub type Kvac = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonHasher<Fq>, CircuitParams>;
+    pub type Kvac = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonHasher<Fq>, CircuitParams, KvacStore>;
 
     #[test]
     fn lookup_test() {
