@@ -1,6 +1,12 @@
+use std::marker::PhantomData;
 use rsa::{
     kvac::{
-        RsaKVACParams, RsaKVAC, Commitment, MembershipWitness, UpdateProof,
+        RsaKVACParams,
+        RsaKVAC,
+        Commitment,
+        MembershipWitness,
+        UpdateProof,
+        store::RsaKVACStorer,
     },
     poker::{
         PoKER,
@@ -15,14 +21,27 @@ use single_step_avd::rsa_avd::{to_bignat, from_bignat};
 use crate::{Error, FullHistoryAVD, get_checkpoint_epochs};
 use rand::{Rng, CryptoRng};
 
+pub mod store;
+
 pub type RsaParams<P> = <P as RsaKVACParams>::RsaGroupParams;
 pub type PoKParams<P> = <P as RsaKVACParams>::PoKERParams;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct RsaFullHistoryAVD<P: RsaKVACParams, H1: Hasher, H2: Hasher, C: BigNatCircuitParams> {
-    kvac: RsaKVAC<P, H1, H2, C>,
-    digests: Vec<Commitment<P>>,
-    range_proofs: Vec<Vec<(UpdateProof<P, H2>, BigNat, BigNat)>>, // (proof, z_product, delta_sum)
+pub struct RsaFullHistoryAVD<P, H1, H2, C, S, T>
+where
+    P: RsaKVACParams,
+    H1: Hasher,
+    H2: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H1, H2, C>,
+    T: store::RsaFullHistoryAVDStorer<P, H1, H2, C, S>
+{
+    store: T,
+    _p: PhantomData<P>,
+    _h1: PhantomData<H1>,
+    _h2: PhantomData<H2>,
+    _c: PhantomData<C>,
+    _s: PhantomData<S>,
 }
 
 pub struct AuditProof<P: RsaKVACParams, H2: Hasher> {
@@ -31,8 +50,16 @@ pub struct AuditProof<P: RsaKVACParams, H2: Hasher> {
 }
 
 
-impl<P: RsaKVACParams, H1: Hasher, H2: Hasher, C: BigNatCircuitParams>
-FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
+impl<P, H1, H2, C, S, T> FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C, S, T>
+where
+    P: RsaKVACParams,
+    H1: Hasher,
+    H2: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H1, H2, C>,
+    T: store::RsaFullHistoryAVDStorer<P, H1, H2, C, S>
+{
+    type Store = T;
     type Digest = Commitment<P>;
     type PublicParameters = ();
     type LookupProof = MembershipWitness<P>;
@@ -42,22 +69,23 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
         Ok(())
     }
 
-    fn new<R: Rng + CryptoRng>(_rng: &mut R, _pp: &Self::PublicParameters) -> Result<Self, Error> {
-        let kvac = RsaKVAC::new();
-        let digests = vec![kvac.commitment.clone()];
+    fn new<R: Rng + CryptoRng>(_rng: &mut R, s: T) -> Result<Self, Error> {
         Ok(Self {
-            kvac,
-            digests,
-            range_proofs: vec![],
+            store: s,
+            _p: PhantomData,
+            _h1: PhantomData,
+            _h2: PhantomData,
+            _c: PhantomData,
+            _s: PhantomData,
         })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
-        Ok(self.digests.last().unwrap().clone())
+        Ok(self.store.digest_get_last())
     }
 
     fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
-        let (v, witness) = self.kvac.lookup(&to_bignat(key))?;
+        let (v, witness) = self.store.kvac_lookup(&to_bignat(key))?;
         let versioned_v = match v {
             Some(n) => Some((witness.u as u64, from_bignat(&n))),
             None => None,
@@ -70,38 +98,38 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
     }
 
     fn batch_update<R: Rng + CryptoRng>(&mut self, _rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<Self::Digest, Error> {
-        let (d, proof, (z, delta)) = self.kvac._batch_update(
+        let (d, proof, (z, delta)) = self.store.kvac_batch_update(
             &kvs.iter()
                 .map(|(k, v)| (to_bignat(k), to_bignat(v)))
                 .collect::<Vec<(BigNat, BigNat)>>()
         )?;
-        self.digests.push(d.clone());
+        self.store.digest_push(d.clone());
 
         //TODO: Only need to store z, delta for last two elements of each level
         // Compute range proofs
-        let new_epoch = self.digests.len() - 1;
+        let new_epoch = self.store.digest_get_len() - 1;
         let aggr_level = new_epoch.trailing_zeros() as usize;
-        if aggr_level == self.range_proofs.len() {
-            self.range_proofs.push(vec![]);
+        if aggr_level == self.store.range_proofs_get_len() {
+            self.store.range_proofs_push(vec![]);
         }
-        self.range_proofs[0].push((proof, z, delta));
+        self.store.range_proofs_push_index(0, (proof, z, delta));
         for level in 1..=aggr_level {  // Aggregate
             let start_epoch = new_epoch - (1 << level);
             let statement = PoKERStatement {
-                u1: self.digests[start_epoch].c1.clone(),
-                u2: self.digests[start_epoch].c2.clone(),
-                w1: self.digests[new_epoch].c1.clone(),
-                w2: self.digests[new_epoch].c2.clone(),
+                u1: self.store.digest_get(start_epoch).c1.clone(),
+                u2: self.store.digest_get(start_epoch).c2.clone(),
+                w1: self.store.digest_get(new_epoch).c1.clone(),
+                w2: self.store.digest_get(new_epoch).c2.clone(),
             };
-            let level_len = self.range_proofs[level - 1].len();
-            let (_, z1, delta1) = self.range_proofs[level - 1][level_len - 1].clone();
-            let (_, z2, delta2) = self.range_proofs[level - 1][level_len - 2].clone();
+            let level_len = self.store.range_proofs_get_level_len(level - 1);
+            let (_, z1, delta1) = self.store.range_proofs_get_specific(level - 1, level_len - 1);
+            let (_, z2, delta2) = self.store.range_proofs_get_specific(level - 1, level_len - 2);
             let witness = PoKERWitness {
                 a: z1.clone() * z2.clone(),
                 b: z1.clone() * delta2.clone() + z2.clone() * delta1.clone(),
             };
             let proof = PoKER::<PoKParams<P>, RsaParams<P>, H2, C>::prove(&statement, &witness)?;
-            self.range_proofs[level].push((proof, witness.a, witness.b));
+            self.store.range_proofs_push_index(level, (proof, witness.a, witness.b));
         }
         Ok(d)
     }
@@ -111,7 +139,7 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
             Some((version, v_arr)) => (*version == proof.u as u64, Some(to_bignat(v_arr))),
             None => (true, None),
         };
-        let witness_verifies = RsaKVAC::<P, H1, H2, C>::verify_witness(
+        let witness_verifies = RsaKVAC::<P, H1, H2, C, S>::verify_witness(
             &to_bignat(key),
             &v,
             digest,
@@ -123,10 +151,10 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
     fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
         let (checkpoints, checkpoint_ranges) = get_checkpoint_epochs(start_epoch, end_epoch);
         let checkpoint_digests = checkpoints.iter()
-            .map(|i| self.digests[*i].clone())
+            .map(|i| self.store.digest_get(*i))
             .collect::<Vec<_>>();
         let range_proofs = checkpoints.iter().zip(&checkpoint_ranges)
-            .map(|(ckpt, ckpt_level)| self.range_proofs[*ckpt_level][ckpt >> ckpt_level].clone().0)
+            .map(|(ckpt, ckpt_level)| self.store.range_proofs_get_specific(*ckpt_level, ckpt >> ckpt_level).0)
             .collect::<Vec<_>>();
         Ok((
             self.digest()?,
@@ -141,7 +169,7 @@ FullHistoryAVD for RsaFullHistoryAVD<P, H1, H2, C> {
         Ok(proof.range_proofs.iter()
             .enumerate()
             .map(|(i, range_proof)|
-                RsaKVAC::<P, H1, H2, C>::verify_update_append_only(
+                RsaKVAC::<P, H1, H2, C, S>::verify_update_append_only(
                     &proof.checkpoint_digests[i].clone(),
                     &proof.checkpoint_digests[i+1].clone(),
                     range_proof,
@@ -158,11 +186,13 @@ mod tests {
     use ark_ed_on_bls12_381::{Fq};
     use rand::{rngs::StdRng, SeedableRng};
     use rsa::{
+        kvac::store::mem_store::RsaKVACMemStore,
         poker::PoKERParams,
         hog::{RsaGroupParams},
         hash::{HasherFromDigest},
     };
-
+    // use crate::FullHistoryAVD;
+    use crate::rsa_algebraic::store::RsaFullHistoryAVDStorer;
     use std::time::Instant;
 
 
@@ -206,14 +236,18 @@ mod tests {
     }
 
     pub type H = HasherFromDigest<Fq, blake3::Hasher>;
-    pub type TestRsaFHAVD = RsaFullHistoryAVD<TestKVACParams, H, H, BigNatTestParams>;
+    pub type RsaKvacStore = RsaKVACMemStore<TestKVACParams, H, H, BigNatTestParams>;
+    pub type RsaFHAVDStore = store::mem_store::RsaFullHistoryAVDMemStore<TestKVACParams, H, H, BigNatTestParams, RsaKvacStore>;
+    pub type TestRsaFHAVD = RsaFullHistoryAVD<TestKVACParams, H, H, BigNatTestParams, RsaKvacStore, RsaFHAVDStore>;
 
     #[test]
     fn rsa_update_and_verify_algebraic_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = TestRsaFHAVD::setup(&mut rng).unwrap();
-        let mut avd  = TestRsaFHAVD::new(&mut rng, &pp).unwrap();
+        let kvac_mem_store = RsaKvacStore::new();
+        let fhavd_mem_store = RsaFHAVDStore::new(kvac_mem_store).unwrap();
+        let mut avd  = TestRsaFHAVD::new(&mut rng, fhavd_mem_store).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 

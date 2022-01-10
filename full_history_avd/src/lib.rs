@@ -3,9 +3,9 @@ use std::{error::Error as ErrorTrait};
 
 use rand::{Rng, CryptoRng};
 
-pub mod history_tree;
-pub mod aggregation;
-pub mod recursion;
+// pub mod history_tree;
+// pub mod aggregation;
+// pub mod recursion;
 pub mod rsa_algebraic;
 
 pub type Error = Box<dyn ErrorTrait>;
@@ -16,10 +16,11 @@ pub trait FullHistoryAVD: Sized {
     type PublicParameters: Clone + Send + Sync;
     type LookupProof;
     type AuditProof;
+    type Store: FHAVDStorer<Self>;
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, store: Self::Store) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 
@@ -165,3 +166,5 @@ mod tests {
         );
     }
 }
+
+pub trait FHAVDStorer<FHAVD: FullHistoryAVD> {}

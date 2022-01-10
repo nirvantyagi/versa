@@ -16,9 +16,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Run crypto_primitives/src/sparse_merkle_tree test suite
+    - name: Test SMT
       run: cd ./crypto_primitives/src/sparse_merkle_tree && cargo test
-    - name: Run rsa/src/kvac test suite
+    - name: Test KVAC
       run: cd ./rsa/src/kvac && cargo test
-    - name: Run single_step_avd/merkle_tree_avd test suite
+    - name: Test MTAVD
       run: cd ./single_step_avd/src/merkle_tree_avd && cargo test
+    - name: Test RSAAVD (all tests ignored)
+      run: cd ./single_step_avd/src/rsa_avd && cargo test
+    - name: Test RSAALG
+      run: cd ./full_history_avd/src/rsa_algebraic && cargo test

@@ -34,12 +34,22 @@ mod tests {
         },
         kvac::{
             RsaKVACParams,
+            RsaKVAC,
+            store::{
+                mem_store::RsaKVACMemStore,
+                RsaKVACStorer,
+            },
         },
     };
     use single_step_avd::{
-        SingleStepAVD, constraints::SingleStepAVDGadget,
+        SingleStepAVD,
+        constraints::SingleStepAVDGadget,
         rsa_avd::{
             RsaAVD,
+            store::{
+                mem_store::RSAAVDMemStore,
+                RSAAVDStorer,
+            },
             constraints::{RsaAVDGadget, DigestVar, UpdateProofVar, EmptyVar},
         },
     };
@@ -80,11 +90,44 @@ mod tests {
     pub type HG = PoseidonHasherGadget<Fq>;
     pub type Hog = RsaHiddenOrderGroup<TestRsa64Params>;
     pub type Poker = PoKER<TestPokerParams, TestRsa64Params, H, BigNatTestParams>;
+
+    pub type TestKvacStore = RsaKVACMemStore<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        H,
+        BigNatTestParams,
+    >;
+    pub type TestRSAKVAC = RsaKVAC<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        H,
+        BigNatTestParams,
+        TestKvacStore,
+    >;
+    pub type RSAAVDStore = RSAAVDMemStore<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        H,
+        BigNatTestParams,
+        TestKvacStore,
+    >;
     pub type TestRsaAVD = RsaAVD<
-        TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, H, BigNatTestParams,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        H,
+        BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore,
     >;
     pub type TestRsaAVDGadget = RsaAVDGadget<
-        Fq, TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, H, HG, BigNatTestParams,
+        Fq,
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        H,
+        HG,
+        BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore,
     >;
 
 
@@ -136,7 +179,10 @@ mod tests {
     impl ConstraintSynthesizer<Fq> for RsaAVDCircuit {
         fn generate_constraints(self, cs: ConstraintSystemRef<Fq>) -> Result<(), SynthesisError> {
             let mut rng = StdRng::seed_from_u64(0_u64);
-            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
+            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
+            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
+            let rsaavd_mem_store: RSAAVDStore = RSAAVDStore::new(rsa_kvac).unwrap();
+            let mut avd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
             let digest_0 = avd.digest().unwrap();
             let (digest_1, proof) = avd.batch_update(&vec![
                 (u8_to_array(1), u8_to_array(2)),
