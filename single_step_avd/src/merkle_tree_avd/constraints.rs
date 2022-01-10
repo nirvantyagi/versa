@@ -117,7 +117,7 @@ where
     }
 }
 
-pub struct MerkleTreeAVDGadget<P, HGadget, ConstraintF>
+pub struct MerkleTreeAVDGadget<P, HGadget, ConstraintF, T, S>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
@@ -125,14 +125,19 @@ where
         ConstraintF,
     >,
     ConstraintF: Field,
+    T: SMTStorer<P::MerkleTreeParameters>,
+    S: MTAVDStorer<P, T>,
+
 {
     _parameters: PhantomData<P>,
     _hash_gadget: PhantomData<HGadget>,
     _engine: PhantomData<ConstraintF>,
+    _t: PhantomData<T>,
+    _s: PhantomData<S>,
 }
 
 impl<P, HGadget, ConstraintF, T, S> SingleStepAVDGadget<MerkleTreeAVD<P, T, S>, ConstraintF>
-    for MerkleTreeAVDGadget<P, HGadget, ConstraintF>
+    for MerkleTreeAVDGadget<P, HGadget, ConstraintF, T, S>
 where
     P: MerkleTreeAVDParameters,
     HGadget: FixedLengthCRHGadget<
@@ -241,9 +246,8 @@ mod tests {
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
 
-    use crate::merkle_tree_avd::{
-        store::mem_store::MTAVDMemStore,
-    };
+    use crate::merkle_tree_avd::store::mem_store::MTAVDMemStore;
+    use crate::SingleStepAVD;
     use crypto_primitives::{
         sparse_merkle_tree::{
             MerkleDepth,
@@ -283,7 +287,7 @@ mod tests {
     type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
     type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, SMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
-    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
+    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, SMTStore, MTAVDStore>;
 
     fn concat_leaf_data(key: &[u8; 32], version: u64, value: &[u8; 32]) -> Vec<u8> {
         key.iter()

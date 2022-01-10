@@ -8,33 +8,52 @@ use rsa::{
         Commitment,
         MembershipWitness,
         UpdateProof,
+        RsaKVACParams,
         store::{
             RsaKVACStorer,
-            mem_store::RsaKVACMemStore,
         }
     },
+    hash::Hasher,
     bignat::{
         BigNat,
+        constraints::BigNatCircuitParams,
     },
 };
 
-pub struct RSAAVDMemStore<S: RsaKVACStorer> {
-    kvac: RsaKVAC<RsaKVACMemStore<S::P, S::H, S::CircuitH, S::C>>
+pub struct RSAAVDMemStore<P, H, CircuitH, C, S>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+{
+    kvac: RsaKVAC<P, H, CircuitH, C, S>
 }
 
-impl<S: RsaKVACStorer> RSAAVDStorer for RSAAVDMemStore<S> {
-    type S = S;
-
-    fn kvac_lookup(&self, key: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>), Error> {
+impl<P, H, CircuitH, C, S> RSAAVDStorer<P, H, CircuitH, C, S> for RSAAVDMemStore<P, H, CircuitH, C, S>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+{
+    fn new(k: RsaKVAC<P, H, CircuitH, C, S>) -> Result<Self, Error> where Self: Sized {
+        Ok(RSAAVDMemStore {
+            kvac: k,
+        })
+    }
+    fn kvac_lookup(&mut self, key: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error> {
         return self.kvac.lookup(key);
     }
-    fn kvac_get_commitment(&self) -> Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P> {
+    fn kvac_get_commitment(&self) -> Commitment<P> {
         return self.kvac.store.get_commitment();
     }
-    fn kvac_update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>, UpdateProof<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P, <<Self as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>), Error> {
+    fn kvac_update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error> {
         return self.kvac.update(k, v);
     }
-    fn kvac_batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>, UpdateProof<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P, <<Self as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>), Error> {
+    fn kvac_batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error> {
         return self.kvac.batch_update(kvs);
     }
 }

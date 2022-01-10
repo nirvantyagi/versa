@@ -42,4 +42,9 @@ where
 }
 
 // Anything that implements MTAVDStorer implements SSAVDStorer<MTAVD<S>>
-impl<M: MerkleTreeAVDParameters, T: SMTStorer<M::MerkleTreeParameters>, S: MTAVDStorer<M, T>> SSAVDStorer<MerkleTreeAVD<M, T, S>> for S {}
+impl<M, T, S> SSAVDStorer<MerkleTreeAVD<M, T, S>> for S
+where
+    M: MerkleTreeAVDParameters,
+    T: SMTStorer<M::MerkleTreeParameters>,
+    S: MTAVDStorer<M, T>
+{}

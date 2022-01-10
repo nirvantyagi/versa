@@ -111,6 +111,7 @@ where
         <<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters;
     type LookupProof = LookupProof<P>;
     type UpdateProof = UpdateProof<P>;
+    type Store = S;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         Ok(<<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)

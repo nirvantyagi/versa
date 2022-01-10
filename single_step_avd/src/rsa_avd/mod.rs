@@ -24,8 +24,21 @@ use std::{
 pub mod store;
 pub mod constraints;
 
-pub struct RsaAVD<T: store::RSAAVDStorer> {
+pub struct RsaAVD<P, H, CircuitH, C, S, T>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+    T: store::RSAAVDStorer<P, H, CircuitH, C, S>
+{
     store: T,
+    _p: PhantomData<P>,
+    _h: PhantomData<H>,
+    _circuith: PhantomData<CircuitH>,
+    _c: PhantomData<C>,
+    _s: PhantomData<S>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -117,22 +130,34 @@ impl<P: RsaKVACParams, C: BigNatCircuitParams, ConstraintF: PrimeField> ToConstr
     }
 }
 
-impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
-    type Storer = T;
-    type Digest = DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C>;
+impl<P, H, CircuitH, C, S, T> SingleStepAVD for RsaAVD<P, H, CircuitH, C, S, T>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+    T: store::RSAAVDStorer<P, H, CircuitH, C, S>
+{
+    type Store = T;
+    type Digest = DigestWrapper<P, C>;
     type PublicParameters = ();
-    type LookupProof = MembershipWitness<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>;
-    type UpdateProof = UpdateProofWrapper<
-        <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P,
-        <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH
-    >;
+    type LookupProof = MembershipWitness<P>;
+    type UpdateProof = UpdateProofWrapper<P, CircuitH>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::PublicParameters, Error> {
         Ok(())
     }
 
     fn new<R: Rng>(_rng: &mut R, s: T) -> Result<Self, Error> {
-        Ok(Self { store: s })
+        Ok(Self {
+            store: s,
+            _p: PhantomData,
+            _h: PhantomData,
+            _circuith: PhantomData,
+            _c: PhantomData,
+            _s: PhantomData,
+        })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
@@ -164,7 +189,7 @@ impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
     }
 
     fn verify_update(_pp: &Self::PublicParameters, prev_digest: &Self::Digest, new_digest: &Self::Digest, proof: &Self::UpdateProof) -> Result<bool, Error> {
-        RsaKVAC::<T::S>::verify_update_append_only(
+        RsaKVAC::<P, H, CircuitH, C, S>::verify_update_append_only(
             &prev_digest.digest,
             &new_digest.digest,
             &proof.proof,
@@ -176,7 +201,7 @@ impl<T: store::RSAAVDStorer> SingleStepAVD for RsaAVD<T> {
             Some((version, v_arr)) => (*version == proof.u as u64, Some(to_bignat(v_arr))),
             None => (true, None),
         };
-        let witness_verifies = RsaKVAC::<T::S>::verify_witness(
+        let witness_verifies = RsaKVAC::<P, H, CircuitH, C, S>::verify_witness(
             &to_bignat(key),
             &v,
             &digest.digest,
@@ -196,12 +221,20 @@ pub fn from_bignat(n: &BigNat) -> [u8; 32] {
     digits.try_into().unwrap()
 }
 
-impl<T: store::RSAAVDStorer> RsaAVD<T> {
-    fn wrap_digest(d: Commitment<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P>) -> DigestWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::C> {
+impl<P, H, CircuitH, C, S, T> RsaAVD<P, H, CircuitH, C, S, T>
+    where
+        P: RsaKVACParams,
+        H: Hasher,
+        CircuitH: Hasher,
+        C: BigNatCircuitParams,
+        S: RsaKVACStorer<P, H, CircuitH, C>,
+        T: store::RSAAVDStorer<P, H, CircuitH, C, S>
+{
+    fn wrap_digest(d: Commitment<P>) -> DigestWrapper<P, C> {
         DigestWrapper { digest: d, _params: PhantomData, _circuit_params: PhantomData }
     }
 
-    fn wrap_proof(proof: UpdateProof<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>) -> UpdateProofWrapper<<<T as store::RSAAVDStorer>::S as RsaKVACStorer>::P, <<T as store::RSAAVDStorer>::S as RsaKVACStorer>::CircuitH> {
+    fn wrap_proof(proof: UpdateProof<P, CircuitH>) -> UpdateProofWrapper<P, CircuitH> {
         UpdateProofWrapper { proof: proof, _params: PhantomData }
     }
 }

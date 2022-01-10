@@ -4,7 +4,7 @@ use std::{error::Error as ErrorTrait, hash::Hash};
 
 pub mod constraints;
 pub mod merkle_tree_avd;
-// pub mod rsa_avd;
+pub mod rsa_avd;
 
 pub type Error = Box<dyn ErrorTrait>;
 
@@ -13,10 +13,11 @@ pub trait SingleStepAVD: Sized {
     type PublicParameters: Clone + Default + Send + Sync;
     type LookupProof;
     type UpdateProof: Clone + Default;
+    type Store: SSAVDStorer<Self>;
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng>(rng: &mut R, store: SSAVDStorer<Self>) -> Result<Self, Error>;
+    fn new<R: Rng>(rng: &mut R, store: Self::Store) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 

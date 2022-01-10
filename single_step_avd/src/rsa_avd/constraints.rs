@@ -4,7 +4,9 @@ use ark_r1cs_std::{
     prelude::*,
 };
 
-use crate::{constraints::SingleStepAVDGadget, rsa_avd::{RsaAVD, DigestWrapper, UpdateProofWrapper, store::RSAAVDStorer}};
+use crate::{
+    constraints::SingleStepAVDGadget,
+    rsa_avd::{RsaAVD, DigestWrapper, UpdateProofWrapper, store::RSAAVDStorer}};
 
 use rsa::{
     hog::constraints::RsaHogVar,
@@ -138,7 +140,7 @@ impl<ConstraintF, P, C, H, HG> AllocVar<UpdateProofWrapper<P, H>, ConstraintF> f
     }
 }
 
-pub struct RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
+pub struct RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C, S, T>
     where
         ConstraintF: PrimeField,
         P: RsaKVACParams,
@@ -146,16 +148,20 @@ pub struct RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
         CircuitH: Hasher<F = ConstraintF>,
         CircuitHG: HasherGadget<CircuitH, ConstraintF>,
         C: BigNatCircuitParams,
+        S: RsaKVACStorer<P, H, CircuitH, C>,
+        T: RSAAVDStorer<P, H, CircuitH, C, S>
 {
     _kvac_params: PhantomData<P>,
     _hash: PhantomData<H>,
     _circuit_hash: PhantomData<CircuitH>,
     _circuit_hash_gadget: PhantomData<CircuitHG>,
     _circuit_params: PhantomData<C>,
+    _s: PhantomData<S>,
+    _t: PhantomData<T>,
 }
 
-impl<ConstraintF, P, H, CircuitH, CircuitHG, C, T> SingleStepAVDGadget<RsaAVD<T>, ConstraintF>
-for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
+impl<ConstraintF, P, H, CircuitH, CircuitHG, C, S, T> SingleStepAVDGadget<RsaAVD<P, H, CircuitH, C, S, T>, ConstraintF>
+for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C, S, T>
     where
         ConstraintF: PrimeField,
         P: RsaKVACParams,
@@ -163,21 +169,12 @@ for RsaAVDGadget<ConstraintF, P, H, CircuitH, CircuitHG, C>
         CircuitH: Hasher<F = ConstraintF>,
         CircuitHG: HasherGadget<CircuitH, ConstraintF>,
         C: BigNatCircuitParams,
-        T: RSAAVDStorer,
+        S: RsaKVACStorer<P, H, CircuitH, C>,
+        T: RSAAVDStorer<P, H, CircuitH, C, S>
 {
     type PublicParametersVar = EmptyVar;
-    type DigestVar = DigestVar<
-        ConstraintF,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
-    >;
-    type UpdateProofVar = UpdateProofVar<
-        ConstraintF,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::P,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::C,
-        <<T as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH,
-        HasherGadget<<<T as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH, ConstraintF>,
-    >;
+    type DigestVar = DigestVar<ConstraintF, P, C>;
+    type UpdateProofVar = UpdateProofVar<ConstraintF, P, C, CircuitH, CircuitHG>;
 
     fn conditional_check_update_proof(_pp: &Self::PublicParametersVar, prev_digest: &Self::DigestVar, new_digest: &Self::DigestVar, proof: &Self::UpdateProofVar, condition: &Boolean<ConstraintF>) -> Result<(), SynthesisError> {
         let statement = StatementVar {
@@ -223,8 +220,8 @@ mod tests {
 
     use rand::{SeedableRng, rngs::StdRng};
     use rsa::kvac::{
+        RsaKVAC,
         store::mem_store::RsaKVACMemStore,
-        store::RsaKVACStorer,
     };
     use crate::rsa_avd::store::mem_store::RSAAVDMemStore;
 
@@ -273,7 +270,28 @@ mod tests {
         PoseidonHasher<Fq>,
         BigNatTestParams,
     >;
-    pub type TestRsaAVD = RsaAVD<RSAAVDMemStore<TestKvacStore>>;
+    pub type TestRSAKVAC = RsaKVAC<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonHasher<Fq>,
+        BigNatTestParams,
+        TestKvacStore,
+    >;
+    pub type RSAAVDStore = RSAAVDMemStore<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonHasher<Fq>,
+        BigNatTestParams,
+        TestKvacStore
+    >;
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonHasher<Fq>,
+        BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore,
+    >;
 
     pub type TestRsaAVDGadget = RsaAVDGadget<
         Fq,
@@ -282,6 +300,8 @@ mod tests {
         PoseidonHasher<Fq>,
         HG,
         BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore
     >;
 
 
@@ -293,7 +313,10 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
-            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
+            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
+            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
+            let rsaavd_mem_store: RSAAVDStore = RSAAVDStore::new(rsa_kvac).unwrap();
+            let mut avd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
             let digest_0 = avd.digest().unwrap();
             let (digest_1, proof) = avd.batch_update(&vec![
                 ([1_u8; 32], [2_u8; 32]),
@@ -343,7 +366,10 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
-            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
+            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
+            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
+            let rsaavd_mem_store: RSAAVDStore = RSAAVDStore::new(rsa_kvac).unwrap();
+            let mut avd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
             let digest_0 = avd.digest().unwrap();
             let (digest_1, _proof) = avd.batch_update(&vec![
                 ([1_u8; 32], [2_u8; 32]),

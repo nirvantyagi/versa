@@ -11,20 +11,39 @@ use rsa::{
         Commitment,
         MembershipWitness,
         UpdateProof,
+        RsaKVACParams,
+        RsaKVAC,
     },
+    hash::Hasher,
     bignat::{
         BigNat,
+        constraints::BigNatCircuitParams,
     }
 };
 
-pub trait RSAAVDStorer {
-    type S: RsaKVACStorer;
 
-    fn kvac_lookup(&self, key: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>), Error>;
-    fn kvac_get_commitment(&self) -> Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>;
-    fn kvac_update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>, UpdateProof<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P, <<Self as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>), Error>;
-    fn kvac_batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P>, UpdateProof<<<Self as RSAAVDStorer>::S as RsaKVACStorer>::P, <<Self as RSAAVDStorer>::S as RsaKVACStorer>::CircuitH>), Error>;
+pub trait RSAAVDStorer<P, H, CircuitH, C, S>
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+{
+    fn new(k: RsaKVAC<P, H, CircuitH, C, S>) -> Result<Self, Error> where Self: Sized;
+    fn kvac_lookup(&mut self, key: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error>;
+    fn kvac_get_commitment(&self) -> Commitment<P>;
+    fn kvac_update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error>;
+    fn kvac_batch_update(&mut self, kvs: &Vec<(BigNat, BigNat)>) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error>;
 }
 
 // Anything that implements RSAAVDStorer implements SSAVDStorer<RsaAVD<S>>
-impl<S: RSAAVDStorer> SSAVDStorer<RsaAVD<S>> for S {}
+impl<P, H, CircuitH, C, S, T> SSAVDStorer<RsaAVD<P, H, CircuitH, C, S, T>> for T
+where
+    P: RsaKVACParams,
+    H: Hasher,
+    CircuitH: Hasher,
+    C: BigNatCircuitParams,
+    S: RsaKVACStorer<P, H, CircuitH, C>,
+    T: RSAAVDStorer<P, H, CircuitH, C, S>,
+{}
