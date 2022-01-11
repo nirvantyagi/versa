@@ -32,7 +32,7 @@ where
     fn digest_d_insert(&mut self, index: MerkleIndex, digest: D) -> Option<D>;
 }
 
-pub trait SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore, HT>
+pub trait SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,

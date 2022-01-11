@@ -432,7 +432,6 @@ mod tests {
     use crypto_primitives::sparse_merkle_tree::{
         MerkleDepth,
         store::mem_store::SMTMemStore,
-        SparseMerkleTree,
     };
 
     #[derive(Clone)]
@@ -467,23 +466,24 @@ mod tests {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
     type TestHTStore = store::mem_store::HTMemStore<MerkleTreeTestParameters, H, TestSMTStore>;
     type TestAVDWHStore = store::mem_store::SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
-    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestMerkleTreeAVD>;
+    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
     static INITIAL_LEAF: [u8; 72] = [0; 72];
 
     #[test]
     fn lookup_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let crh_parameters = H::setup(&mut rng).unwrap();
+        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
         // make savd w history store
         let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         // put it all together in ssavd w history
         let mut avd = TestAVDWithHistory::new(rng, avdwh_mem_store);
+
         avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         let digest = avd.digest();
 
@@ -503,7 +503,16 @@ mod tests {
     fn history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        // make ssavd (which, weirdly is a trait too)
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        // put it all together in ssavd w history
+        let mut avd = TestAVDWithHistory::new(rng, avdwh_mem_store);
+
         avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         let prev_digest = avd.digest();
         assert_eq!(prev_digest.epoch, 1);
