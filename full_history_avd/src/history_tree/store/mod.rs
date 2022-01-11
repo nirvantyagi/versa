@@ -47,7 +47,7 @@ where
     fn history_tree_get_epoch(&self) -> MerkleIndex;
     fn history_tree_get_root(&self) -> <HTParams::H as FixedLengthCRH>::Output;
     fn history_tree_append_digest(&mut self, digest: &<HTParams::H as FixedLengthCRH>::Output) -> Result<(), Error>;
-    fn history_tree_lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error>;
+    fn history_tree_lookup_path(&mut self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error>;
     fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<&<HTParams::H as FixedLengthCRH>::Output>;
     fn history_tree_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 

@@ -207,19 +207,34 @@ mod tests {
             MerkleTreeAVDParameters,
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
+            store::mem_store::MTAVDMemStore,
         },
-        rsa_avd::{RsaAVD, constraints::RsaAVDGadget},
+        rsa_avd::{
+            RsaAVD,
+            constraints::RsaAVDGadget,
+            store::mem_store::RSAAVDMemStore,
+        },
     };
     use crypto_primitives::{
-        sparse_merkle_tree::MerkleDepth,
+        sparse_merkle_tree::{
+            MerkleDepth,
+            store::mem_store::SMTMemStore,
+        },
         hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
     };
     use crate::{
-        history_tree::SingleStepAVDWithHistory,
+        history_tree::{
+            store::mem_store::HTMemStore,
+            SingleStepAVDWithHistory
+        },
     };
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
-        kvac::RsaKVACParams,
+        kvac::{
+            RsaKVACParams,
+            store::mem_store::RsaKVACMemStore,
+            RsaKVAC,
+        },
         poker::{PoKERParams},
         hog::{RsaGroupParams},
         hash::{
@@ -256,9 +271,18 @@ mod tests {
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
 
-    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
-    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
-    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters>;
+    type TestSMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type TestMTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, TestSMTStore>;
+    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
+    type TestHTStore = HTMemStore<MerkleTreeTestParameters, H, TestSMTStore>;
+    type TestAVDWithHistory = SingleStepAVDWithHistory<
+        TestMerkleTreeAVD,
+        MerkleTreeTestParameters,
+        TestSMTStore,
+        TestHTStore,
+        TestMerkleTreeAVD,
+    >;
+    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
     type TestHistoryUpdateVar = SingleStepUpdateProofVar<
         TestMerkleTreeAVD,
         TestMerkleTreeAVDGadget,
@@ -285,9 +309,18 @@ mod tests {
         type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
     }
 
-    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
-    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq>;
-    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters>;
+    type PoseidonTestSMTStore = SMTMemStore<PoseidonMerkleTreeTestParameters>;
+    type PoseidonTestMTAVDStore = MTAVDMemStore<PoseidonMerkleTreeAVDTestParameters, PoseidonTestSMTStore>;
+    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
+    type PoseidonTestHTStore = HTMemStore<PoseidonMerkleTreeTestParameters, PoseidonSponge<Fq>, PoseidonTestSMTStore>;
+    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<
+        PoseidonTestMerkleTreeAVD,
+        PoseidonMerkleTreeTestParameters,
+        PoseidonTestSMTStore,
+        PoseidonTestHTStore,
+        PoseidonTestMerkleTreeAVD,
+    >;
+    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
     type PoseidonTestHistoryUpdateVar = SingleStepUpdateProofVar<
         PoseidonTestMerkleTreeAVD,
         PoseidonTestMerkleTreeAVDGadget,
@@ -295,7 +328,6 @@ mod tests {
         PoseidonSpongeVar<Fq>,
         Fq,
     >;
-
 
     // Parameters for RSA AVD
     #[derive(Clone, PartialEq, Eq, Debug)]
@@ -331,12 +363,35 @@ mod tests {
     pub type PoseidonH = PoseidonHasher<Fq>;
     pub type PoseidonHG = PoseidonHasherGadget<Fq>;
 
-    pub type TestRsaAVD = RsaAVD<
+    pub type TestKvacStore = RsaKVACMemStore<
         TestKVACParams,
         HasherFromDigest<Fq, blake3::Hasher>,
         PoseidonH,
         BigNatTestParams,
     >;
+    pub type TestRSAKVAC = RsaKVAC<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+        TestKvacStore,
+    >;
+    pub type RSAAVDStore = RSAAVDMemStore<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+        TestKvacStore
+    >;
+    pub type TestRsaAVD = RsaAVD<
+        TestKVACParams,
+        HasherFromDigest<Fq, blake3::Hasher>,
+        PoseidonH,
+        BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore,
+    >;
+
     pub type TestRsaAVDGadget = RsaAVDGadget<
         Fq,
         TestKVACParams,
@@ -344,8 +399,14 @@ mod tests {
         PoseidonH,
         PoseidonHG,
         BigNatTestParams,
+        TestKvacStore,
+        RSAAVDStore,
     >;
-    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters>;
+    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<
+        TestRsaAVD,
+        MerkleTreeTestParameters,
+        
+    >;
     type TestRsaUpdateVar = SingleStepUpdateProofVar<
         TestRsaAVD,
         TestRsaAVDGadget,

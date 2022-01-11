@@ -125,7 +125,7 @@ where
     fn history_tree_append_digest(&mut self, digest: &<HTParams::H as FixedLengthCRH>::Output) -> Result<(), Error> {
         return self.history_tree.append_digest(digest);
     }
-    fn history_tree_lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error> {
+    fn history_tree_lookup_path(&mut self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error> {
         return self.history_tree.lookup_path(epoch);
     }
     fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<&<HTParams::H as FixedLengthCRH>::Output> {

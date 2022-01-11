@@ -60,7 +60,7 @@ where
     pub fn append_digest(&mut self, digest: &D) -> Result<(), Error> {
         self.store.smt_update(self.store.get_epoch(), &digest_to_bytes(digest)?)?;
         self.store.digest_d_insert(self.store.get_epoch(), digest.clone());
-        self.store.set_epoch(self.store.get_epoch() + 1);
+        self.store.set_epoch(self.store.get_epoch() + 1).unwrap();
         Ok(())
     }
 
@@ -330,7 +330,7 @@ where
     }
 
     pub fn lookup_history(
-        &self,
+        &mut self,
         prev_epoch: usize,
     ) -> Result<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>), Error> {
         if prev_epoch as u64 > self.store.history_tree_get_epoch() {
@@ -342,7 +342,7 @@ where
                    Digest { digest: self.store.history_tree_lookup_digest(prev_epoch as u64).unwrap().clone(), epoch: prev_epoch as u64 },
                    HistoryProof::PrevEpoch(
                         PrevEpochHistoryProof {
-                            path: self.store.history_tree_lookup_path(prev_epoch as u64)?,
+                            path: self.store.history_tree_lookup_path(prev_epoch as u64).unwrap().clone(),
                             ssavd_digest: self.store.ssavd_digest()?,
                             history_tree_digest: self.store.history_tree_get_root(),
                         }
