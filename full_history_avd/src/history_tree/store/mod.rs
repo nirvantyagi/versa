@@ -1,12 +1,6 @@
 pub mod mem_store;
 
-use crate::{
-    FHAVDStorer,
-    history_tree::{
-        SingleStepAVDWithHistory,
-    },
-    Error
-};
+use crate::Error;
 use ark_ff::bytes::ToBytes;
 use crypto_primitives::{
     sparse_merkle_tree::{
@@ -61,12 +55,3 @@ where
     fn get_digest(&self) -> <HTParams::H as FixedLengthCRH>::Output;
     fn set_digest(&mut self, val: <HTParams::H as FixedLengthCRH>::Output);
 }
-
-impl<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore> FHAVDStorer<SingleStepAVDWithHistory<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>> for SSAVDWHStore
-where
-    SSAVD: SingleStepAVD,
-    HTParams: MerkleTreeParameters,
-    SMTStore: SMTStorer<HTParams>,
-    HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
-    SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
-{}

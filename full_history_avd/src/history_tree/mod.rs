@@ -192,7 +192,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for HistoryProo
     }
 }
 
-impl<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore> FullHistoryAVD for SingleStepAVDWithHistory<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>
+impl<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore> SingleStepAVDWithHistory<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,
@@ -418,6 +418,16 @@ mod tests {
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
     };
+    use crate::history_tree::{
+        store::{
+            SingleStepAVDWithHistoryStorer,
+            HTStorer,
+            mem_store::{
+                HTMemStore,
+                SingleStepAVDWithHistoryMemStore,
+            }
+        },
+    };
     use single_step_avd::{
         merkle_tree_avd::{
             MerkleTreeAVDParameters,
@@ -464,8 +474,8 @@ mod tests {
     type TestSMTStore = SMTMemStore<MerkleTreeTestParameters>;
     type TestMTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, TestSMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
-    type TestHTStore = store::mem_store::HTMemStore<MerkleTreeTestParameters, H, TestSMTStore>;
-    type TestAVDWHStore = store::mem_store::SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
+    type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
     static INITIAL_LEAF: [u8; 72] = [0; 72];
@@ -482,7 +492,7 @@ mod tests {
         // make savd w history store
         let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         // put it all together in ssavd w history
-        let mut avd = TestAVDWithHistory::new(rng, avdwh_mem_store);
+        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
 
         avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         let digest = avd.digest();
@@ -502,7 +512,7 @@ mod tests {
     #[test]
     fn history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        let (_, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
         let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
@@ -511,7 +521,7 @@ mod tests {
         // make savd w history store
         let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         // put it all together in ssavd w history
-        let mut avd = TestAVDWithHistory::new(rng, avdwh_mem_store);
+        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
 
         avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         let prev_digest = avd.digest();
