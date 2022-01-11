@@ -19,6 +19,7 @@ where
     D: ToBytes + Eq + Clone,
     S: SMTStorer<P>,
 {
+    fn new(initial_leaf: &[u8], hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized;
     fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error>;
     fn smt_update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
     fn smt_get_hash_parameters(&self) -> <P::H as FixedLengthCRH>::Parameters;
@@ -31,7 +32,7 @@ where
     fn digest_d_insert(&mut self, index: MerkleIndex, digest: D) -> Option<D>;
 }
 
-pub trait SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>
+pub trait SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore, HT>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,

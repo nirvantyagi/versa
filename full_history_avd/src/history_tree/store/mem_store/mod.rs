@@ -41,6 +41,16 @@ where
     S: SMTStorer<P>,
 {
 
+    fn new(initial_leaf: &[u8], hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized {
+        let smt_store: S = S::new(initial_leaf, hash_parameters).unwrap();
+        let smt: SparseMerkleTree<P, S> = SparseMerkleTree::<P, S>::new(smt_store);
+        Ok(Self {
+            tree: smt,
+            digest_d: HashMap::new(),
+            epoch: 0,
+        })
+    }
+
     fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
         return self.tree.lookup(index);
     }

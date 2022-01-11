@@ -405,7 +405,9 @@ mod tests {
     type TestRsaAVDWithHistory = SingleStepAVDWithHistory<
         TestRsaAVD,
         MerkleTreeTestParameters,
-        
+        PoseidonTestSMTStore,
+        PoseidonTestHTStore,
+        PoseidonTestMerkleTreeAVD,
     >;
     type TestRsaUpdateVar = SingleStepUpdateProofVar<
         TestRsaAVD,
@@ -419,7 +421,12 @@ mod tests {
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        // let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let initial_leaf = concat_leaf_data(&Default::default(), 0, &Default::default());
+        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&initial_leaf, &crh_parameters).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        
         let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
         let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
 
