@@ -38,6 +38,7 @@ where
     SMTStore: SMTStorer<HTParams>,
     HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
 {
+    fn new(t: SSAVD, s: HTStore) -> Result<Self, Error> where Self: Sized;
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error>;
     fn ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error>;
     fn ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;
@@ -47,9 +48,9 @@ where
     fn history_tree_get_root(&self) -> <HTParams::H as FixedLengthCRH>::Output;
     fn history_tree_append_digest(&mut self, digest: &<HTParams::H as FixedLengthCRH>::Output) -> Result<(), Error>;
     fn history_tree_lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error>;
-    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<<HTParams::H as FixedLengthCRH>::Output>;
+    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<&<HTParams::H as FixedLengthCRH>::Output>;
     fn history_tree_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 
     fn get_digest(&self) -> <HTParams::H as FixedLengthCRH>::Output;
-    fn set_digest(&self, val: <HTParams::H as FixedLengthCRH>::Output);
+    fn set_digest(&mut self, val: <HTParams::H as FixedLengthCRH>::Output);
 }

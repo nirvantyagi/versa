@@ -54,11 +54,6 @@ where
             _d: PhantomData,
             _s: PhantomData,
         })
-        // Ok(HistoryTree {
-        //     tree: SparseMerkleTree::<P>::new(&<[u8; 32]>::default(), hash_parameters)?,
-        //     digest_d: HashMap::new(),
-        //     epoch: 0,
-        // })
     }
 
     // TODO: Manage digest lifetimes so as not to store clones
@@ -69,12 +64,12 @@ where
         Ok(())
     }
 
-    pub fn lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
+    pub fn lookup_path(&mut self, epoch: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
         self.store.smt_lookup(epoch)
     }
 
-    pub fn lookup_digest(&self, epoch: MerkleIndex) -> Option<D> {
-        Some(*self.store.digest_d_get(&epoch).unwrap())
+    pub fn lookup_digest(&self, epoch: MerkleIndex) -> Option<&D> {
+        self.store.digest_d_get(&epoch)
     }
 }
 
@@ -217,23 +212,9 @@ where
     }
 
     //TODO: Double storing hash parameters if shared across SSAVD and history tree
-    pub fn new<R: Rng>(
-        rng: &mut R,
-        ssavd_pp: &SSAVD::PublicParameters,
-        history_tree_parameters: &<HTParams::H as FixedLengthCRH>::Parameters,
-    ) -> Result<Self, Error>{
-        let ssavd = SSAVD::new(rng, ssavd_pp)?;
-        let history_tree = HistoryTree::new(history_tree_parameters)?;
-        let digest = hash_to_final_digest::<SSAVD, HTParams::H>(
-            history_tree_parameters,
-            &ssavd.digest()?,
-            &history_tree.tree.root,
-            &history_tree.epoch,
-        )?;
+    pub fn new<R: Rng>(_rng: &mut R, s: SSAVDWHStore) -> Result<Self, Error>{
         Ok(SingleStepAVDWithHistory{
-            ssavd: ssavd,
-            history_tree: history_tree,
-            digest: digest,
+            store: s,
             _ssavd: PhantomData,
             _htparamas: PhantomData,
             _smtstore: PhantomData,
@@ -358,7 +339,7 @@ where
             Ok((self.digest(), HistoryProof::CurrEpoch()))
         } else {
             Ok((
-                   Digest { digest: self.store.history_tree_lookup_digest(prev_epoch as u64).unwrap(), epoch: prev_epoch as u64 },
+                   Digest { digest: self.store.history_tree_lookup_digest(prev_epoch as u64).unwrap().clone(), epoch: prev_epoch as u64 },
                    HistoryProof::PrevEpoch(
                         PrevEpochHistoryProof {
                             path: self.store.history_tree_lookup_path(prev_epoch as u64)?,
@@ -447,10 +428,10 @@ mod tests {
                 MTAVDStorer,
             },
         },
+        SingleStepAVD,
     };
     use crypto_primitives::sparse_merkle_tree::MerkleDepth;
     use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
-    use crate::SingleStepAVD;
 
     #[derive(Clone)]
     pub struct Window4x256;

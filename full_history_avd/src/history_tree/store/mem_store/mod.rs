@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    marker::PhantomData,
 };
 use crate::Error;
 use ark_ff::bytes::ToBytes;
@@ -20,6 +19,7 @@ use crate::history_tree::{
         SingleStepAVDWithHistoryStorer,
     },
     HistoryTree,
+    hash_to_final_digest,
 };
 use single_step_avd::SingleStepAVD;
 
@@ -80,7 +80,6 @@ where
     pub ssavd: SSAVD,
     pub history_tree: HistoryTree<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore, HTStore>,
     digest: <HTParams::H as FixedLengthCRH>::Output,
-    _smtstore: PhantomData<SMTStore>,
 }
 
 impl<SSAVD, HTParams, SMTStore, HTStore> SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore> for SingleStepAVDWithHistoryMemStore<SSAVD, HTParams, SMTStore, HTStore>
@@ -90,6 +89,20 @@ where
     SMTStore: SMTStorer<HTParams>,
     HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
 {
+    fn new(t: SSAVD, s: HTStore) -> Result<Self, Error> where Self: Sized {
+        let history_tree = HistoryTree::new(s).unwrap();
+        let digest = hash_to_final_digest::<SSAVD, HTParams::H>(
+            &history_tree.store.smt_get_hash_parameters(),
+            &t.digest()?,
+            &history_tree.store.smt_get_root(),
+            &history_tree.store.get_epoch(),
+        )?;
+        Ok(Self {
+            ssavd: t,
+            history_tree: history_tree,
+            digest: digest,
+        })
+    }
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error> {
         return self.ssavd.digest();
     }
@@ -115,7 +128,7 @@ where
     fn history_tree_lookup_path(&self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error> {
         return self.history_tree.lookup_path(epoch);
     }
-    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<<HTParams::H as FixedLengthCRH>::Output> {
+    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<&<HTParams::H as FixedLengthCRH>::Output> {
         return self.history_tree.lookup_digest(epoch);
     }
     fn history_tree_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters {
@@ -125,7 +138,7 @@ where
     fn get_digest(&self) -> <HTParams::H as FixedLengthCRH>::Output {
         return self.digest.clone();
     }
-    fn set_digest(&self, val: <HTParams::H as FixedLengthCRH>::Output) {
+    fn set_digest(&mut self, val: <HTParams::H as FixedLengthCRH>::Output) {
         self.digest = val;
     }
 }
