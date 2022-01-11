@@ -3,7 +3,7 @@ use std::{error::Error as ErrorTrait};
 
 use rand::{Rng, CryptoRng};
 
-// pub mod history_tree;
+pub mod history_tree;
 // pub mod aggregation;
 // pub mod recursion;
 pub mod rsa_algebraic;
