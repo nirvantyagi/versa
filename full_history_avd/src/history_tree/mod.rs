@@ -192,7 +192,7 @@ impl<SSAVD: SingleStepAVD, HTParams: MerkleTreeParameters> Clone for HistoryProo
     }
 }
 
-impl<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore> SingleStepAVDWithHistory<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>
+impl<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore> FullHistoryAVD for SingleStepAVDWithHistory<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,

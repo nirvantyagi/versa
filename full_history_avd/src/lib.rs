@@ -167,4 +167,6 @@ mod tests {
     }
 }
 
-pub trait FHAVDStorer<FHAVD: FullHistoryAVD> {}
+pub trait FHAVDStorer<FHAVD: FullHistoryAVD> {
+    
+}
