@@ -376,7 +376,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         // make ht_mem_store (remember, HistoryTree is not a trait)
         let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
@@ -422,7 +422,7 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(0_u64);
             let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
             // make ssavd (which, weirdly is a trait too)
-            let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+            let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
             let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
             // make ht_mem_store (remember, HistoryTree is not a trait)
             let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
@@ -474,7 +474,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         // make ht_mem_store (remember, HistoryTree is not a trait)
         let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();

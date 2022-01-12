@@ -1,5 +1,4 @@
 use ark_ff::bytes::ToBytes;
-use ark_ff::to_bytes;
 
 use crypto_primitives::{
     sparse_merkle_tree::{
@@ -241,8 +240,6 @@ where
         let prev_digest = self.store.get_digest();
         self.store.history_tree_append_digest(&prev_digest)?;
         let history_tree_proof = self.store.history_tree_lookup_path(prev_epoch)?;
-        println!("prev_ssavd_digest: {:?}", to_bytes![prev_ssavd_digest]);
-        println!("new_ssavd_digest: {:?}", to_bytes![new_ssavd_digest]);
 
         // Update digest
         self.store.set_digest(
@@ -481,14 +478,14 @@ mod tests {
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
-    static INITIAL_LEAF: [u8; 32] = [0; 32];
+    static INITIAL_LEAF: [u8; 72] = [0; 72];
 
     #[test]
     fn lookup_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         // make ht_mem_store (remember, HistoryTree is not a trait)
         let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
@@ -515,9 +512,9 @@ mod tests {
     #[test]
     fn history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (_, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
         let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
         // make ht_mem_store (remember, HistoryTree is not a trait)
         let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();

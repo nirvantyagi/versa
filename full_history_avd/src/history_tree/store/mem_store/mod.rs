@@ -107,6 +107,7 @@ where
             &history_tree.store.smt_get_root(),
             &history_tree.store.get_epoch(),
         )?;
+
         Ok(Self {
             ssavd: t,
             history_tree: history_tree,
