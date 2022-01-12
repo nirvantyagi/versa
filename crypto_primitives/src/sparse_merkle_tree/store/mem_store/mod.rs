@@ -31,6 +31,7 @@ where
         initial_leaf_value: &[u8],
         hash_parameters: &<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
     ) -> Result<Self, Error> {
+        println!("initial_leaf_value: {:?}", initial_leaf_value);
         // Compute initial hashes for each depth of tree
         let mut sparse_initial_hashes =
             vec![hash_leaf::<<P as MerkleTreeParameters>::H>(&hash_parameters, initial_leaf_value)?];
@@ -43,7 +44,7 @@ where
             )?);
         }
         sparse_initial_hashes.reverse();
-
+        println!("root: {:?}", sparse_initial_hashes[0].clone());
         Ok(SMTMemStore {
             tree: HashMap::new(),
             root: sparse_initial_hashes[0].clone(),

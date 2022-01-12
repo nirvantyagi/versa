@@ -1,4 +1,5 @@
 use ark_ff::bytes::ToBytes;
+use ark_ff::to_bytes;
 
 use crypto_primitives::{
     sparse_merkle_tree::{
@@ -240,6 +241,8 @@ where
         let prev_digest = self.store.get_digest();
         self.store.history_tree_append_digest(&prev_digest)?;
         let history_tree_proof = self.store.history_tree_lookup_path(prev_epoch)?;
+        println!("prev_ssavd_digest: {:?}", to_bytes![prev_ssavd_digest]);
+        println!("new_ssavd_digest: {:?}", to_bytes![new_ssavd_digest]);
 
         // Update digest
         self.store.set_digest(
@@ -478,7 +481,7 @@ mod tests {
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
+    static INITIAL_LEAF: [u8; 32] = [0; 32];
 
     #[test]
     fn lookup_test() {
