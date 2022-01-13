@@ -22,5 +22,7 @@ jobs:
       run: cd ./rsa/src/kvac && cargo test
     - name: Test MTAVD and RSAAVD
       run: cd ./single_step_avd && cargo test
+    - name: Test HT
+      run: cd ./full_history_avd/src/history_tree && cargo test
     - name: Test RSAALG
       run: cd ./full_history_avd/src/rsa_algebraic && cargo test

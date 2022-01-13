@@ -370,6 +370,7 @@ mod tests {
     type TestRsaUpdateVar = SingleStepUpdateProofVar<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, Fq>;
 
     static INITIAL_LEAF: [u8; 72] = [0; 72];
+    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
 
     #[test]
     fn update_and_verify_test() {
@@ -425,7 +426,7 @@ mod tests {
             let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
             let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
             // make ht_mem_store (remember, HistoryTree is not a trait)
-            let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+            let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
             // make savd w history store
             let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
             // put it all together in ssavd w history
