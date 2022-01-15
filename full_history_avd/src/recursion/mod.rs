@@ -4,9 +4,16 @@ use single_step_avd::{
     constraints::SingleStepAVDGadget,
 };
 use crypto_primitives::{
-    sparse_merkle_tree::{MerkleTreeParameters},
-    hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
+    sparse_merkle_tree::{
+        MerkleTreeParameters,
+        store::SMTStorer,
+    },
+    hash::{
+        FixedLengthCRH,
+        constraints::FixedLengthCRHGadget
+    },
 };
+use ark_ff::bytes::ToBytes;
 
 use ark_crypto_primitives::{
     snark::{SNARK},
@@ -32,11 +39,22 @@ use std::{
     marker::PhantomData,
 };
 use crate::{
-    history_tree::{SingleStepAVDWithHistory, Digest, LookupProof, HistoryProof, SingleStepUpdateProof},
+    history_tree::{
+        SingleStepAVDWithHistory,
+        Digest,
+        LookupProof,
+        HistoryProof,
+        SingleStepUpdateProof,
+        store::{
+            HTStorer,
+            SingleStepAVDWithHistoryStorer,
+        },
+    },
     FullHistoryAVD, Error,
     get_checkpoint_epochs,
 };
 
+pub mod store;
 pub mod constraints;
 use constraints::{
     InnerSingleStepProofCircuit, InnerSingleStepProofVerifierInput,
@@ -44,7 +62,7 @@ use constraints::{
 };
 
 //TODO: Double storing SSAVD_pp (also stored in MerkleTreeAVD) since need for update
-pub struct RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+pub struct RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V>
 where
     SSAVD: SingleStepAVD,
     SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
@@ -57,16 +75,24 @@ where
     <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
     <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
     <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+    S: SMTStorer<HTParams>,
+    T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
+    U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
+    V: store::RecursionFullHistoryAVDStorer<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>,
 {
-    history_ssavd: SingleStepAVDWithHistory<SSAVD, HTParams>,
-    inner_proof: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof,
-    ssavd_pp: SSAVD::PublicParameters,
-    inner_groth16_pp: <Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::ProvingKey,
-    outer_groth16_pp: <Groth16<Cycle::E2> as SNARK<<Cycle::E2 as PairingEngine>::Fr>>::ProvingKey,
+    store: V,
+    _history_ssavd: PhantomData<SingleStepAVDWithHistory<SSAVD, HTParams, S, T, U>>,
+    _inner_proof: PhantomData<<Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::Proof>,
+    _ssavd_pp: PhantomData<SSAVD::PublicParameters>,
+    _inner_groth16_pp: PhantomData<<Groth16<Cycle::E1> as SNARK<<Cycle::E1 as PairingEngine>::Fr>>::ProvingKey>,
+    _outer_groth16_pp: PhantomData<<Groth16<Cycle::E2> as SNARK<<Cycle::E2 as PairingEngine>::Fr>>::ProvingKey>,
     _ssavd_gadget: PhantomData<SSAVDGadget>,
     _hash_gadget: PhantomData<HGadget>,
     _e1_gadget: PhantomData<E1Gadget>,
     _e2_gadget: PhantomData<E2Gadget>,
+    _s: PhantomData<S>,
+    _t: PhantomData<T>,
+    _u: PhantomData<U>,
 }
 
 
@@ -120,8 +146,8 @@ where
 }
 
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> FullHistoryAVD for
-RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V> FullHistoryAVD for
+RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
@@ -134,14 +160,19 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+        S: SMTStorer<HTParams>,
+        T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
+        U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
+        V: store::RecursionFullHistoryAVDStorer<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>,
 {
     type Digest = Digest<HTParams>;
     type PublicParameters = PublicParameters<SSAVD, HTParams, Cycle>;
     type LookupProof = LookupProof<SSAVD, HTParams>;
     type AuditProof = AuditProof<SSAVD, HTParams, Cycle>;
+    type Store = V;
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
-        let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams>::setup(rng)?;
+        let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::setup(rng)?;
         let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
             &ssavd_pp,
             &history_tree_pp,
@@ -159,62 +190,49 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         })
     }
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
-        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp)?;
-        let inner_genesis_proof = Groth16::<Cycle::E1>::prove(
-            &pp.inner_groth16_pp,
-            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
-                true,
-                &pp.ssavd_pp,
-                &pp.history_tree_pp,
-                Default::default(),
-                pp.outer_groth16_pp.vk.clone(),
-                Proof {
-                    a: <Cycle::E2 as PairingEngine>::G1Affine::prime_subgroup_generator(),
-                    b: <Cycle::E2 as PairingEngine>::G2Affine::prime_subgroup_generator(),
-                    c: <Cycle::E2 as PairingEngine>::G1Affine::prime_subgroup_generator(),
-                },
-            ),
-            rng,
-        )?;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, s: V) -> Result<Self, Error> {
         Ok(Self {
-            history_ssavd: history_ssavd,
-            inner_proof: inner_genesis_proof,
-            ssavd_pp: pp.ssavd_pp.clone(),
-            inner_groth16_pp: pp.inner_groth16_pp.clone(),
-            outer_groth16_pp: pp.outer_groth16_pp.clone(),
+            store: s,
+            _history_ssavd: PhantomData,
+            _inner_proof: PhantomData,
+            _ssavd_pp: PhantomData,
+            _inner_groth16_pp: PhantomData,
+            _outer_groth16_pp: PhantomData,
             _ssavd_gadget: PhantomData,
             _hash_gadget: PhantomData,
             _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
+            _s: PhantomData,
+            _t: PhantomData,
+            _u: PhantomData,
         })
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
-        Ok(self.history_ssavd.digest())
+        return self.store.history_ssavd_get_digest();
     }
 
     fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
-        let (value, proof) = self.history_ssavd.lookup(key)?;
+        let (value, proof) = self.store.history_ssavd_lookup(key)?;
         Ok((value, self.digest()?, proof))
     }
 
     fn update<R: Rng + CryptoRng>(&mut self, rng: &mut R, key: &[u8; 32], value: &[u8; 32]) -> Result<Self::Digest, Error> {
         // Compute new step proof
-        let prev_digest = self.history_ssavd.digest();
-        let update = self.history_ssavd.update(key, value)?;
+        let prev_digest = self.store.history_ssavd_get_digest();
+        let update = self.store.history_ssavd_update(key, value)?;
         self._update(rng, update, prev_digest)
     }
 
     fn batch_update<R: Rng + CryptoRng>(&mut self, rng: &mut R, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<Self::Digest, Error> {
         // Compute new step proof
-        let prev_digest = self.history_ssavd.digest();
-        let update = self.history_ssavd.batch_update(kvs)?;
+        let prev_digest = self.store.history_ssavd_get_digest();
+        let update = self.store.history_ssavd_batch_update(kvs)?;
         self._update(rng, update, prev_digest)
     }
 
     fn verify_lookup(pp: &Self::PublicParameters, key: &[u8; 32], value: &Option<(u64, [u8; 32])>, digest: &Self::Digest, proof: &Self::LookupProof) -> Result<bool, Error> {
-        SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_lookup(
+        SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::verify_lookup(
             &pp.ssavd_pp,
             &pp.history_tree_pp,
             key,
@@ -226,11 +244,11 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
     fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
         let (d, history_proof) = get_checkpoint_epochs(start_epoch, end_epoch).0.iter()
-            .map(|epoch| self.history_ssavd.lookup_history(*epoch))
+            .map(|epoch| self.store.history_ssavd.lookup_history(*epoch))
             .collect::<Result<Vec<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>)>, Error>>()?
             .iter().cloned().unzip::<_, _, Vec<_>, Vec<_>>();
         Ok((
-            self.history_ssavd.digest(),
+            self.store.history_ssavd_get_digest(),
             AuditProof {
                 groth_proof: self.inner_proof.clone(),
                 checkpoint_paths: history_proof,
@@ -258,7 +276,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
             .zip(&proof.checkpoint_digests)
             .zip(get_checkpoint_epochs(start_epoch, end_epoch).0)
             .map(|((checkpoint_proof, checkpoint_digest), epoch)|
-                     SingleStepAVDWithHistory::<SSAVD, HTParams>::verify_history(
+                     SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::verify_history(
                          &pp.history_tree_pp,
                          epoch,
                          checkpoint_digest,
@@ -272,10 +290,8 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
     }
 }
 
-
-
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
-RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, D, S, T, U, V>
+RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
@@ -288,6 +304,11 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+        D: ToBytes + Eq + Clone,
+        S: SMTStorer<HTParams>,
+        T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
+        U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
+        V: store::RecursionFullHistoryAVDStorer<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>,
 {
     fn _update<R: Rng + CryptoRng>(
         &mut self,
