@@ -2,7 +2,6 @@ use std::{
     marker::PhantomData,
 };
 use rand::{Rng, CryptoRng};
-use ark_ff::bytes::ToBytes;
 use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
@@ -25,12 +24,12 @@ use crate::{
         MulAssign,
         ToConstraintField,
         ToConstraintFieldGadget,
-        store::{
-            RecursionFullHistoryAVDStorer,
-        },
         InnerSingleStepProofCircuit,
+        PublicParameters,
+        store::RecursionFullHistoryAVDStorer,
     },
     history_tree::{
+        Digest,
         store::{
             HTStorer,
             SingleStepAVDWithHistoryStorer,
@@ -89,7 +88,7 @@ where
     T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
     U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
 {
-    fn new<R: Rng + CryptoRng>(rng: &mut R, s: U) -> Result<Self, Error> where Self: Sized {
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized {
         let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::new(rng, s)?;
         let inner_genesis_proof = Groth16::<Cycle::E1>::prove(
             &pp.inner_groth16_pp,
@@ -119,7 +118,7 @@ where
             _e2_gadget: PhantomData,
         })
     }
-    fn history_ssavd_get_digest(&self) -> Result<SSAVD::Digest, Error> {
+    fn history_ssavd_get_digest(&self) -> Result<Digest<HTParams>, Error> {
         return self.history_ssavd.store.ssavd_digest();
     }
     fn history_ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error> {
@@ -131,6 +130,4 @@ where
     fn history_ssavd_batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error> {
         return self.history_ssavd.store.ssavd_batch_update(kvs);
     }
-
-
 }

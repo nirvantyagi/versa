@@ -1,7 +1,6 @@
 pub mod mem_store;
 
 use rand::{Rng, CryptoRng};
-use ark_ff::bytes::ToBytes;
 use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
@@ -24,8 +23,10 @@ use crate::{
         MulAssign,
         ToConstraintField,
         ToConstraintFieldGadget,
+        PublicParameters,
     },
     history_tree::{
+        Digest,
         store::{
             HTStorer,
             SingleStepAVDWithHistoryStorer,
@@ -52,7 +53,7 @@ where
     U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
 {
 
-    fn new<R: Rng + CryptoRng>(_rng: &mut R, s: U) -> Result<Self, Error> where Self: Sized;
+    fn new<R: Rng + CryptoRng>(_rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized;
     fn history_ssavd_get_digest(&self) -> Result<SSAVD::Digest, Error>;
     fn history_ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error>;
     fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;
