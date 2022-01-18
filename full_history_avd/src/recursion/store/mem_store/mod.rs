@@ -1,6 +1,7 @@
 use std::{
     marker::PhantomData,
 };
+use ark_groth16::{Groth16, Proof, ProvingKey};
 use rand::{Rng, CryptoRng};
 use single_step_avd::{
     SingleStepAVD,
@@ -18,6 +19,7 @@ use crypto_primitives::{
 };
 use crate::{
     recursion::{
+        AffineCurve,
         CycleEngine,
         PairingEngine,
         PairingVar,
@@ -30,6 +32,9 @@ use crate::{
     },
     history_tree::{
         Digest,
+        LookupProof,
+        SingleStepUpdateProof,
+        HistoryProof,
         store::{
             HTStorer,
             SingleStepAVDWithHistoryStorer,
@@ -41,8 +46,6 @@ use crate::{
 use ark_crypto_primitives::{
     snark::{SNARK},
 };
-use ark_groth16::{Groth16, Proof};
-
 pub struct RecursionFullHistoryAVDMemStore<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>
 where
     SSAVD: SingleStepAVD,
@@ -118,16 +121,37 @@ where
             _e2_gadget: PhantomData,
         })
     }
-    fn history_ssavd_get_digest(&self) -> Result<Digest<HTParams>, Error> {
-        return self.history_ssavd.store.ssavd_digest();
+    fn history_ssavd_get_digest(&self) -> Digest<HTParams> {
+        return self.history_ssavd.digest();
     }
-    fn history_ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error> {
-        return self.history_ssavd.store.ssavd_lookup(key);
+    fn history_ssavd_lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error> {
+        return self.history_ssavd.lookup(key);
     }
-    fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error> {
-        return self.history_ssavd.store.ssavd_update(key, value);
+    fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error> {
+        return self.history_ssavd.update(key, value);
     }
-    fn history_ssavd_batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error> {
-        return self.history_ssavd.store.ssavd_batch_update(kvs);
+    fn history_ssavd_batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error> {
+        return self.history_ssavd.batch_update(kvs);
+    }
+    fn history_ssavd_lookup_history(&mut self, prev_epoch: usize) -> Result<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>), Error> {
+        return self.history_ssavd.lookup_history(prev_epoch);
+    }
+    fn history_ssavd_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters {
+        return self.history_ssavd.store.history_tree_get_hash_parameters();
+    }
+    fn inner_proof_set(&self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>) {
+        self.inner_proof = val;
+    }
+    fn inner_proof_get(&self) -> Proof<<Cycle as ark_ec::CycleEngine>::E1> {
+        return self.inner_proof.clone();
+    }
+    fn ssavd_pp_get(&self) -> SSAVD::PublicParameters {
+        return self.ssavd_pp.clone();
+    }
+    fn outer_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E2> {
+        return self.outer_groth16_pp.clone();
+    }
+    fn inner_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E1> {
+        return self.inner_groth16_pp.clone();
     }
 }

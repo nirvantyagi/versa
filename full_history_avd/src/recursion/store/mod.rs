@@ -1,5 +1,6 @@
 pub mod mem_store;
 
+use ark_groth16::{Proof, ProvingKey};
 use rand::{Rng, CryptoRng};
 use single_step_avd::{
     SingleStepAVD,
@@ -27,6 +28,9 @@ use crate::{
     },
     history_tree::{
         Digest,
+        LookupProof,
+        SingleStepUpdateProof,
+        HistoryProof,
         store::{
             HTStorer,
             SingleStepAVDWithHistoryStorer,
@@ -54,20 +58,16 @@ where
 {
 
     fn new<R: Rng + CryptoRng>(_rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized;
-    fn history_ssavd_get_digest(&self) -> Result<SSAVD::Digest, Error>;
-    fn history_ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error>;
-    fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;
-    fn history_ssavd_batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;
+    fn history_ssavd_get_digest(&self) -> Digest<HTParams>;
+    fn history_ssavd_lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error>;
+    fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error>;
+    fn history_ssavd_batch_update(&mut self, kvs: &Vec<([u8; 32], [u8; 32])>) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error>;
+    fn history_ssavd_lookup_history(&mut self, prev_epoch: usize) -> Result<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>), Error>;
+    fn history_ssavd_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 
-    // fn new(initial_leaf: &[u8], hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized;
-    // fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error>;
-    // fn smt_update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
-    // fn smt_get_hash_parameters(&self) -> <P::H as FixedLengthCRH>::Parameters;
-    // fn smt_get_root(&self) -> <P::H as FixedLengthCRH>::Output;
-    //
-    // fn get_epoch(&self) -> MerkleIndex;
-    // fn set_epoch(&mut self, index: MerkleIndex) -> Result<(), Error>;
-    //
-    // fn digest_d_get(&self, key: &MerkleIndex) -> Option<&D>;
-    // fn digest_d_insert(&mut self, index: MerkleIndex, digest: D) -> Option<D>;
+    fn inner_proof_get(&self) -> Proof<<Cycle as ark_ec::CycleEngine>::E1>;
+    fn inner_proof_set(&self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>);
+    fn ssavd_pp_get(&self) -> SSAVD::PublicParameters;
+    fn outer_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E2>;
+    fn inner_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E1>;
 }

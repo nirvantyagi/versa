@@ -13,12 +13,10 @@ use crypto_primitives::{
         constraints::FixedLengthCRHGadget
     },
 };
-use ark_ff::bytes::ToBytes;
-
 use ark_crypto_primitives::{
     snark::{SNARK},
 };
-use ark_groth16::{Groth16, Proof, verifier::prepare_verifying_key};
+use ark_groth16::{Groth16, verifier::prepare_verifying_key};
 use ark_ff::{
     ToConstraintField,
 };
@@ -31,9 +29,7 @@ use ark_r1cs_std::{
     ToConstraintFieldGadget,
 };
 use ark_std::{end_timer, start_timer};
-
 use rand::{Rng, CryptoRng};
-
 use std::{
     ops::MulAssign,
     marker::PhantomData,
@@ -209,7 +205,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {
-        return self.store.history_ssavd_get_digest();
+        return Ok(self.store.history_ssavd_get_digest());
     }
 
     fn lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
@@ -244,13 +240,13 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
     fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
         let (d, history_proof) = get_checkpoint_epochs(start_epoch, end_epoch).0.iter()
-            .map(|epoch| self.store.history_ssavd.lookup_history(*epoch))
+            .map(|epoch| self.store.history_ssavd_lookup_history(*epoch))
             .collect::<Result<Vec<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>)>, Error>>()?
             .iter().cloned().unzip::<_, _, Vec<_>, Vec<_>>();
         Ok((
             self.store.history_ssavd_get_digest(),
             AuditProof {
-                groth_proof: self.inner_proof.clone(),
+                groth_proof: self.store.inner_proof_get(),
                 checkpoint_paths: history_proof,
                 checkpoint_digests: d,
             }
@@ -290,7 +286,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
     }
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, D, S, T, U, V>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V>
 RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, V>
     where
         SSAVD: SingleStepAVD,
@@ -304,7 +300,6 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
-        D: ToBytes + Eq + Clone,
         S: SMTStorer<HTParams>,
         T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
         U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
@@ -319,14 +314,14 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         // Compute outer proof of previous inner proof
         let check = start_timer!(|| "Compute outer proof");
         let outer_proof = Groth16::<Cycle::E2>::prove(
-            &self.outer_groth16_pp,
+            &self.store.outer_groth16_pp_get(),
             OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
-                self.inner_proof.clone(),
+                self.store.inner_proof_get(),
                 InnerSingleStepProofVerifierInput {
                     new_digest: prev_digest.digest.clone(),
                     new_epoch: prev_digest.epoch,
                 },
-                self.inner_groth16_pp.vk.clone(),
+                self.store.inner_groth16_pp_get().vk.clone(),
             ),
             rng,
         )?;
@@ -334,19 +329,19 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         // Compute new inner proof
         let check = start_timer!(|| "Compute inner proof");
         let new_inner_proof = Groth16::<Cycle::E1>::prove(
-            &self.inner_groth16_pp,
+            &self.store.inner_groth16_pp_get(),
             InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
                 false,
-                &self.ssavd_pp,
-                &self.history_ssavd.history_tree.tree.hash_parameters,
+                &self.store.ssavd_pp_get(),
+                &self.store.history_ssavd_get_hash_parameters(),
                 update,
-                self.outer_groth16_pp.vk.clone(),
+                self.store.outer_groth16_pp_get().vk.clone(),
                 outer_proof,
             ),
             rng,
         )?;
         end_timer!(check);
-        self.inner_proof = new_inner_proof.clone();
+        self.store.inner_proof_set(new_inner_proof.clone());
         Ok(self.digest()?)
     }
 }
