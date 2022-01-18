@@ -356,24 +356,55 @@ mod tests {
     use ark_crypto_primitives::{
         crh::pedersen::{constraints::CRHGadget, CRH, Window},
     };
-
+    use crate::history_tree::{
+        store::{
+            mem_store::{
+                HTMemStore,
+                SingleStepAVDWithHistoryMemStore,
+            },
+        },
+        SingleStepAVDWithHistory,
+    };
+    use crate::recursion::{
+        store::{
+            RecursionFullHistoryAVDStorer,
+        }
+    };
     use single_step_avd::{
         merkle_tree_avd::{
             MerkleTreeAVDParameters,
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
+            store::{
+                mem_store::MTAVDMemStore,
+            }
         },
         rsa_avd::{
-            RsaAVD, constraints::RsaAVDGadget,
+            RsaAVD,
+            constraints::RsaAVDGadget,
+            store::{
+                mem_store::RSAAVDMemStore,
+            },
         }
     };
     use crypto_primitives::{
-        sparse_merkle_tree::MerkleDepth,
+        sparse_merkle_tree::{
+            MerkleDepth,
+            store::{
+                mem_store::SMTMemStore,
+            },
+        },
         hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
     };
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
-        kvac::RsaKVACParams,
+        kvac::{
+            RsaKVAC,
+            RsaKVACParams,
+            store::{
+                mem_store::RsaKVACMemStore,
+            }
+        },
         poker::{PoKERParams},
         hog::{RsaGroupParams},
         hash::{
@@ -420,9 +451,24 @@ mod tests {
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
 
-    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
-    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq>;
-
+    type TestSMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type TestMTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, TestSMTStore>;
+    type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
+    type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
+    type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
+    type TestRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
+        TestMerkleTreeAVD,
+        TestMerkleTreeAVDGadget,
+        MerkleTreeTestParameters,
+        HG,
+        MNT298Cycle,
+        MNT4PairingVar,
+        MNT6PairingVar,
+        TestSMTStore,
+        TestHTStore,
+        TestAVDWHStore,
+    >;
     type TestRecursionFHAVD = RecursionFullHistoryAVD<
         TestMerkleTreeAVD,
         TestMerkleTreeAVDGadget,
@@ -431,6 +477,10 @@ mod tests {
         MNT298Cycle,
         MNT4PairingVar,
         MNT6PairingVar,
+        TestSMTStore,
+        TestHTStore,
+        TestAVDWHStore,
+        TestRecursionFHAVDStore,
     >;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
@@ -450,8 +500,27 @@ mod tests {
         const MAX_OPEN_ADDRESSING_PROBES: u8 = 2;
         type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
     }
-    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
-    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq>;
+
+    type PoseidonTestSMTStore = SMTMemStore<PoseidonMerkleTreeTestParameters>;
+    type PoseidonTestMTAVDStore = MTAVDMemStore<PoseidonMerkleTreeAVDTestParameters, PoseidonTestSMTStore>;
+    type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
+    type PoseidonTestHTStore = HTMemStore<PoseidonMerkleTreeTestParameters, <PoseidonSponge<Fq> as FixedLengthCRH>::Output, PoseidonTestSMTStore>;
+    type PoseidonTestAVDWHStore = SingleStepAVDWithHistoryMemStore<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore>;
+    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
+    type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
+
+    type PoseidonRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
+        PoseidonTestMerkleTreeAVD,
+        PoseidonTestMerkleTreeAVDGadget,
+        PoseidonMerkleTreeTestParameters,
+        PoseidonSpongeVar<Fq>,
+        MNT298Cycle,
+        MNT4PairingVar,
+        MNT6PairingVar,
+        PoseidonTestSMTStore,
+        PoseidonTestHTStore,
+        PoseidonTestAVDWHStore,
+    >;
 
     type PoseidonTestRecursionFHAVD = RecursionFullHistoryAVD<
         PoseidonTestMerkleTreeAVD,
@@ -461,6 +530,10 @@ mod tests {
         MNT298Cycle,
         MNT4PairingVar,
         MNT6PairingVar,
+        PoseidonTestSMTStore,
+        PoseidonTestHTStore,
+        PoseidonTestAVDWHStore,
+        PoseidonRecursionFHAVDStore,
     >;
 
 
@@ -499,23 +572,21 @@ mod tests {
     pub type PoseidonH = PoseidonHasher<Fq>;
     pub type PoseidonHG = PoseidonHasherGadget<Fq>;
 
-    pub type TestRsaAVD = RsaAVD<
-        TestKVACParams,
-        HasherFromDigest<Fq, blake3::Hasher>,
-        PoseidonH,
-        BigNatTestParams,
-    >;
+    // make RSA AVD
+    type TestKvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams>;
+    type TestRSAKVAC = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
+    type TestRSAAVDStore = RSAAVDMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
+    pub type TestRsaAVD = RsaAVD<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
+    // make RSA HT
+    type TestRsaSMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type TestRsaHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestRsaSMTStore>;
+    // make rsa AVD WH
+    type TestRSAAVDWHStore = SingleStepAVDWithHistoryMemStore<TestRsaAVD, MerkleTreeTestParameters, TestRsaSMTStore, TestRsaHTStore>;
+    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters, TestRsaSMTStore, TestRsaHTStore, TestRSAAVDWHStore>;
+    // other
+    pub type TestRsaAVDGadget = RsaAVDGadget<Fq, TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, PoseidonHG, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
 
-    pub type TestRsaAVDGadget = RsaAVDGadget<
-        Fq,
-        TestKVACParams,
-        HasherFromDigest<Fq, blake3::Hasher>,
-        PoseidonH,
-        PoseidonHG,
-        BigNatTestParams,
-    >;
-
-    type TestRecursionRsaFHAVD = RecursionFullHistoryAVD<
+    type TestRsaRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
         TestRsaAVD,
         TestRsaAVDGadget,
         MerkleTreeTestParameters,
@@ -523,6 +594,23 @@ mod tests {
         MNT298Cycle,
         MNT4PairingVar,
         MNT6PairingVar,
+        TestRsaSMTStore,
+        TestRsaHTStore,
+        TestRSAAVDWHStore,
+    >;
+
+    type TestRsaRecursionFHAVD = RecursionFullHistoryAVD<
+        TestRsaAVD,
+        TestRsaAVDGadget,
+        MerkleTreeTestParameters,
+        HG,
+        MNT298Cycle,
+        MNT4PairingVar,
+        MNT6PairingVar,
+        TestRsaSMTStore,
+        TestRsaHTStore,
+        TestRSAAVDWHStore,
+        TestRsaRecursionFHAVDStore,
     >;
 
     #[test]
@@ -530,8 +618,12 @@ mod tests {
     fn mt_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let pp = TestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, &pp).unwrap();
+        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        // make ssavd (which, weirdly is a trait too)
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
+        let pp = TestRsaRecursionFHAVD::setup(&mut rng).unwrap();
+        let mut recfhavd_store: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp, mtavd_mem_store).unwrap();
+        let mut avd: TestRsaRecursionFHAVD = TestRsaRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -567,7 +659,7 @@ mod tests {
         println!("\t epoch 1 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(0, 1).unwrap();
-        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
         assert!(verify_audit);
 
         let start = Instant::now();
@@ -591,7 +683,7 @@ mod tests {
         println!("\t epoch 5 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(2, 5).unwrap();
-        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
+        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
         assert!(verify_audit);
     }
 
@@ -602,6 +694,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = PoseidonTestRecursionFHAVD::setup(&mut rng).unwrap();
+        let mut st: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp).unwrap();
         let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
