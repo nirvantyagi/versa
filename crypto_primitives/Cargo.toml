@@ -14,6 +14,8 @@ ark-crypto-primitives = { version = "0.2", default-features = false, features = 
 ark-r1cs-std = { version = "0.2", default-features = false }
 ark-std = { version = "0.2", default-features = false }
 
+uuid = { version = "0.8", features = ["serde", "v4"] }
+redis = "0.21.5"
 rand = { version = "0.7" }
 tracing = { version = "0.1", default-features = false }
 

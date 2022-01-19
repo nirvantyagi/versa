@@ -1,4 +1,5 @@
 pub mod mem_store;
+pub mod redis_store;
 
 use crate::Error;
 use crate::hash::FixedLengthCRH;
