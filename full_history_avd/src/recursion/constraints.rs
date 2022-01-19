@@ -163,11 +163,18 @@ where
             ark_relations::ns!(cs, "history_tree_pp"),
             &self.history_tree_pp,
         )?;
+        // TODO: trivial to add the other 3 generic parameters above and fed them here, but
+        // 'new' now expects a store, and I'm not sure how to create it (see below)
         let genesis_digest_val = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(
             &mut StepRng::new(1, 1),
             &self.ssavd_pp,
             &self.history_tree_pp,
         ).unwrap().digest().digest;
+        // 1) SingleStepAVDWithHistory::new(SSAVDWHStorer), which we can make in 2
+        // 2) SSAVDWHStorer::new(SSAVD, HTStorer), which we can make in 3 & 4
+        // 3) HTStorer::new(initial, params), which we have
+        // 4) SSAVD::new(SSAVDStorer), ?? but we don't know how to make SSAVDStorer in 5
+        // 5) is it MTAVDStorer::new(initial, params) or RSAAVDStorer::new(RsaKVAC)?
         let genesis_digest = HGadget::OutputVar::new_constant(
             ark_relations::ns!(cs, "genesis_digest"),
             &genesis_digest_val,
@@ -537,11 +544,6 @@ mod tests {
     };
     use ark_groth16::Groth16;
     use tracing_subscriber::layer::SubscriberExt;
-    use crate::recursion::{
-        store::{
-            RecursionFullHistoryAVDStorer,
-        }
-    };
     use single_step_avd::{
         merkle_tree_avd::{
             MerkleTreeAVDParameters,
