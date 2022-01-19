@@ -376,6 +376,7 @@ mod tests {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
+                MTAVDStorer,
                 mem_store::MTAVDMemStore,
             }
         },
@@ -383,6 +384,7 @@ mod tests {
             RsaAVD,
             constraints::RsaAVDGadget,
             store::{
+                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
         }
@@ -402,6 +404,7 @@ mod tests {
             RsaKVAC,
             RsaKVACParams,
             store::{
+                RsaKVACStorer,
                 mem_store::RsaKVACMemStore,
             }
         },
@@ -456,6 +459,7 @@ mod tests {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
     type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
     type TestRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
         TestMerkleTreeAVD,
@@ -509,7 +513,7 @@ mod tests {
     type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
     type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
 
-    type PoseidonRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
+    type PoseidonTestRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
         PoseidonTestMerkleTreeAVD,
         PoseidonTestMerkleTreeAVDGadget,
         PoseidonMerkleTreeTestParameters,
@@ -533,7 +537,7 @@ mod tests {
         PoseidonTestSMTStore,
         PoseidonTestHTStore,
         PoseidonTestAVDWHStore,
-        PoseidonRecursionFHAVDStore,
+        PoseidonTestRecursionFHAVDStore,
     >;
 
 
@@ -613,6 +617,9 @@ mod tests {
         TestRsaRecursionFHAVDStore,
     >;
 
+    static INITIAL_LEAF: [u8; 72] = [0; 72];
+    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
+
     #[test]
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
     fn mt_update_and_verify_recursion_full_history_test() {
@@ -621,9 +628,14 @@ mod tests {
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
         // make ssavd (which, weirdly is a trait too)
         let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let pp = TestRsaRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp, mtavd_mem_store).unwrap();
-        let mut avd: TestRsaRecursionFHAVD = TestRsaRecursionFHAVD::new(&mut rng, &pp).unwrap();
+        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        let pp = TestRecursionFHAVD::setup(&mut rng).unwrap();
+        let mut recfhavd_store: TestRecursionFHAVDStore = TestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
+        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -659,7 +671,7 @@ mod tests {
         println!("\t epoch 1 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(0, 1).unwrap();
-        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
         assert!(verify_audit);
 
         let start = Instant::now();
@@ -683,7 +695,7 @@ mod tests {
         println!("\t epoch 5 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(2, 5).unwrap();
-        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
+        let verify_audit = TestRecursionFHAVD::verify_audit(&pp, 2, 5, &d5, &audit_proof).unwrap();
         assert!(verify_audit);
     }
 
@@ -693,9 +705,17 @@ mod tests {
     fn mt_poseidon_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
+        let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
+        // make ssavd (which, weirdly is a trait too)
+        let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
+        let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = PoseidonTestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut st: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp).unwrap();
-        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
+        let mut recfhavd_store: PoseidonTestRecursionFHAVDStore = PoseidonTestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
+        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -764,8 +784,20 @@ mod tests {
     fn update_and_verify_rsa_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let pp = TestRecursionRsaFHAVD::setup(&mut rng).unwrap();
-        let mut avd  = TestRecursionRsaFHAVD::new(&mut rng, &pp).unwrap();
+        let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
+        // make rsa kvac
+        let kvac_mem_store: TestKvacStore = TestKvacStore::new();
+        let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
+        // make ssavd (which, weirdly is a trait too)
+        let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
+        let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        let pp = TestRsaRecursionFHAVD::setup(&mut rng).unwrap();
+        let mut recfhavd_store: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
+        let mut avd  = TestRsaRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -807,7 +839,7 @@ mod tests {
         println!("\t epoch 1 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(0, 1).unwrap();
-        let verify_audit = TestRecursionRsaFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
+        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 0, 1, &d1, &audit_proof).unwrap();
         assert!(verify_audit);
 
         let start = Instant::now();
@@ -831,7 +863,7 @@ mod tests {
         println!("\t epoch 5 proving time: {} s", bench);
 
         let (_, audit_proof) = avd.audit(1, 5).unwrap();
-        let verify_audit = TestRecursionRsaFHAVD::verify_audit(&pp, 1, 5, &d5, &audit_proof).unwrap();
+        let verify_audit = TestRsaRecursionFHAVD::verify_audit(&pp, 1, 5, &d5, &audit_proof).unwrap();
         assert!(verify_audit);
     }
 }

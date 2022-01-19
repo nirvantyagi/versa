@@ -537,19 +537,25 @@ mod tests {
     };
     use ark_groth16::Groth16;
     use tracing_subscriber::layer::SubscriberExt;
-
+    use crate::recursion::{
+        store::{
+            RecursionFullHistoryAVDStorer,
+        }
+    };
     use single_step_avd::{
         merkle_tree_avd::{
             MerkleTreeAVDParameters,
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
+                MTAVDStorer,
                 mem_store::MTAVDMemStore,
             }
         },
         rsa_avd::{
             RsaAVD,
             store::{
+                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
             constraints::RsaAVDGadget,
@@ -571,6 +577,8 @@ mod tests {
         history_tree::{
             SingleStepAVDWithHistory,
             store::{
+                HTStorer,
+                SingleStepAVDWithHistoryStorer,
                 mem_store::{
                     HTMemStore,
                     SingleStepAVDWithHistoryMemStore,
@@ -584,6 +592,7 @@ mod tests {
             RsaKVAC,
             RsaKVACParams,
             store::{
+                RsaKVACStorer,
                 mem_store::RsaKVACMemStore,
             }
         },
@@ -637,6 +646,7 @@ mod tests {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
     type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
     type TestInnerVerifierInput = InnerSingleStepProofVerifierInput<MerkleTreeTestParameters>;
@@ -726,6 +736,9 @@ mod tests {
     type TestRsaInnerCircuit = InnerSingleStepProofCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
     type TestRsaOuterCircuit = OuterCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
 
+    static INITIAL_LEAF: [u8; 72] = [0; 72];
+    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
+
     #[test]
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
     fn mt_update_and_verify_inner_circuit_test() {
@@ -734,8 +747,16 @@ mod tests {
                  MerkleTreeAVDTestParameters::MAX_UPDATE_BATCH_SIZE,
         );
         let mut rng = StdRng::seed_from_u64(0_u64);
-        let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
+        // make ssavd (which, weirdly is a trait too)
+        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
+        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        // put it all together in ssavd w history
+        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");
@@ -986,7 +1007,15 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        // make ssavd (which, weirdly is a trait too)
+        let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
+        let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        // put it all together in ssavd w history
+        let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");
@@ -1267,7 +1296,18 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        let mut avd = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        // make rsa kvac
+        let kvac_mem_store: TestKvacStore = TestKvacStore::new();
+        let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
+        // make ssavd (which, weirdly is a trait too)
+        let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
+        let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
+        // make ht_mem_store (remember, HistoryTree is not a trait)
+        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
+        // make savd w history store
+        let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
+        // put it all together in ssavd w history
+        let mut avd: TestRsaAVDWithHistory = TestRsaAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");
