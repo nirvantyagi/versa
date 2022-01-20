@@ -1,4 +1,7 @@
-use ark_ff::bytes::ToBytes;
+use ark_ff::bytes::{
+    ToBytes,
+    FromBytes,
+};
 use std::{
     hash::Hash, fmt,
     error::Error as ErrorTrait,
@@ -19,7 +22,7 @@ pub mod poseidon;
 pub trait FixedLengthCRH {
     const INPUT_SIZE_BITS: usize;
 
-    type Output: ToBytes + Clone + Eq + core::fmt::Debug + Hash + Default;
+    type Output: ToBytes + FromBytes + Clone + Eq + core::fmt::Debug + Hash + Default;
     type Parameters: Clone + Default + Send + Sync;
 
     fn setup<R: Rng>(r: &mut R) -> Result<Self::Parameters, Error>;
@@ -47,4 +50,3 @@ impl fmt::Display for HashError {
         write!(f, "{}", msg)
     }
 }
-

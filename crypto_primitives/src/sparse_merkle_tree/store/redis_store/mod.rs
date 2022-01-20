@@ -1,9 +1,7 @@
 use std::{
     marker::PhantomData,
 };
-use ark_ff::{
-    to_bytes,
-};
+use ark_ff::to_bytes;
 use uuid::Uuid;
 use crate::{
     Error,
@@ -75,10 +73,8 @@ where
         let key: String = utils::to_key(index.0, index.1);
         let val_string: String = redis_utils::get(key).unwrap();
         let val_bytes = val_string.as_bytes();
-        return val_bytes as <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output;
-        // return Ok(val_string as <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output);
-        // let val: <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output = val_string;
-        // return self.tree.get(index);
+        let v = <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output::new();
+        return val;
     }
 
     fn set(
@@ -87,7 +83,8 @@ where
         value: <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     ) {
         let key: String = utils::to_key(index.0, index.1);
-        let val: String = to_bytes![value];
+        let val_bytes: Vec<u8> = to_bytes![value].unwrap();
+        let val: String = String::from_utf8(val_bytes).unwrap();
         redis_utils::set(key, val).unwrap();
         if index.0 == 0 && index.1 == 0 {
             self.root = value.clone();
