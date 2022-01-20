@@ -619,7 +619,6 @@ mod tests {
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::{
-            RsaKVAC,
             RsaKVACParams,
             store::{
                 mem_store::RsaKVACMemStore,
@@ -751,7 +750,6 @@ mod tests {
 
     // make RSA AVD
     type TestKvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams>;
-    type TestRSAKVAC = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     type TestRSAAVDStore = RSAAVDMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     pub type TestRsaAVD = RsaAVD<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
     // make RSA HT

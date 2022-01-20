@@ -51,7 +51,7 @@ pub trait FullHistoryAVD: Sized {
     ) -> Result<bool, Error>;
 
     fn audit(
-        &self,
+        &mut self,
         start_epoch: usize,
         end_epoch: usize,
     ) -> Result<(Self::Digest, Self::AuditProof), Error>;

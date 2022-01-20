@@ -149,7 +149,7 @@ where
         Ok(version_matches && witness_verifies)
     }
 
-    fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
+    fn audit(&mut self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
         let (checkpoints, checkpoint_ranges) = get_checkpoint_epochs(start_epoch, end_epoch);
         let checkpoint_digests = checkpoints.iter()
             .map(|i| self.store.digest_get(*i))

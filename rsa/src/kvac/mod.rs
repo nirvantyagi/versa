@@ -603,7 +603,6 @@ mod tests {
     use crate::hash::{HasherFromDigest, PoseidonHasher};
     use crate::kvac::{
         store::mem_store::RsaKVACMemStore,
-        store::RsaKVACStorer,
     };
 
     #[derive(Clone, PartialEq, Eq, Debug)]
