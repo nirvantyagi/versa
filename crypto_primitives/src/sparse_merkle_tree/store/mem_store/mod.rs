@@ -53,11 +53,11 @@ where
         })
     }
 
-    fn get(
-        & self,
-        index: &(MerkleDepth, MerkleIndex),
-    ) -> Option<&<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
-        return self.tree.get(index);
+    fn get(&self, index: &(MerkleDepth, MerkleIndex)) -> Option<<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
+        match self.tree.get(index) {
+            Some(h) => return Some(h.clone()),
+            None => return None,
+        }
     }
 
     fn set(

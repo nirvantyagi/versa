@@ -15,3 +15,17 @@ pub fn set(key: String, val: String) -> Result<(), redis::RedisError> {
     let mut con: redis::Connection = get_con().unwrap();
     return con.set(key, val);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn set_and_get_test() {
+        let key: String = "abcdefg".to_string();
+        let val: String = "my-val".to_string();
+        set(key.clone(), val.clone()).unwrap();
+        assert_eq!(get(key).unwrap(), val);
+    }
+}

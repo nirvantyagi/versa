@@ -167,6 +167,7 @@ mod tests {
     };
     use crate::sparse_merkle_tree::store::{
         mem_store::SMTMemStore,
+        redis_store::SMTRedisStore,
         SMTStorer
     };
 
@@ -190,7 +191,9 @@ mod tests {
     }
 
     type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters, SMTStore>;
+    type RedisTestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters, RedisSMTStore>;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     type PH = PoseidonSponge<Fq>;
@@ -204,8 +207,9 @@ mod tests {
     }
 
     type PoseidonSMTStore = SMTMemStore<PoseidonMerkleTreeTestParameters>;
+    type RedisPoseidonSMTStore = SMTRedisStore<PoseidonMerkleTreeTestParameters>;
     type PoseidonTestMerkleTree = SparseMerkleTree<PoseidonMerkleTreeTestParameters, PoseidonSMTStore>;
-
+    type RedisPoseidonTestMerkleTree = SparseMerkleTree<PoseidonMerkleTreeTestParameters, RedisPoseidonSMTStore>;
 
     #[test]
     fn valid_path_constraints_test() {
@@ -262,6 +266,61 @@ mod tests {
         assert!(cs.is_satisfied().unwrap());
     }
 
+    #[test]
+    #[ignore]
+    fn redis_valid_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = RedisSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+        .unwrap();
+
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(tree.store.get_root()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+        .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+    }
 
     #[test]
     fn poseidon_valid_path_constraints_test() {
@@ -269,6 +328,62 @@ mod tests {
         let crh_parameters = PH::setup(&mut rng).unwrap();
         let mem_store = PoseidonSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = PoseidonTestMerkleTree::new(mem_store);
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <PHG as FixedLengthCRHGadget<PH, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate root
+        let root_var = <PHG as FixedLengthCRHGadget<PH, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(tree.store.get_root()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<PoseidonMerkleTreeTestParameters, PHG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+            .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_poseidon_valid_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = PH::setup(&mut rng).unwrap();
+        let redis_store = RedisPoseidonSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisPoseidonTestMerkleTree::new(redis_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 
@@ -374,6 +489,62 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_invalid_root_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = RedisSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(<H as FixedLengthCRH>::Output::default()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+            .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(!cs.is_satisfied().unwrap());
+    }
+
+    #[test]
     fn invalid_leaf_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
@@ -429,11 +600,123 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_invalid_leaf_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = RedisSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(tree.store.get_root()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([2_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(177),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+            .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(!cs.is_satisfied().unwrap());
+    }
+
+    #[test]
     fn invalid_index_path_constraints_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mem_store = SMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
+        tree.update(177, &[1_u8; 16]).unwrap();
+        let path = tree.lookup(177).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate root
+        let root_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "root"),
+            || Ok(tree.store.get_root()),
+        ).unwrap();
+
+        // Allocate leaf
+        let leaf_var = Vec::<UInt8<Fq>>::new_witness(
+            ark_relations::ns!(cs, "leaf"),
+            || Ok([1_u8; 16]),
+        ).unwrap();
+
+        // Allocate leaf
+        let index_var = UInt64::<Fq>::new_witness(
+            ark_relations::ns!(cs, "index"),
+            || Ok(176),
+        ).unwrap();
+
+        // Allocate path
+        let path_var = MerkleTreePathVar::<MerkleTreeTestParameters, HG, Fq>::new_witness(
+            ark_relations::ns!(cs, "path"),
+            || Ok(path),
+        )
+            .unwrap();
+
+        path_var
+            .check_path(
+                &root_var,
+                &leaf_var,
+                &index_var,
+                &crh_parameters_var,
+            )
+            .unwrap();
+
+        assert!(!cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_invalid_index_path_constraints_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = RedisSMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
         tree.update(177, &[1_u8; 16]).unwrap();
         let path = tree.lookup(177).unwrap();
 

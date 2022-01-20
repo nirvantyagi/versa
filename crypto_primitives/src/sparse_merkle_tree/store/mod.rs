@@ -20,7 +20,7 @@ where
         Result<Self, Error> where Self: Sized;
 
     fn get(&self, index: &(MerkleDepth, MerkleIndex)) ->
-        Option<&<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output>;
+        Option<<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output>;
 
     fn set(
         &mut self,

@@ -218,6 +218,7 @@ mod tests {
     };
     use crate::sparse_merkle_tree::store::{
         mem_store::SMTMemStore,
+        redis_store::SMTRedisStore,
         SMTStorer
     };
 
@@ -247,10 +248,14 @@ mod tests {
     }
 
     type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type TestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters, SMTStore>;
+    type RedisTestMerkleTree = SparseMerkleTree<MerkleTreeTestParameters, RedisSMTStore>;
 
     type TinySMTStore = SMTMemStore<MerkleTreeTinyTestParameters>;
+    type RedisTinySMTStore = SMTRedisStore<MerkleTreeTinyTestParameters>;
     type TinyTestMerkleTree = SparseMerkleTree<MerkleTreeTinyTestParameters, TinySMTStore>;
+    type RedisTinyTestMerkleTree = SparseMerkleTree<MerkleTreeTinyTestParameters, RedisTinySMTStore>;
 
     #[test]
     fn initialize_test() {
@@ -264,11 +269,63 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_initialize_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = RedisTinySMTStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let tree = RedisTinyTestMerkleTree::new(redis_store);
+        let leaf_hash = hash_leaf::<H>(&crh_parameters, &[0u8; 16]).unwrap();
+        let root_hash = hash_inner_node::<H>(&crh_parameters, &leaf_hash, &leaf_hash).unwrap();
+        assert_eq!(tree.store.get_root(), root_hash);
+    }
+
+    #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mem_store = SMTMemStore::new(&[0u8; 16], &crh_parameters).unwrap();
         let mut tree = TestMerkleTree::new(mem_store);
+        let proof_0 = tree.lookup(0).unwrap();
+        let proof_177 = tree.lookup(177).unwrap();
+        let proof_255 = tree.lookup(255).unwrap();
+        let proof_256 = tree.lookup(256);
+        assert!(proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+        assert!(proof_177
+            .verify(&tree.store.get_root(), &[0u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(proof_255
+            .verify(&tree.store.get_root(), &[0u8; 16], 255, &crh_parameters)
+            .unwrap());
+        assert!(proof_256.is_err());
+        assert!(tree.update(177, &[1_u8; 16]).is_ok());
+        assert!(proof_177
+            .verify(&tree.store.get_root(), &[1u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(!proof_177
+            .verify(&tree.store.get_root(), &[0u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(!proof_177
+            .verify(&tree.store.get_root(), &[1u8; 16], 0, &crh_parameters)
+            .unwrap());
+        assert!(!proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+        let updated_proof_0 = tree.lookup(0).unwrap();
+        assert!(updated_proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = SMTRedisStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
         let proof_0 = tree.lookup(0).unwrap();
         let proof_177 = tree.lookup(177).unwrap();
         let proof_255 = tree.lookup(255).unwrap();

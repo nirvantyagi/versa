@@ -1,8 +1,12 @@
+extern crate base64;
 use std::{
     marker::PhantomData,
 };
-use ark_ff::to_bytes;
-use uuid::Uuid;
+use ark_ff::{
+    to_bytes,
+    FromBytes,
+};
+use rand::{distributions::Alphanumeric, Rng};
 use crate::{
     Error,
     hash::FixedLengthCRH,
@@ -20,7 +24,7 @@ pub mod utils;
 pub mod redis_utils;
 
 pub struct SMTRedisStore<P: MerkleTreeParameters> {
-    pub id: Uuid,
+    pub id: String,
     // tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
     pub root: <P::H as FixedLengthCRH>::Output,
     sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
@@ -53,10 +57,11 @@ where
         }
         sparse_initial_hashes.reverse();
 
-        let mut id: Uuid;
-        #[cfg(feature = "v4")] {
-            id = Uuid::new_v4()?;
-        }
+        let id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
         Ok(SMTRedisStore {
             id: id,
             root: sparse_initial_hashes[0].clone(),
@@ -69,12 +74,20 @@ where
     fn get(
         & self,
         index: &(MerkleDepth, MerkleIndex),
-    ) -> Option<&<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
-        let key: String = utils::to_key(index.0, index.1);
-        let val_string: String = redis_utils::get(key).unwrap();
-        let val_bytes = val_string.as_bytes();
-        let v = <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output::new();
-        return val;
+    ) -> Option<<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
+        let key: String = utils::to_key(self.id.clone(), index.0, index.1);
+        match redis_utils::get(key) {
+            Ok(val_string) => {
+                let val_bytes: &[u8] = &base64::decode(val_string).unwrap();
+                let val: <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output = <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output::read(val_bytes).unwrap();
+                return Some(val);
+            },
+            Err(_e) => {
+                // e = Response was of incompatible type: "Response type not string compatible." (response was nil)
+                return None;
+            }
+        }
+
     }
 
     fn set(
@@ -82,9 +95,9 @@ where
         index: (MerkleDepth, MerkleIndex),
         value: <<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output
     ) {
-        let key: String = utils::to_key(index.0, index.1);
-        let val_bytes: Vec<u8> = to_bytes![value].unwrap();
-        let val: String = String::from_utf8(val_bytes).unwrap();
+        let key: String = utils::to_key(self.id.clone(), index.0, index.1);
+        let val_bytes = to_bytes![value].unwrap();
+        let val: String = base64::encode(&val_bytes);
         redis_utils::set(key, val).unwrap();
         if index.0 == 0 && index.1 == 0 {
             self.root = value.clone();
