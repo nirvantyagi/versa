@@ -169,12 +169,12 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::setup(rng)?;
-        let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
+        let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::blank(
             &ssavd_pp,
             &history_tree_pp,
         );
         let (inner_groth16_pp, _) = Groth16::<Cycle::E1>::circuit_specific_setup(inner_blank_circuit, rng)?;
-        let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
+        let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::blank(
             inner_groth16_pp.vk.clone(),
         );
         let (outer_groth16_pp, _) = Groth16::<Cycle::E2>::circuit_specific_setup(outer_blank_circuit, rng)?;
@@ -186,7 +186,8 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         })
     }
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, s: V) -> Result<Self, Error> {
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
+        let s = V::new(rng, pp).unwrap();
         Ok(Self {
             store: s,
             _history_ssavd: PhantomData,
@@ -238,7 +239,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         )
     }
 
-    fn audit(&self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
+    fn audit(&mut self, start_epoch: usize, end_epoch: usize) -> Result<(Self::Digest, Self::AuditProof), Error> {
         let (d, history_proof) = get_checkpoint_epochs(start_epoch, end_epoch).0.iter()
             .map(|epoch| self.store.history_ssavd_lookup_history(*epoch))
             .collect::<Result<Vec<(Digest<HTParams>, HistoryProof<SSAVD, HTParams>)>, Error>>()?
@@ -315,7 +316,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         let check = start_timer!(|| "Compute outer proof");
         let outer_proof = Groth16::<Cycle::E2>::prove(
             &self.store.outer_groth16_pp_get(),
-            OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
+            OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::new(
                 self.store.inner_proof_get(),
                 InnerSingleStepProofVerifierInput {
                     new_digest: prev_digest.digest.clone(),
@@ -330,7 +331,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         let check = start_timer!(|| "Compute inner proof");
         let new_inner_proof = Groth16::<Cycle::E1>::prove(
             &self.store.inner_groth16_pp_get(),
-            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
+            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::new(
                 false,
                 &self.store.ssavd_pp_get(),
                 &self.store.history_ssavd_get_hash_parameters(),
@@ -363,12 +364,6 @@ mod tests {
                 SingleStepAVDWithHistoryMemStore,
             },
         },
-        SingleStepAVDWithHistory,
-    };
-    use crate::recursion::{
-        store::{
-            RecursionFullHistoryAVDStorer,
-        }
     };
     use single_step_avd::{
         merkle_tree_avd::{
@@ -376,7 +371,6 @@ mod tests {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
-                MTAVDStorer,
                 mem_store::MTAVDMemStore,
             }
         },
@@ -384,7 +378,6 @@ mod tests {
             RsaAVD,
             constraints::RsaAVDGadget,
             store::{
-                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
         }
@@ -401,10 +394,8 @@ mod tests {
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::{
-            RsaKVAC,
             RsaKVACParams,
             store::{
-                RsaKVACStorer,
                 mem_store::RsaKVACMemStore,
             }
         },
@@ -459,7 +450,6 @@ mod tests {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
-    type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
     type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
     type TestRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
         TestMerkleTreeAVD,
@@ -510,7 +500,6 @@ mod tests {
     type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
     type PoseidonTestHTStore = HTMemStore<PoseidonMerkleTreeTestParameters, <PoseidonSponge<Fq> as FixedLengthCRH>::Output, PoseidonTestSMTStore>;
     type PoseidonTestAVDWHStore = SingleStepAVDWithHistoryMemStore<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore>;
-    type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
     type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
 
     type PoseidonTestRecursionFHAVDStore = store::mem_store::RecursionFullHistoryAVDMemStore<
@@ -578,7 +567,6 @@ mod tests {
 
     // make RSA AVD
     type TestKvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams>;
-    type TestRSAKVAC = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     type TestRSAAVDStore = RSAAVDMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     pub type TestRsaAVD = RsaAVD<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
     // make RSA HT
@@ -586,7 +574,6 @@ mod tests {
     type TestRsaHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestRsaSMTStore>;
     // make rsa AVD WH
     type TestRSAAVDWHStore = SingleStepAVDWithHistoryMemStore<TestRsaAVD, MerkleTreeTestParameters, TestRsaSMTStore, TestRsaHTStore>;
-    type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters, TestRsaSMTStore, TestRsaHTStore, TestRSAAVDWHStore>;
     // other
     pub type TestRsaAVDGadget = RsaAVDGadget<Fq, TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, PoseidonHG, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
 
@@ -617,25 +604,13 @@ mod tests {
         TestRsaRecursionFHAVDStore,
     >;
 
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
-
     #[test]
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
     fn mt_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = TestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: TestRecursionFHAVDStore = TestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -705,17 +680,8 @@ mod tests {
     fn mt_poseidon_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = PoseidonTestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: PoseidonTestRecursionFHAVDStore = PoseidonTestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -784,20 +750,8 @@ mod tests {
     fn update_and_verify_rsa_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        // make rsa kvac
-        let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-        let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-        // make ssavd (which, weirdly is a trait too)
-        let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
-        let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = TestRsaRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd  = TestRsaRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd  = TestRsaRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 

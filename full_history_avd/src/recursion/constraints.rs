@@ -7,6 +7,7 @@ use crypto_primitives::{
     sparse_merkle_tree::{
         MerkleTreeParameters,
         constraints::MerkleTreePathVar,
+        store::SMTStorer,
     },
     hash::{FixedLengthCRH, constraints::FixedLengthCRHGadget},
 };
@@ -38,6 +39,10 @@ use crate::{
         SingleStepAVDWithHistory,
         SingleStepUpdateProof,
         constraints::SingleStepUpdateProofVar,
+        store::{
+            HTStorer,
+            SingleStepAVDWithHistoryStorer,
+        }
     },
 };
 
@@ -93,7 +98,7 @@ fn verify_with_processed_vk<E: PairingEngine, P: PairingVar<E, E::Fq>, T: ToBits
 }
 
 
-pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
@@ -104,6 +109,9 @@ pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cy
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        SMTStore: SMTStorer<HTParams>,
+        HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+        SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     is_genesis: bool,
     prev_recursive_proof: Proof<Cycle::E2>,
@@ -116,6 +124,9 @@ pub struct InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cy
     _e1_gadget: PhantomData<E1Gadget>,
     _e2_gadget: PhantomData<E2Gadget>,
     _cycle: PhantomData<Cycle>,
+    _smtstore: PhantomData<SMTStore>,
+    _htstore: PhantomData<HTStore>,
+    _ssavdwhstore: PhantomData<SSAVDWHStore>,
 }
 
 pub struct InnerSingleStepProofVerifierInput<HTParams: MerkleTreeParameters> {
@@ -133,8 +144,8 @@ impl<HTParams: MerkleTreeParameters> Clone for InnerSingleStepProofVerifierInput
 }
 
 //TODO: Include hash of witness vk as public input (https://www.michaelstraka.com/posts/recursivesnarks/)
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> ConstraintSynthesizer<<Cycle::E2 as PairingEngine>::Fq>
-for InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore> ConstraintSynthesizer<<Cycle::E2 as PairingEngine>::Fq>
+for InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
 where
     SSAVD: SingleStepAVD,
     SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
@@ -147,6 +158,9 @@ where
     <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
     <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
     <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+    SMTStore: SMTStorer<HTParams>,
+    HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+    SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     #[tracing::instrument(target = "r1cs", skip(self, cs))]
     fn generate_constraints(
@@ -165,7 +179,7 @@ where
         )?;
         // TODO: trivial to add the other 3 generic parameters above and fed them here, but
         // 'new' now expects a store, and I'm not sure how to create it (see below)
-        let genesis_digest_val = SingleStepAVDWithHistory::<SSAVD, HTParams>::new(
+        let genesis_digest_val = SingleStepAVDWithHistory::<SSAVD, HTParams, SMTStore, HTStore, SSAVDWHStore>::new(
             &mut StepRng::new(1, 1),
             &self.ssavd_pp,
             &self.history_tree_pp,
@@ -288,7 +302,7 @@ where
     }
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore> InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
@@ -300,6 +314,9 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSing
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
+        SMTStore: SMTStorer<HTParams>,
+        HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+        SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     pub fn blank(
         ssavd_pp: &SSAVD::PublicParameters,
@@ -341,6 +358,9 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSing
             _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
             _cycle: PhantomData,
+            _smtstore: PhantomData,
+            _htstore: PhantomData,
+            _ssavdwhstore: PhantomData,
         }
     }
 
@@ -364,6 +384,9 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> InnerSing
             _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
             _cycle: PhantomData,
+            _smtstore: PhantomData,
+            _htstore: PhantomData,
+            _ssavdwhstore: PhantomData,
         }
     }
 
@@ -384,7 +407,7 @@ ConstraintF: PrimeField,
 }
 
 //TODO: Outer circuit doesn't need to depend on SSAVD
-pub struct OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+pub struct OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E2 as PairingEngine>::Fq>,
@@ -395,11 +418,14 @@ pub struct OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         E2Gadget: PairingVar<Cycle::E2, <Cycle::E2 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G1Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
+        SMTStore: SMTStorer<HTParams>,
+        HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+        SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     prev_inner_proof_input: InnerSingleStepProofVerifierInput<HTParams>,
     prev_inner_proof: Proof<Cycle::E1>,
     vk: VerifyingKey<Cycle::E1>,
-    _inner_proof: PhantomData<InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>>,
+    _inner_proof: PhantomData<InnerSingleStepProofCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>>,
 }
 
 pub struct OuterVerifierInput<HTParams: MerkleTreeParameters, Cycle: CycleEngine>
@@ -411,8 +437,8 @@ where
     _cycle: PhantomData<Cycle>,
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> ConstraintSynthesizer<<Cycle::E1 as PairingEngine>::Fq>
-for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore> ConstraintSynthesizer<<Cycle::E1 as PairingEngine>::Fq>
+for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
@@ -425,6 +451,9 @@ for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadge
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+        SMTStore: SMTStorer<HTParams>,
+        HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+        SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     fn generate_constraints(self, cs: ConstraintSystemRef<<<Cycle as CycleEngine>::E1 as PairingEngine>::Fq>) -> Result<(), SynthesisError> {
         let inner_proof_input_as_e1_fr: Vec<<Cycle::E1 as PairingEngine>::Fr> = self.prev_inner_proof_input.to_field_elements().unwrap();
@@ -464,7 +493,7 @@ for OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadge
     }
 }
 
-impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>
+impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore> OuterCircuit<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, SMTStore, HTStore, SSAVDWHStore>
     where
         SSAVD: SingleStepAVD,
         SSAVDGadget: SingleStepAVDGadget<SSAVD, <Cycle::E1 as PairingEngine>::Fr>,
@@ -477,6 +506,9 @@ impl<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget> OuterCirc
         <Cycle::E2 as PairingEngine>::G2Projective: MulAssign<<Cycle::E1 as PairingEngine>::Fq>,
         <HTParams::H as FixedLengthCRH>::Output: ToConstraintField<<Cycle::E1 as PairingEngine>::Fr>,
         <HGadget as FixedLengthCRHGadget<<HTParams as MerkleTreeParameters>::H, <Cycle::E2 as PairingEngine>::Fq>>::OutputVar: ToConstraintFieldGadget<<Cycle::E2 as PairingEngine>::Fq>,
+        SMTStore: SMTStorer<HTParams>,
+        HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
+        SSAVDWHStore: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore>,
 {
     pub fn blank(
         vk: VerifyingKey<Cycle::E1>,
@@ -550,14 +582,12 @@ mod tests {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
-                MTAVDStorer,
                 mem_store::MTAVDMemStore,
             }
         },
         rsa_avd::{
             RsaAVD,
             store::{
-                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
             constraints::RsaAVDGadget,
@@ -579,8 +609,6 @@ mod tests {
         history_tree::{
             SingleStepAVDWithHistory,
             store::{
-                HTStorer,
-                SingleStepAVDWithHistoryStorer,
                 mem_store::{
                     HTMemStore,
                     SingleStepAVDWithHistoryMemStore,
@@ -591,10 +619,8 @@ mod tests {
     use rsa::{
         bignat::constraints::BigNatCircuitParams,
         kvac::{
-            RsaKVAC,
             RsaKVACParams,
             store::{
-                RsaKVACStorer,
                 mem_store::RsaKVACMemStore,
             }
         },
@@ -650,10 +676,10 @@ mod tests {
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
 
-    type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type TestInnerCircuit = InnerSingleStepProofCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, TestSMTStore, TestHTStore, TestAVDWHStore>;
     type TestInnerVerifierInput = InnerSingleStepProofVerifierInput<MerkleTreeTestParameters>;
 
-    type TestOuterCircuit = OuterCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type TestOuterCircuit = OuterCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, TestSMTStore, TestHTStore, TestAVDWHStore>;
     type TestOuterVerifierInput = OuterVerifierInput<MerkleTreeTestParameters, MNT298Cycle>;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
@@ -681,10 +707,10 @@ mod tests {
     type PoseidonTestAVDWithHistory = SingleStepAVDWithHistory<PoseidonTestMerkleTreeAVD, PoseidonMerkleTreeTestParameters, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
     type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<Fq>, Fq, PoseidonTestSMTStore, PoseidonTestMTAVDStore>;
 
-    type PoseidonTestInnerCircuit = InnerSingleStepProofCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type PoseidonTestInnerCircuit = InnerSingleStepProofCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
     type PoseidonTestInnerVerifierInput = InnerSingleStepProofVerifierInput<PoseidonMerkleTreeTestParameters>;
 
-    type PoseidonTestOuterCircuit = OuterCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
+    type PoseidonTestOuterCircuit = OuterCircuit<PoseidonTestMerkleTreeAVD, PoseidonTestMerkleTreeAVDGadget, PoseidonMerkleTreeTestParameters, PoseidonSpongeVar<Fq>, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, PoseidonTestSMTStore, PoseidonTestHTStore, PoseidonTestAVDWHStore>;
     type PoseidonTestOuterVerifierInput = OuterVerifierInput<PoseidonMerkleTreeTestParameters, MNT298Cycle>;
 
 
@@ -724,7 +750,6 @@ mod tests {
 
     // make RSA AVD
     type TestKvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams>;
-    type TestRSAKVAC = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     type TestRSAAVDStore = RSAAVDMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     pub type TestRsaAVD = RsaAVD<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
     // make RSA HT
@@ -735,11 +760,8 @@ mod tests {
     type TestRsaAVDWithHistory = SingleStepAVDWithHistory<TestRsaAVD, MerkleTreeTestParameters, TestRsaSMTStore, TestRsaHTStore, TestRSAAVDWHStore>;
     type TestRsaAVDGadget = RsaAVDGadget<Fq, TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, PoseidonHG, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
 
-    type TestRsaInnerCircuit = InnerSingleStepProofCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
-    type TestRsaOuterCircuit = OuterCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar>;
-
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
+    type TestRsaInnerCircuit = InnerSingleStepProofCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, TestRsaSMTStore, TestRsaHTStore, TestRSAAVDWHStore>;
+    type TestRsaOuterCircuit = OuterCircuit<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, TestRsaSMTStore, TestRsaHTStore, TestRSAAVDWHStore>;
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
@@ -750,15 +772,7 @@ mod tests {
         );
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-        // put it all together in ssavd w history
-        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");
@@ -1009,15 +1023,7 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-        // put it all together in ssavd w history
-        let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+        let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");
@@ -1298,18 +1304,7 @@ mod tests {
         }
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        // make rsa kvac
-        let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-        let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-        // make ssavd (which, weirdly is a trait too)
-        let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
-        let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-        // put it all together in ssavd w history
-        let mut avd: TestRsaAVDWithHistory = TestRsaAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+        let mut avd: TestRsaAVDWithHistory = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
         // Setup inner proof circuit
         println!("Setting up inner proof...");

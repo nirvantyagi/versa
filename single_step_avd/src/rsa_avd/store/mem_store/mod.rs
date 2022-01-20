@@ -39,7 +39,8 @@ where
     C: BigNatCircuitParams,
     S: RsaKVACStorer<P, H, CircuitH, C>,
 {
-    fn new(k: RsaKVAC<P, H, CircuitH, C, S>) -> Result<Self, Error> where Self: Sized {
+    fn new() -> Result<Self, Error> where Self: Sized {
+        let k = RsaKVAC::<P, H, CircuitH, C, S>::new();
         Ok(RSAAVDMemStore {
             kvac: k,
         })

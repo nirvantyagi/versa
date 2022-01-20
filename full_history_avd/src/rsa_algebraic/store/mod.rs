@@ -28,7 +28,7 @@ where
     C: BigNatCircuitParams,
     S: RsaKVACStorer<P, H1, H2, C>,
 {
-    fn new(k: S) -> Result<Self, Error> where Self: Sized;
+    fn new() -> Result<Self, Error> where Self: Sized;
 
     fn digest_get(&self, index: usize) -> Commitment<P>;
     fn digest_get_last(&self) -> Commitment<P>;

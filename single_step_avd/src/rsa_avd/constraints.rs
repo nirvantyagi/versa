@@ -220,7 +220,6 @@ mod tests {
 
     use rand::{SeedableRng, rngs::StdRng};
     use rsa::kvac::{
-        RsaKVAC,
         store::mem_store::RsaKVACMemStore,
     };
     use crate::rsa_avd::store::mem_store::RSAAVDMemStore;
@@ -270,13 +269,6 @@ mod tests {
         PoseidonHasher<Fq>,
         BigNatTestParams,
     >;
-    pub type TestRSAKVAC = RsaKVAC<
-        TestKVACParams,
-        HasherFromDigest<Fq, blake3::Hasher>,
-        PoseidonHasher<Fq>,
-        BigNatTestParams,
-        TestKvacStore,
-    >;
     pub type RSAAVDStore = RSAAVDMemStore<
         TestKVACParams,
         HasherFromDigest<Fq, blake3::Hasher>,
@@ -313,10 +305,7 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
-            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-            let rsaavd_mem_store: RSAAVDStore = RSAAVDStore::new(rsa_kvac).unwrap();
-            let mut avd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
+            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
             let digest_0 = avd.digest().unwrap();
             let (digest_1, proof) = avd.batch_update(&vec![
                 ([1_u8; 32], [2_u8; 32]),
@@ -366,10 +355,7 @@ mod tests {
         let subscriber = tracing_subscriber::Registry::default().with(layer);
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
-            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-            let rsaavd_mem_store: RSAAVDStore = RSAAVDStore::new(rsa_kvac).unwrap();
-            let mut avd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
+            let mut avd = TestRsaAVD::new(&mut rng, &()).unwrap();
             let digest_0 = avd.digest().unwrap();
             let (digest_1, _proof) = avd.batch_update(&vec![
                 ([1_u8; 32], [2_u8; 32]),

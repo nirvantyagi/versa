@@ -91,11 +91,11 @@ where
     T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
     U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
 {
-    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized {
-        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::new(rng, s)?;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>) -> Result<Self, Error> where Self: Sized {
+        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp).unwrap();
         let inner_genesis_proof = Groth16::<Cycle::E1>::prove(
             &pp.inner_groth16_pp,
-            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
+            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::new(
                 true,
                 &pp.ssavd_pp,
                 &pp.history_tree_pp,
@@ -139,7 +139,7 @@ where
     fn history_ssavd_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters {
         return self.history_ssavd.store.history_tree_get_hash_parameters();
     }
-    fn inner_proof_set(&self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>) {
+    fn inner_proof_set(&mut self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>) {
         self.inner_proof = val;
     }
     fn inner_proof_get(&self) -> Proof<<Cycle as ark_ec::CycleEngine>::E1> {

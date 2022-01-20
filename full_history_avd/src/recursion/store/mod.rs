@@ -59,7 +59,7 @@ where
     U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
 {
 
-    fn new<R: Rng + CryptoRng>(_rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>) -> Result<Self, Error> where Self: Sized;
     fn history_ssavd_get_digest(&self) -> Digest<HTParams>;
     fn history_ssavd_lookup(&mut self, key: &[u8; 32]) -> Result<(Option<(u64, [u8; 32])>, LookupProof<SSAVD, HTParams>), Error>;
     fn history_ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<SingleStepUpdateProof<SSAVD, HTParams>, Error>;
@@ -68,7 +68,7 @@ where
     fn history_ssavd_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 
     fn inner_proof_get(&self) -> Proof<<Cycle as ark_ec::CycleEngine>::E1>;
-    fn inner_proof_set(&self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>);
+    fn inner_proof_set(&mut self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>);
     fn ssavd_pp_get(&self) -> SSAVD::PublicParameters;
     fn outer_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E2>;
     fn inner_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E1>;

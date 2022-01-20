@@ -12,7 +12,6 @@ use rsa::{
         MembershipWitness,
         UpdateProof,
         RsaKVACParams,
-        RsaKVAC,
     },
     hash::Hasher,
     bignat::{
@@ -30,7 +29,7 @@ where
     C: BigNatCircuitParams,
     S: RsaKVACStorer<P, H, CircuitH, C>,
 {
-    fn new(k: RsaKVAC<P, H, CircuitH, C, S>) -> Result<Self, Error> where Self: Sized;
+    fn new() -> Result<Self, Error> where Self: Sized;
     fn kvac_lookup(&mut self, key: &BigNat) -> Result<(Option<BigNat>, MembershipWitness<P>), Error>;
     fn kvac_get_commitment(&self) -> Commitment<P>;
     fn kvac_update(&mut self, k: BigNat, v: BigNat) -> Result<(Commitment<P>, UpdateProof<P, CircuitH>), Error>;

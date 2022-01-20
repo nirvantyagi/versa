@@ -149,9 +149,10 @@ where
         Ok(())
     }
 
-    fn new<R: Rng>(_rng: &mut R, s: T) -> Result<Self, Error> {
+    fn new<R: Rng>(_rng: &mut R, _pp: &Self::PublicParameters) -> Result<Self, Error> {
+        let t = T::new().unwrap();
         Ok(Self {
-            store: s,
+            store: t,
             _p: PhantomData,
             _h: PhantomData,
             _circuith: PhantomData,

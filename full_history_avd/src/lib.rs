@@ -20,7 +20,7 @@ pub trait FullHistoryAVD: Sized {
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, store: Self::Store) -> Result<Self, Error>;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 
@@ -51,7 +51,7 @@ pub trait FullHistoryAVD: Sized {
     ) -> Result<bool, Error>;
 
     fn audit(
-        &self,
+        &mut self,
         start_epoch: usize,
         end_epoch: usize,
     ) -> Result<(Self::Digest, Self::AuditProof), Error>;

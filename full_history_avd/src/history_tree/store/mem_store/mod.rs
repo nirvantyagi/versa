@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
 };
+use rand::Rng;
 use crate::Error;
 use ark_ff::bytes::ToBytes;
 use crypto_primitives::{
@@ -99,17 +100,18 @@ where
     SMTStore: SMTStorer<HTParams>,
     HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
 {
-    fn new(t: SSAVD, s: HTStore) -> Result<Self, Error> where Self: Sized {
-        let history_tree = HistoryTree::new(s).unwrap();
+    fn new<R: Rng>(rng: &mut R, ssavd_pp: &SSAVD::PublicParameters, crh_pp: &<HTParams::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized {
+        let ssavd = SSAVD::new(rng, ssavd_pp).unwrap();
+        let history_tree = HistoryTree::<HTParams, <<HTParams as MerkleTreeParameters>::H as FixedLengthCRH>::Output, SMTStore, HTStore>::new(crh_pp).unwrap();
         let digest = hash_to_final_digest::<SSAVD, HTParams::H>(
             &history_tree.store.smt_get_hash_parameters(),
-            &t.digest()?,
+            &ssavd.digest()?,
             &history_tree.store.smt_get_root(),
             &history_tree.store.get_epoch(),
         )?;
 
         Ok(Self {
-            ssavd: t,
+            ssavd: ssavd,
             history_tree: history_tree,
             digest: digest,
         })
