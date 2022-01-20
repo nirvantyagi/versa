@@ -117,7 +117,8 @@ where
         Ok(<<P::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::setup(rng)?)
     }
 
-    fn new<R: Rng>(_rng: &mut R, s: S) -> Result<Self, Error> {
+    fn new<R: Rng>(_rng: &mut R, crh_pp: &Self::PublicParameters) -> Result<Self, Error> {
+        let s = S::new(&[0; 72], crh_pp).unwrap();
         Ok(MerkleTreeAVD {
             store: s,
             _p: PhantomData,
@@ -419,7 +420,6 @@ mod tests {
     use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
     use crate::merkle_tree_avd::store::{
         mem_store::MTAVDMemStore,
-        MTAVDStorer
     };
 
     #[derive(Clone)]
@@ -452,14 +452,11 @@ mod tests {
     type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, SMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
 
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(
@@ -472,8 +469,7 @@ mod tests {
     fn invalid_update_proof_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(
@@ -522,8 +518,7 @@ mod tests {
     fn batch_update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
             ([1_u8; 32], [3_u8; 32]),
@@ -541,8 +536,7 @@ mod tests {
     fn lookup_member_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -560,8 +554,7 @@ mod tests {
     fn lookup_nonmember_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[10_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -579,8 +572,7 @@ mod tests {
     fn version_update_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value_1, digest_1, proof_1) = avd.lookup(&[1_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -609,8 +601,7 @@ mod tests {
     fn invalid_lookup_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -652,8 +643,7 @@ mod tests {
     fn open_addressing_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
             //([11_u8; 32], [12_u8; 32]),
@@ -711,8 +701,7 @@ mod tests {
     fn open_addressing_overflow_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
             ([11_u8; 32], [12_u8; 32]),

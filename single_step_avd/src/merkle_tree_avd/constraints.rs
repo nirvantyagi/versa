@@ -289,14 +289,11 @@ mod tests {
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, SMTStore, MTAVDStore>;
 
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
-        let mtavd_mem_store: MTAVDStore = MTAVDStore::new(&INITIAL_LEAF, &crh_parameters).unwrap();
-        let mut avd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
+        let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
 

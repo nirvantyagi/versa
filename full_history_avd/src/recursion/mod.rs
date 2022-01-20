@@ -186,7 +186,8 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         })
     }
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, s: V) -> Result<Self, Error> {
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error> {
+        let s = V::new(rng, pp).unwrap();
         Ok(Self {
             store: s,
             _history_ssavd: PhantomData,
@@ -365,18 +366,12 @@ mod tests {
         },
         SingleStepAVDWithHistory,
     };
-    use crate::recursion::{
-        store::{
-            RecursionFullHistoryAVDStorer,
-        }
-    };
     use single_step_avd::{
         merkle_tree_avd::{
             MerkleTreeAVDParameters,
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
-                MTAVDStorer,
                 mem_store::MTAVDMemStore,
             }
         },
@@ -384,7 +379,6 @@ mod tests {
             RsaAVD,
             constraints::RsaAVDGadget,
             store::{
-                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
         }
@@ -404,7 +398,6 @@ mod tests {
             RsaKVAC,
             RsaKVACParams,
             store::{
-                RsaKVACStorer,
                 mem_store::RsaKVACMemStore,
             }
         },
@@ -625,17 +618,8 @@ mod tests {
     fn mt_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = TestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: TestRecursionFHAVDStore = TestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd: TestRecursionFHAVD = TestRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -705,17 +689,8 @@ mod tests {
     fn mt_poseidon_update_and_verify_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = PoseidonTestRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: PoseidonTestRecursionFHAVDStore = PoseidonTestRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd: PoseidonTestRecursionFHAVD = PoseidonTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 
@@ -784,20 +759,8 @@ mod tests {
     fn update_and_verify_rsa_recursion_full_history_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
-        let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-        // make rsa kvac
-        let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-        let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-        // make ssavd (which, weirdly is a trait too)
-        let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
-        let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
         let pp = TestRsaRecursionFHAVD::setup(&mut rng).unwrap();
-        let mut recfhavd_store: TestRsaRecursionFHAVDStore = TestRsaRecursionFHAVDStore::new(&mut rng, &pp, avdwh_mem_store).unwrap();
-        let mut avd  = TestRsaRecursionFHAVD::new(&mut rng, recfhavd_store).unwrap();
+        let mut avd  = TestRsaRecursionFHAVD::new(&mut rng, &pp).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 

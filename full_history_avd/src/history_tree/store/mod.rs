@@ -1,5 +1,5 @@
 pub mod mem_store;
-
+use rand::Rng;
 use crate::Error;
 use ark_ff::bytes::ToBytes;
 use crypto_primitives::{
@@ -39,7 +39,7 @@ where
     SMTStore: SMTStorer<HTParams>,
     HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
 {
-    fn new(t: SSAVD, s: HTStore) -> Result<Self, Error> where Self: Sized;
+    fn new<R: Rng>(rng: &mut R, ssavd_pp: &SSAVD::PublicParameters, crh_pp: &<HTParams::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized;
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error>;
     fn ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error>;
     fn ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;

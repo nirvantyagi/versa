@@ -91,8 +91,8 @@ where
     T: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, S>,
     U: SingleStepAVDWithHistoryStorer<SSAVD, HTParams, S, T>,
 {
-    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>, s: U) -> Result<Self, Error> where Self: Sized {
-        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::new(rng, s)?;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &PublicParameters<SSAVD, HTParams, Cycle>) -> Result<Self, Error> where Self: Sized {
+        let history_ssavd = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::new(rng, &pp.ssavd_pp, &pp.history_tree_pp).unwrap();
         let inner_genesis_proof = Groth16::<Cycle::E1>::prove(
             &pp.inner_groth16_pp,
             InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(

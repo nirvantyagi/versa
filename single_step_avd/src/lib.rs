@@ -17,7 +17,7 @@ pub trait SingleStepAVD: Sized {
 
     fn setup<R: Rng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng>(rng: &mut R, store: Self::Store) -> Result<Self, Error>;
+    fn new<R: Rng>(rng: &mut R, crh_pp: &Self::PublicParameters) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 

@@ -39,8 +39,8 @@ where
     C: BigNatCircuitParams,
     S: RsaKVACStorer<P, H1, H2, C>,
 {
-    fn new(k: S) -> Result<Self, Error> where Self: Sized {
-        let kvac = RsaKVAC::<P, H1, H2, C, S>::new(k);
+    fn new() -> Result<Self, Error> where Self: Sized {
+        let kvac = RsaKVAC::<P, H1, H2, C, S>::new();
         let digests = vec![kvac.store.get_commitment()];
         Ok(RsaFullHistoryAVDMemStore {
             kvac: kvac,

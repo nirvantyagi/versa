@@ -69,7 +69,8 @@ where
         Ok(())
     }
 
-    fn new<R: Rng + CryptoRng>(_rng: &mut R, s: T) -> Result<Self, Error> {
+    fn new<R: Rng + CryptoRng>(_rng: &mut R, _pp: &Self::PublicParameters) -> Result<Self, Error> {
+        let s = T::new().unwrap();
         Ok(Self {
             store: s,
             _p: PhantomData,
@@ -191,8 +192,6 @@ mod tests {
         hog::{RsaGroupParams},
         hash::{HasherFromDigest},
     };
-    // use crate::FullHistoryAVD;
-    use crate::rsa_algebraic::store::RsaFullHistoryAVDStorer;
     use std::time::Instant;
 
 
@@ -245,9 +244,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let start = Instant::now();
         let pp = TestRsaFHAVD::setup(&mut rng).unwrap();
-        let kvac_mem_store = RsaKvacStore::new();
-        let fhavd_mem_store = RsaFHAVDStore::new(kvac_mem_store).unwrap();
-        let mut avd  = TestRsaFHAVD::new(&mut rng, fhavd_mem_store).unwrap();
+        let mut avd  = TestRsaFHAVD::new(&mut rng, &()).unwrap();
         let bench = start.elapsed().as_secs();
         println!("\t setup time: {} s", bench);
 

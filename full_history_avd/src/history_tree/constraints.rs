@@ -207,7 +207,6 @@ mod tests {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
-                MTAVDStorer,
                 mem_store::MTAVDMemStore
             },
         },
@@ -215,7 +214,6 @@ mod tests {
             RsaAVD,
             constraints::RsaAVDGadget,
             store::{
-                RSAAVDStorer,
                 mem_store::RSAAVDMemStore,
             },
         },
@@ -229,8 +227,6 @@ mod tests {
     };
     use crate::history_tree::{
         store::{
-            SingleStepAVDWithHistoryStorer,
-            HTStorer,
             mem_store::{
                 HTMemStore,
                 SingleStepAVDWithHistoryMemStore,
@@ -243,10 +239,8 @@ mod tests {
         kvac::{
             RsaKVACParams,
             store::{
-                RsaKVACStorer,
                 mem_store::RsaKVACMemStore
             },
-            RsaKVAC,
         },
         poker::{PoKERParams},
         hog::{RsaGroupParams},
@@ -356,7 +350,6 @@ mod tests {
 
     // make RSA AVD
     type TestKvacStore = RsaKVACMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams>;
-    type TestRSAKVAC = RsaKVAC<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     type TestRSAAVDStore = RSAAVDMemStore<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore>;
     pub type TestRsaAVD = RsaAVD<TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
     // make RSA HT
@@ -369,23 +362,11 @@ mod tests {
     pub type TestRsaAVDGadget = RsaAVDGadget<Fq, TestKVACParams, HasherFromDigest<Fq, blake3::Hasher>, PoseidonH, PoseidonHG, BigNatTestParams, TestKvacStore, TestRSAAVDStore>;
     type TestRsaUpdateVar = SingleStepUpdateProofVar<TestRsaAVD, TestRsaAVDGadget, MerkleTreeTestParameters, HG, Fq>;
 
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
-
     #[test]
     fn update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-        // put it all together in ssavd w history
-        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
-
+        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
         let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
 
         let cs = ConstraintSystem::<Fq>::new_ref();
@@ -422,15 +403,7 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
             let (ssavd_pp, crh_pp) = PoseidonTestAVDWithHistory::setup(&mut rng).unwrap();
-            // make ssavd (which, weirdly is a trait too)
-            let mtavd_mem_store: PoseidonTestMTAVDStore = PoseidonTestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-            let ssavd = PoseidonTestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-            // make ht_mem_store (remember, HistoryTree is not a trait)
-            let ht_mem_store = PoseidonTestHTStore::new(&INITIAL_LEAF_2, &crh_pp).unwrap();
-            // make savd w history store
-            let avdwh_mem_store: PoseidonTestAVDWHStore = PoseidonTestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-            // put it all together in ssavd w history
-            let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+            let mut avd = PoseidonTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
             let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
 
@@ -474,15 +447,7 @@ mod tests {
     fn batch_update_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let (ssavd_pp, crh_pp) = TestAVDWithHistory::setup(&mut rng).unwrap();
-        // make ssavd (which, weirdly is a trait too)
-        let mtavd_mem_store: TestMTAVDStore = TestMTAVDStore::new(&INITIAL_LEAF, &ssavd_pp).unwrap();
-        let ssavd = TestMerkleTreeAVD::new(&mut rng, mtavd_mem_store).unwrap();
-        // make ht_mem_store (remember, HistoryTree is not a trait)
-        let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
-        // make savd w history store
-        let avdwh_mem_store: TestAVDWHStore = TestAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-        // put it all together in ssavd w history
-        let mut avd = TestAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+        let mut avd = TestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
@@ -526,18 +491,7 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             let mut rng = StdRng::seed_from_u64(0_u64);
             let (ssavd_pp, crh_pp) = TestRsaAVDWithHistory::setup(&mut rng).unwrap();
-            // make rsa kvac
-            let kvac_mem_store: TestKvacStore = TestKvacStore::new();
-            let rsa_kvac: TestRSAKVAC = TestRSAKVAC::new(kvac_mem_store);
-            // make ssavd (which, weirdly is a trait too)
-            let rsaavd_mem_store: TestRSAAVDStore = TestRSAAVDStore::new(rsa_kvac).unwrap();
-            let ssavd = TestRsaAVD::new(&mut rng, rsaavd_mem_store).unwrap();
-            // make ht_mem_store (remember, HistoryTree is not a trait)
-            let ht_mem_store = TestHTStore::new(&INITIAL_LEAF, &crh_pp).unwrap();
-            // make savd w history store
-            let avdwh_mem_store: TestRSAAVDWHStore = TestRSAAVDWHStore::new(ssavd, ht_mem_store).unwrap();
-            // put it all together in ssavd w history
-            let mut avd: TestRsaAVDWithHistory = TestRsaAVDWithHistory::new(&mut rng, avdwh_mem_store).unwrap();
+            let mut avd: TestRsaAVDWithHistory = TestRsaAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
 
             fn u8_to_array(n: u8) -> [u8; 32] {
                 let mut arr = [0_u8; 32];

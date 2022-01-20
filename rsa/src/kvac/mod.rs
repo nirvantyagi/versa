@@ -108,7 +108,8 @@ where
     C: BigNatCircuitParams,
     S: store::RsaKVACStorer<P, H, CircuitH, C>
 {
-    pub fn new(s: S) -> Self {
+    pub fn new() -> Self {
+        let s = S::new();
         RsaKVAC {
             store: s,
             _p: PhantomData,
@@ -650,7 +651,7 @@ mod tests {
 
     #[test]
     fn lookup_test() {
-        let mut kvac = Kvac::new(KvacStore::new());
+        let mut kvac = Kvac::new();
         let k1 = BigNat::from(100);
         let v1 = BigNat::from(101);
         let (c1, _) = kvac.update(k1.clone(), v1.clone()).unwrap();
@@ -687,7 +688,7 @@ mod tests {
 
     #[test]
     fn update_value_test() {
-        let mut kvac = Kvac::new(KvacStore::new());
+        let mut kvac = Kvac::new();
         let c0 = kvac.store.commitment.clone();
 
         // Insert and lookup (k1, v1) and verify update
@@ -737,7 +738,7 @@ mod tests {
 
     #[test]
     fn defer_witness_multiple_update_test() {
-        let mut kvac = Kvac::new(KvacStore::new());
+        let mut kvac = Kvac::new();
 
         // Insert and (k1, v1)
         let k1 = BigNat::from(100);
@@ -776,7 +777,7 @@ mod tests {
 
     #[test]
     fn kvac_batch_update_test() {
-        let mut kvac = Kvac::new(KvacStore::new());
+        let mut kvac = Kvac::new();
         let c0 = kvac.store.commitment.clone();
 
         let k1 = BigNat::from(100);
@@ -842,7 +843,7 @@ mod tests {
 
     #[test]
     fn kvac_witness_batch_update_test() {
-        let mut kvac = Kvac::new(KvacStore::new());
+        let mut kvac = Kvac::new();
 
         let k1 = BigNat::from(100);
         let k2 = BigNat::from(200);

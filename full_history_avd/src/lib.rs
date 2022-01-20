@@ -20,7 +20,7 @@ pub trait FullHistoryAVD: Sized {
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error>;
 
-    fn new<R: Rng + CryptoRng>(rng: &mut R, store: Self::Store) -> Result<Self, Error>;
+    fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
 
     fn digest(&self) -> Result<Self::Digest, Error>;
 
