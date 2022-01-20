@@ -68,7 +68,7 @@ where
     fn history_ssavd_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 
     fn inner_proof_get(&self) -> Proof<<Cycle as ark_ec::CycleEngine>::E1>;
-    fn inner_proof_set(&self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>);
+    fn inner_proof_set(&mut self, val: Proof<<Cycle as ark_ec::CycleEngine>::E1>);
     fn ssavd_pp_get(&self) -> SSAVD::PublicParameters;
     fn outer_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E2>;
     fn inner_groth16_pp_get(&self) -> ProvingKey<<Cycle as ark_ec::CycleEngine>::E1>;

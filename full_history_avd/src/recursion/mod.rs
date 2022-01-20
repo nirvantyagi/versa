@@ -169,12 +169,12 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 
     fn setup<R: Rng + CryptoRng>(rng: &mut R) -> Result<Self::PublicParameters, Error> {
         let (ssavd_pp, history_tree_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams, S, T, U>::setup(rng)?;
-        let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
+        let inner_blank_circuit = InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::blank(
             &ssavd_pp,
             &history_tree_pp,
         );
         let (inner_groth16_pp, _) = Groth16::<Cycle::E1>::circuit_specific_setup(inner_blank_circuit, rng)?;
-        let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::blank(
+        let outer_blank_circuit = OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::blank(
             inner_groth16_pp.vk.clone(),
         );
         let (outer_groth16_pp, _) = Groth16::<Cycle::E2>::circuit_specific_setup(outer_blank_circuit, rng)?;
@@ -316,7 +316,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         let check = start_timer!(|| "Compute outer proof");
         let outer_proof = Groth16::<Cycle::E2>::prove(
             &self.store.outer_groth16_pp_get(),
-            OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
+            OuterCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::new(
                 self.store.inner_proof_get(),
                 InnerSingleStepProofVerifierInput {
                     new_digest: prev_digest.digest.clone(),
@@ -331,7 +331,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         let check = start_timer!(|| "Compute inner proof");
         let new_inner_proof = Groth16::<Cycle::E1>::prove(
             &self.store.inner_groth16_pp_get(),
-            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget>::new(
+            InnerSingleStepProofCircuit::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U>::new(
                 false,
                 &self.store.ssavd_pp_get(),
                 &self.store.history_ssavd_get_hash_parameters(),
@@ -609,9 +609,6 @@ mod tests {
         TestRSAAVDWHStore,
         TestRsaRecursionFHAVDStore,
     >;
-
-    static INITIAL_LEAF: [u8; 72] = [0; 72];
-    static INITIAL_LEAF_2: [u8; 32] = [0; 32];
 
     #[test]
     #[ignore] // Expensive test, run with ``cargo test mt_update_and_verify_recursion_full_history_test --release -- --ignored --nocapture``
