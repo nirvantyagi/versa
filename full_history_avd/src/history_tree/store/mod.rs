@@ -1,4 +1,5 @@
 pub mod mem_store;
+pub mod redis_store;
 use rand::Rng;
 use crate::Error;
 use ark_ff::bytes::ToBytes;
@@ -28,7 +29,7 @@ where
     fn get_epoch(&self) -> MerkleIndex;
     fn set_epoch(&mut self, index: MerkleIndex) -> Result<(), Error>;
 
-    fn digest_d_get(&self, key: &MerkleIndex) -> Option<&D>;
+    fn digest_d_get(&self, key: &MerkleIndex) -> Option<D>;
     fn digest_d_insert(&mut self, index: MerkleIndex, digest: D) -> Option<D>;
 }
 
@@ -49,7 +50,7 @@ where
     fn history_tree_get_root(&self) -> <HTParams::H as FixedLengthCRH>::Output;
     fn history_tree_append_digest(&mut self, digest: &<HTParams::H as FixedLengthCRH>::Output) -> Result<(), Error>;
     fn history_tree_lookup_path(&mut self, epoch: MerkleIndex) -> Result<MerkleTreePath<HTParams>, Error>;
-    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<&<HTParams::H as FixedLengthCRH>::Output>;
+    fn history_tree_lookup_digest(&self, epoch: MerkleIndex) -> Option<<HTParams::H as FixedLengthCRH>::Output>;
     fn history_tree_get_hash_parameters(&self) -> <HTParams::H as FixedLengthCRH>::Parameters;
 
     fn get_digest(&self) -> <HTParams::H as FixedLengthCRH>::Output;

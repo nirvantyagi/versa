@@ -87,7 +87,6 @@ where
                 return None;
             }
         }
-
     }
 
     fn set(

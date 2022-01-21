@@ -69,7 +69,7 @@ where
         self.store.smt_lookup(epoch)
     }
 
-    pub fn lookup_digest(&self, epoch: MerkleIndex) -> Option<&D> {
+    pub fn lookup_digest(&self, epoch: MerkleIndex) -> Option<D> {
         self.store.digest_d_get(&epoch)
     }
 }
@@ -425,6 +425,10 @@ mod tests {
             mem_store::{
                 HTMemStore,
                 SingleStepAVDWithHistoryMemStore,
+            },
+            redis_store::{
+                HTRedisStore,
+                SingleStepAVDWithHistoryRedisStore,
             }
         },
     };
@@ -434,12 +438,14 @@ mod tests {
             MerkleTreeAVD,
             store::{
                 mem_store::MTAVDMemStore,
+                redis_store::MTAVDRedisStore,
             },
         },
     };
     use crypto_primitives::sparse_merkle_tree::{
         MerkleDepth,
         store::mem_store::SMTMemStore,
+        store::redis_store::SMTRedisStore,
     };
 
     #[derive(Clone)]
@@ -470,11 +476,17 @@ mod tests {
     }
 
     type TestSMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type TestMTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, TestSMTStore>;
+    type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
     type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
+    type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
+    type RedisTestAVDWithHistory = SingleStepAVDWithHistory<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
 
     #[test]
     fn lookup_test() {
@@ -486,6 +498,27 @@ mod tests {
 
         let (value, lookup_proof) = avd.lookup(&[1_u8; 32]).unwrap();
         let result = TestAVDWithHistory::verify_lookup(
+            &ssavd_pp,
+            &crh_pp,
+            &[1_u8; 32],
+            &value,
+            &digest,
+            &lookup_proof,
+        ).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_lookup_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        let digest = avd.digest();
+
+        let (value, lookup_proof) = avd.lookup(&[1_u8; 32]).unwrap();
+        let result = RedisTestAVDWithHistory::verify_lookup(
             &ssavd_pp,
             &crh_pp,
             &[1_u8; 32],
@@ -510,6 +543,31 @@ mod tests {
 
         let (prev_digest_lookup, history_proof) = avd.lookup_history(1).unwrap();
         let result = TestAVDWithHistory::verify_history(
+            &crh_pp,
+            1,
+            &prev_digest_lookup,
+            &curr_digest,
+            &history_proof,
+        ).unwrap();
+        assert!(result);
+        assert!(prev_digest == prev_digest_lookup);
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_history_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        let prev_digest = avd.digest();
+        assert_eq!(prev_digest.epoch, 1);
+        avd.update(&[1_u8; 32], &[3_u8; 32]).unwrap();
+        let curr_digest = avd.digest();
+        assert_eq!(curr_digest.epoch, 2);
+
+        let (prev_digest_lookup, history_proof) = avd.lookup_history(1).unwrap();
+        let result = RedisTestAVDWithHistory::verify_history(
             &crh_pp,
             1,
             &prev_digest_lookup,

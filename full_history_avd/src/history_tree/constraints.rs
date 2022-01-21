@@ -207,7 +207,8 @@ mod tests {
             MerkleTreeAVD,
             constraints::MerkleTreeAVDGadget,
             store::{
-                mem_store::MTAVDMemStore
+                mem_store::MTAVDMemStore,
+                redis_store::MTAVDRedisStore,
             },
         },
         rsa_avd::{
@@ -222,6 +223,7 @@ mod tests {
         sparse_merkle_tree::{
             MerkleDepth,
             store::mem_store::SMTMemStore,
+            store::redis_store::SMTRedisStore,
         },
         hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
     };
@@ -230,6 +232,10 @@ mod tests {
             mem_store::{
                 HTMemStore,
                 SingleStepAVDWithHistoryMemStore,
+            },
+            redis_store::{
+                HTRedisStore,
+                SingleStepAVDWithHistoryRedisStore,
             }
         },
         SingleStepAVDWithHistory,
@@ -239,7 +245,7 @@ mod tests {
         kvac::{
             RsaKVACParams,
             store::{
-                mem_store::RsaKVACMemStore
+                mem_store::RsaKVACMemStore,
             },
         },
         poker::{PoKERParams},
@@ -279,13 +285,22 @@ mod tests {
     }
 
     type TestSMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type TestMTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, TestSMTStore>;
+    type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, TestSMTStore, TestMTAVDStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
     type TestHTStore = HTMemStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, TestSMTStore>;
+    type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
     type TestAVDWHStore = SingleStepAVDWithHistoryMemStore<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore>;
+    type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
     type TestAVDWithHistory = SingleStepAVDWithHistory<TestMerkleTreeAVD, MerkleTreeTestParameters, TestSMTStore, TestHTStore, TestAVDWHStore>;
+    type RedisTestAVDWithHistory = SingleStepAVDWithHistory<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, TestSMTStore, TestMTAVDStore>;
+    type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
     type TestHistoryUpdateVar = SingleStepUpdateProofVar<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, Fq>;
+    type RedisTestHistoryUpdateVar = SingleStepUpdateProofVar<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, Fq>;
+
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     #[derive(Clone)]
@@ -378,6 +393,40 @@ mod tests {
         ).unwrap();
 
         let ssavd_pp_gadget = <TestMerkleTreeAVDGadget as SingleStepAVDGadget<TestMerkleTreeAVD, Fq>>::PublicParametersVar::new_constant(
+            ark_relations::ns!(cs, "ssavd_pp"),
+            &ssavd_pp,
+        ).unwrap();
+        let crh_pp_gadget = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "history_tree_pp"),
+            &crh_pp,
+        ).unwrap();
+
+        proof_var.conditional_check_single_step_with_history_update(
+            &ssavd_pp_gadget,
+            &crh_pp_gadget,
+            &Boolean::constant(true),
+        ).unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        let proof = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate proof variables
+        let proof_var = RedisTestHistoryUpdateVar::new_input(
+            ark_relations::ns!(cs, "alloc_proof"),
+            || Ok(proof),
+        ).unwrap();
+
+        let ssavd_pp_gadget = <RedisTestMerkleTreeAVDGadget as SingleStepAVDGadget<RedisTestMerkleTreeAVD, Fq>>::PublicParametersVar::new_constant(
             ark_relations::ns!(cs, "ssavd_pp"),
             &ssavd_pp,
         ).unwrap();

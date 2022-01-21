@@ -20,6 +20,8 @@ ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp", default-features 
 ark-dh-commitments = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
 ark-inner-products = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
 
+base64 = { version = "0.13.0" }
+serde_json = "1.0"
 rand = { version = "0.7" }
 digest = { version = "0.9" }
 num-traits = { version = "0.2" }

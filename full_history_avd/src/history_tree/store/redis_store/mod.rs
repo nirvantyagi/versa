@@ -1,12 +1,20 @@
+extern crate base64;
+use serde_json;
 use std::{
-    collections::HashMap,
+    marker::PhantomData,
 };
 use rand::Rng;
 use crate::Error;
-use ark_ff::bytes::ToBytes;
+use ark_ff::{
+    bytes::ToBytes,
+    to_bytes,
+    FromBytes,
+};
+use rand::{distributions::Alphanumeric};
 use crypto_primitives::{
     sparse_merkle_tree::{
         store::SMTStorer,
+        store::redis_store::redis_utils,
         MerkleIndex,
         MerkleTreeParameters,
         MerkleTreePath,
@@ -24,31 +32,40 @@ use crate::history_tree::{
 };
 use single_step_avd::SingleStepAVD;
 
-pub struct HTMemStore<P, D, S>
+pub struct HTRedisStore<P, D, S>
 where
     P: MerkleTreeParameters,
     D: ToBytes + Eq + Clone,
     S: SMTStorer<P>,
 {
+    id: String,
     pub tree: SparseMerkleTree<P, S>,
-    digest_d: HashMap<MerkleIndex, D>,
+    // digest_d: HashMap<MerkleIndex, D>,
     epoch: MerkleIndex,
+    _d: PhantomData<D>,
 }
 
-impl<P, D, S> HTStorer<P, D, S> for HTMemStore<P, D, S>
+impl<P, D, S> HTStorer<P, D, S> for HTRedisStore<P, D, S>
 where
     P: MerkleTreeParameters,
-    D: ToBytes + Eq + Clone,
+    D: ToBytes + FromBytes + Eq + Clone,
     S: SMTStorer<P>,
 {
 
     fn new(initial_leaf: &[u8], hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized {
         let smt_store: S = S::new(initial_leaf, hash_parameters).unwrap();
         let smt: SparseMerkleTree<P, S> = SparseMerkleTree::<P, S>::new(smt_store);
+        let id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
         Ok(Self {
+            id: id,
             tree: smt,
-            digest_d: HashMap::new(),
+            // digest_d: HashMap::new(),
             epoch: 0,
+            _d: PhantomData,
         })
     }
 
@@ -74,17 +91,29 @@ where
     }
 
     fn digest_d_get(&self, key: &MerkleIndex) -> Option<D> {
-        match self.digest_d.get(key) {
-            Some(d) => return Some(d.clone()),
-            None => return None,
+        let k = format!("{}-digest_d-{}", self.id, serde_json::to_string(&key).unwrap());
+        match redis_utils::get(k) {
+            Ok(val_string) => {
+                let val_bytes: &[u8] = &base64::decode(val_string).unwrap();
+                let val: D = D::read(val_bytes).unwrap();
+                return Some(val);
+            },
+            Err(_e) => {
+                // e = Response was of incompatible type: "Response type not string compatible." (response was nil)
+                return None;
+            }
         }
     }
     fn digest_d_insert(&mut self, index: MerkleIndex, digest: D) -> Option<D> {
-        return self.digest_d.insert(index, digest);
+        let k = format!("{}-digest_d-{}", self.id, serde_json::to_string(&index).unwrap());
+        let val_bytes = to_bytes![digest].unwrap();
+        let val: String = base64::encode(&val_bytes);
+        redis_utils::set(k, val).unwrap();
+        return Some(digest);
     }
 }
 
-pub struct SingleStepAVDWithHistoryMemStore<SSAVD, HTParams, SMTStore, HTStore>
+pub struct SingleStepAVDWithHistoryRedisStore<SSAVD, HTParams, SMTStore, HTStore>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,
@@ -96,7 +125,7 @@ where
     digest: <HTParams::H as FixedLengthCRH>::Output,
 }
 
-impl<SSAVD, HTParams, SMTStore, HTStore> SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore> for SingleStepAVDWithHistoryMemStore<SSAVD, HTParams, SMTStore, HTStore>
+impl<SSAVD, HTParams, SMTStore, HTStore> SingleStepAVDWithHistoryStorer<SSAVD, HTParams, SMTStore, HTStore> for SingleStepAVDWithHistoryRedisStore<SSAVD, HTParams, SMTStore, HTStore>
 where
     SSAVD: SingleStepAVD,
     HTParams: MerkleTreeParameters,
