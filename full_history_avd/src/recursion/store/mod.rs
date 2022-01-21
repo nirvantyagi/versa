@@ -1,4 +1,5 @@
 pub mod mem_store;
+pub mod redis_store;
 
 use ark_groth16::{Proof, ProvingKey};
 use rand::{Rng, CryptoRng};

@@ -583,6 +583,7 @@ mod tests {
             constraints::MerkleTreeAVDGadget,
             store::{
                 mem_store::MTAVDMemStore,
+                redis_store::MTAVDRedisStore,
             }
         },
         rsa_avd::{
@@ -598,6 +599,7 @@ mod tests {
             MerkleDepth,
             store::{
                 mem_store::SMTMemStore,
+                redis_store::SMTRedisStore,
             },
         },
         hash::poseidon::{
@@ -612,6 +614,10 @@ mod tests {
                 mem_store::{
                     HTMemStore,
                     SingleStepAVDWithHistoryMemStore,
+                },
+                redis_store::{
+                    HTRedisStore,
+                    SingleStepAVDWithHistoryRedisStore,
                 },
             },
         },
@@ -681,6 +687,23 @@ mod tests {
 
     type TestOuterCircuit = OuterCircuit<TestMerkleTreeAVD, TestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, TestSMTStore, TestHTStore, TestAVDWHStore>;
     type TestOuterVerifierInput = OuterVerifierInput<MerkleTreeTestParameters, MNT298Cycle>;
+
+
+    type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
+    type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
+    type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
+    type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
+    type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
+    type RedisTestAVDWithHistory = SingleStepAVDWithHistory<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
+
+    type RedisTestInnerCircuit = InnerSingleStepProofCircuit<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
+    type RedisTestInnerVerifierInput = InnerSingleStepProofVerifierInput<MerkleTreeTestParameters>;
+
+    type RedisTestOuterCircuit = OuterCircuit<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
+    type RedisTestOuterVerifierInput = OuterVerifierInput<MerkleTreeTestParameters, MNT298Cycle>;
+
+
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     #[derive(Clone)]
@@ -1001,6 +1024,256 @@ mod tests {
 
         // Count constraints
         let blank_circuit_constraint_counter = TestInnerCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+        );
+        let cs = ConstraintSystem::<Fq>::new_ref();
+        blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
+        println!("\t number of constraints for inner circuit: {}", cs.num_constraints());
+        let blank_circuit_constraint_counter = TestOuterCircuit::blank(inner_parameters.0.vk.clone());
+        let cs = ConstraintSystem::<MNT4Fq>::new_ref();
+        blank_circuit_constraint_counter.generate_constraints(cs.clone()).unwrap();
+        println!("\t number of constraints for outer circuit: {}", cs.num_constraints());
+    }
+
+    #[test]
+    #[ignore] // Expensive test, run with ``cargo test redis_mt_update_and_verify_inner_circuit_test --release -- --ignored --nocapture``
+    fn redis_mt_update_and_verify_inner_circuit_test() {
+        println!("Test with tree height: {}, and number of updates: {}...",
+                 MerkleTreeTestParameters::DEPTH,
+                 MerkleTreeAVDTestParameters::MAX_UPDATE_BATCH_SIZE,
+        );
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+
+        // Setup inner proof circuit
+        println!("Setting up inner proof...");
+        let start = Instant::now();
+        let inner_blank_circuit = RedisTestInnerCircuit::blank(
+            &ssavd_pp,
+            &crh_pp,
+        );
+        let inner_parameters = Groth16::<MNT4_298>::circuit_specific_setup(inner_blank_circuit, &mut rng).unwrap();
+        let inner_vk = Groth16::<MNT4_298>::process_vk(&inner_parameters.1).unwrap();
+        println!("Inner preparedVK len: {}", inner_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+        // Setup outer proof circuit
+        println!("Setting up outer proof...");
+        let start = Instant::now();
+        let outer_blank_circuit = RedisTestOuterCircuit::blank(
+            inner_parameters.0.vk.clone(),
+        );
+        let outer_parameters = Groth16::<MNT6_298>::circuit_specific_setup(outer_blank_circuit, &mut rng).unwrap();
+        let outer_vk = Groth16::<MNT6_298>::process_vk(&outer_parameters.1).unwrap();
+        println!("Outer preparedVK len: {}", outer_parameters.1.gamma_abc_g1.len());
+        let bench = start.elapsed().as_secs();
+        println!("\t setup time: {} s", bench);
+
+
+        // Construct genesis proof
+        let genesis_digest = avd.digest().digest;
+        let verifier_input_genesis = RedisTestInnerVerifierInput{
+            new_digest: genesis_digest.clone(),
+            new_epoch: 0,
+        };
+
+        println!("Generating inner proof for genesis epoch...");
+        let start = Instant::now();
+        let g = <MNT6_298 as PairingEngine>::G1Affine::prime_subgroup_generator();
+        let g2 = <MNT6_298 as PairingEngine>::G2Affine::prime_subgroup_generator();
+        let inner_genesis_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            RedisTestInnerCircuit::new(
+                true,
+                &ssavd_pp,
+                &crh_pp,
+                Default::default(),
+                outer_parameters.0.vk.clone(),
+                Proof {
+                    a: g.clone(),
+                    b: g2,
+                    c: g.clone(),
+                },
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for genesis epoch
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_genesis.to_field_elements().unwrap(),
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &RedisTestInnerVerifierInput{new_digest: genesis_digest.clone(), new_epoch: 1 }.to_field_elements().unwrap(),
+            &inner_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
+
+        // Construct outer genesis proof
+        println!("Generating outer genesis proof...");
+        let start = Instant::now();
+        let outer_genesis_proof = Groth16::<MNT6_298>::prove(
+            &outer_parameters.0,
+            RedisTestOuterCircuit::new(
+                inner_genesis_proof.clone(),
+                verifier_input_genesis.clone(),
+                inner_parameters.0.vk.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify outer genesis proof
+        let outer_genesis_verifier_input = TestOuterVerifierInput{
+            prev_inner_proof_input: verifier_input_genesis.clone(),
+            _cycle: PhantomData,
+        };
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_genesis_verifier_input.to_field_elements().unwrap(),
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &RedisTestOuterVerifierInput{
+                prev_inner_proof_input: RedisTestInnerVerifierInput{ new_digest: Default::default(), new_epoch: 0 },
+                _cycle: PhantomData,
+           }.to_field_elements().unwrap(),
+            &outer_genesis_proof,
+        ).unwrap();
+        assert!(!result2);
+
+        // Update AVD
+        let proof = avd.batch_update(
+            &vec![
+                ([1_u8; 32], [2_u8; 32]),
+                ([11_u8; 32], [12_u8; 32]),
+                ([21_u8; 32], [22_u8; 32]),
+            ]).unwrap();
+
+
+        // Generate inner proof for new update
+        let verifier_input_epoch_1 = RedisTestInnerVerifierInput{
+            new_digest: proof.new_digest.clone(),
+            new_epoch: 1,
+        };
+        println!("Generating inner proof for epoch 1...");
+        let start = Instant::now();
+        let inner_epoch_1_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            RedisTestInnerCircuit::new(
+                false,
+                &ssavd_pp,
+                &crh_pp,
+                proof,
+                outer_parameters.0.vk.clone(),
+                outer_genesis_proof.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for epoch 1
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_1.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(result);
+        let result2 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &RedisTestInnerVerifierInput{new_digest: Default::default(), new_epoch: 1 }.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(!result2);
+        let result3 = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &RedisTestInnerVerifierInput{new_digest: verifier_input_epoch_1.new_digest.clone(), new_epoch: 0 }.to_field_elements().unwrap(),
+            &inner_epoch_1_proof,
+        ).unwrap();
+        assert!(!result3);
+
+
+        // Construct outer proof for epoch 1
+        println!("Generating outer proof for epoch 1...");
+        let start = Instant::now();
+        let outer_epoch_1_proof = Groth16::<MNT6_298>::prove(
+            &outer_parameters.0,
+            RedisTestOuterCircuit::new(
+                inner_epoch_1_proof.clone(),
+                verifier_input_epoch_1.clone(),
+                inner_parameters.0.vk.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify outer proof for epoch 1
+        let outer_epoch_1_verifier_input = RedisTestOuterVerifierInput{
+            prev_inner_proof_input: verifier_input_epoch_1.clone(),
+            _cycle: PhantomData,
+        };
+        let result = Groth16::<MNT6_298>::verify_with_processed_vk(
+            &outer_vk,
+            &outer_epoch_1_verifier_input.to_field_elements().unwrap(),
+            &outer_epoch_1_proof,
+        ).unwrap();
+        assert!(result);
+
+
+        // Update AVD
+        let proof = avd.batch_update(
+            &vec![
+                ([1_u8; 32], [3_u8; 32]),
+                ([11_u8; 32], [13_u8; 32]),
+                ([21_u8; 32], [23_u8; 32]),
+            ]).unwrap();
+
+
+        // Generate inner proof for new update
+        let verifier_input_epoch_2 = TestInnerVerifierInput{
+            new_digest: proof.new_digest.clone(),
+            new_epoch: 2,
+        };
+        println!("Generating inner proof for epoch 2...");
+        let start = Instant::now();
+        let inner_epoch_2_proof = Groth16::<MNT4_298>::prove(
+            &inner_parameters.0,
+            RedisTestInnerCircuit::new(
+                false,
+                &ssavd_pp,
+                &crh_pp,
+                proof,
+                outer_parameters.0.vk.clone(),
+                outer_epoch_1_proof.clone(),
+            ),
+            &mut rng,
+        ).unwrap();
+        let bench = start.elapsed().as_secs();
+        println!("\t proving time: {} s", bench);
+
+        // Verify inner proof for epoch 2
+        let result = Groth16::<MNT4_298>::verify_with_processed_vk(
+            &inner_vk,
+            &verifier_input_epoch_2.to_field_elements().unwrap(),
+            &inner_epoch_2_proof,
+        ).unwrap();
+        assert!(result);
+
+        // Count constraints
+        let blank_circuit_constraint_counter = RedisTestInnerCircuit::blank(
             &ssavd_pp,
             &crh_pp,
         );

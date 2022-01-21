@@ -363,6 +363,10 @@ mod tests {
                 HTMemStore,
                 SingleStepAVDWithHistoryMemStore,
             },
+            // redis_store::{
+            //     HTRedisStore,
+            //     SingleStepAVDWithHistoryRedisStore,
+            // },
         },
     };
     use single_step_avd::{
@@ -372,6 +376,7 @@ mod tests {
             constraints::MerkleTreeAVDGadget,
             store::{
                 mem_store::MTAVDMemStore,
+                // redis_store::MTAVDRedisStore,
             }
         },
         rsa_avd::{
@@ -387,6 +392,7 @@ mod tests {
             MerkleDepth,
             store::{
                 mem_store::SMTMemStore,
+                // redis_store::SMTRedisStore,
             },
         },
         hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
@@ -476,6 +482,38 @@ mod tests {
         TestAVDWHStore,
         TestRecursionFHAVDStore,
     >;
+
+    // type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
+    // type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
+    // type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
+    // type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
+    // type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
+    // type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
+    // type RedisTestRecursionFHAVDStore = store::redis_store::RecursionFullHistoryAVDRedisStore<
+    //     RedisTestMerkleTreeAVD,
+    //     RedisTestMerkleTreeAVDGadget,
+    //     MerkleTreeTestParameters,
+    //     HG,
+    //     MNT298Cycle,
+    //     MNT4PairingVar,
+    //     MNT6PairingVar,
+    //     RedisTestSMTStore,
+    //     RedisTestHTStore,
+    //     RedisTestAVDWHStore,
+    // >;
+    // type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<
+    //     RedisTestMerkleTreeAVD,
+    //     RedisTestMerkleTreeAVDGadget,
+    //     MerkleTreeTestParameters,
+    //     HG,
+    //     MNT298Cycle,
+    //     MNT4PairingVar,
+    //     MNT6PairingVar,
+    //     RedisTestSMTStore,
+    //     RedisTestHTStore,
+    //     RedisTestAVDWHStore,
+    //     RedisTestRecursionFHAVDStore,
+    // >;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     #[derive(Clone)]
