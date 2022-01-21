@@ -135,7 +135,7 @@ where
         key: &[u8; 32],
     ) -> Result<(Option<(u64, [u8; 32])>, Self::Digest, Self::LookupProof), Error> {
         let (probe, lookup_value) = match self.store.get_key_d(key) {
-            Some((probe, version, val)) => (*probe, Some((*version, val.clone()))),
+            Some((probe, version, val)) => (probe, Some((version, val.clone()))),
             None => {
                 // Find the first unpopulated index in probe sequence
                 match (0..<P as MerkleTreeAVDParameters>::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
@@ -181,7 +181,7 @@ where
         value: &[u8; 32],
     ) -> Result<(Self::Digest, Self::UpdateProof), Error> {
         let (probe, version, prev_value) = match self.store.get_key_d(key) {
-            Some((probe, version, val)) => (*probe, *version, val.clone()),
+            Some((probe, version, val)) => (probe, version, val.clone()),
             None => {
                 // Find the first unpopulated index in probe sequence
                 match (0..<P as MerkleTreeAVDParameters>::MAX_OPEN_ADDRESSING_PROBES).find(|i| {
@@ -417,9 +417,13 @@ mod tests {
     use ark_crypto_primitives::crh::{
         pedersen::{CRH, Window},
     };
-    use crypto_primitives::sparse_merkle_tree::store::mem_store::SMTMemStore;
+    use crypto_primitives::sparse_merkle_tree::store::{
+        mem_store::SMTMemStore,
+        redis_store::SMTRedisStore,
+    };
     use crate::merkle_tree_avd::store::{
         mem_store::MTAVDMemStore,
+        redis_store::MTAVDRedisStore,
     };
 
     #[derive(Clone)]
@@ -449,8 +453,11 @@ mod tests {
         type MerkleTreeParameters = MerkleTreeTestParameters;
     }
     type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, SMTStore>;
+    type RedisMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisSMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisSMTStore, RedisMTAVDStore>;
 
     #[test]
     fn update_and_verify_test() {
@@ -466,10 +473,74 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let digest_0 = avd.digest().unwrap();
+        let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        assert!(
+            TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_0, &digest_1, &proof,)
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn invalid_update_proof_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let digest_0 = avd.digest().unwrap();
+        let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        assert!(
+            !TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_1, &digest_1, &proof,)
+                .unwrap()
+        );
+        let mut proof_maul_key = proof.clone();
+        proof_maul_key.keys[0] = [10_u8; 32];
+        assert!(!TestMerkleTreeAVD::verify_update(
+            &crh_parameters,
+            &digest_0,
+            &digest_1,
+            &proof_maul_key,
+        )
+        .unwrap());
+        let mut proof_maul_index = proof.clone();
+        proof_maul_index.indices[0] = 12;
+        assert!(!TestMerkleTreeAVD::verify_update(
+            &crh_parameters,
+            &digest_0,
+            &digest_1,
+            &proof_maul_index,
+        )
+        .unwrap());
+        let mut proof_maul_version = proof.clone();
+        proof_maul_version.versions[0] = 1;
+        assert!(!TestMerkleTreeAVD::verify_update(
+            &crh_parameters,
+            &digest_0,
+            &digest_1,
+            &proof_maul_version,
+        )
+        .unwrap());
+        let mut proof_maul_value = proof.clone();
+        proof_maul_value.new_values[0] = [0_u8; 32];
+        assert!(!TestMerkleTreeAVD::verify_update(
+            &crh_parameters,
+            &digest_0,
+            &digest_1,
+            &proof_maul_value,
+        )
+        .unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_invalid_update_proof_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let digest_0 = avd.digest().unwrap();
         let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
         assert!(
@@ -533,6 +604,25 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_batch_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let updates = vec![
+            ([1_u8; 32], [2_u8; 32]),
+            ([1_u8; 32], [3_u8; 32]),
+            ([10_u8; 32], [11_u8; 32]),
+        ];
+        let digest_0 = avd.digest().unwrap();
+        let (digest_1, proof) = avd.batch_update(&updates).unwrap();
+        assert!(
+            TestMerkleTreeAVD::verify_update(&crh_parameters, &digest_0, &digest_1, &proof,)
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn lookup_member_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
@@ -551,10 +641,48 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_lookup_member_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
+        let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &value,
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+        assert_eq!(value.unwrap(), (1, [2_u8; 32]));
+    }
+
+    #[test]
     fn lookup_nonmember_and_verify_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
+        let (value, digest_1, proof) = avd.lookup(&[10_u8; 32]).unwrap();
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[10_u8; 32],
+            &value,
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+        assert!(value.is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_lookup_nonmember_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[10_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -598,10 +726,83 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_version_update_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
+        let (value_1, digest_1, proof_1) = avd.lookup(&[1_u8; 32]).unwrap();
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &value_1,
+            &digest_1,
+            &proof_1,
+        )
+        .unwrap());
+        assert_eq!(value_1.unwrap(), (1, [2_u8; 32]));
+        assert!(avd.update(&[1_u8; 32], &[3_u8; 32]).is_ok());
+        let (value_2, digest_2, proof_2) = avd.lookup(&[1_u8; 32]).unwrap();
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &value_2,
+            &digest_2,
+            &proof_2,
+        )
+        .unwrap());
+        assert_eq!(value_2.unwrap(), (2, [3_u8; 32]));
+    }
+
+    #[test]
     fn invalid_lookup_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
+        let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &value,
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+        assert_eq!(value.unwrap(), (1, [2_u8; 32]));
+        assert!(!TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &None,
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+        assert!(!TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &Some((2, [2_u8; 32])),
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+        assert!(!TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[1_u8; 32],
+            &Some((1, [12_u8; 32])),
+            &digest_1,
+            &proof,
+        )
+        .unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_invalid_lookup_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
         let (value, digest_1, proof) = avd.lookup(&[1_u8; 32]).unwrap();
         assert!(TestMerkleTreeAVD::verify_lookup(
@@ -698,10 +899,93 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn redis_open_addressing_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let updates = vec![
+            ([1_u8; 32], [2_u8; 32]),
+            //([11_u8; 32], [12_u8; 32]),
+            //([51_u8; 32], [52_u8; 32]),
+            // (51, 0) and (51, 1) collide with (1, 0) and (11, 0)
+        ];
+        let mut result = avd.batch_update(&updates);
+        assert!(result.is_ok());
+
+        // Non-membership open addressing
+        let (value_1, digest_1, proof_1) = avd.lookup(&[51_u8; 32]).unwrap();
+        assert_eq!(proof_1.paths.len(), 2);
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[51_u8; 32],
+            &value_1,
+            &digest_1,
+            &proof_1,
+        )
+        .unwrap());
+        assert!(value_1.is_none());
+
+        // Membership open addressing
+        result = avd.update(&[51_u8; 32], &[52_u8; 32]);
+        assert!(result.is_ok());
+        let (value_2, digest_2, proof_2) = avd.lookup(&[51_u8; 32]).unwrap();
+        assert_eq!(proof_2.paths.len(), 2);
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[51_u8; 32],
+            &value_2,
+            &digest_2,
+            &proof_2,
+        )
+        .unwrap());
+        assert_eq!(value_2.unwrap(), (1, [52_u8; 32]));
+
+        // Adding (11, 1) does not overflow
+        result = avd.update(&[11_u8; 32], &[12_u8; 32]);
+        assert!(result.is_ok());
+        let (value_3, digest_3, proof_3) = avd.lookup(&[11_u8; 32]).unwrap();
+        assert_eq!(proof_3.paths.len(), 2);
+        assert!(TestMerkleTreeAVD::verify_lookup(
+            &crh_parameters,
+            &[11_u8; 32],
+            &value_3,
+            &digest_3,
+            &proof_3,
+        )
+        .unwrap());
+        assert_eq!(value_3.unwrap(), (1, [12_u8; 32]));
+    }
+
+    #[test]
     fn open_addressing_overflow_test() {
         let mut rng = StdRng::seed_from_u64(0u64);
         let crh_parameters = H::setup(&mut rng).unwrap();
         let mut avd = TestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let updates = vec![
+            ([1_u8; 32], [2_u8; 32]),
+            ([11_u8; 32], [12_u8; 32]),
+            //([51_u8; 32], [52_u8; 32]),
+            // (51, 0) and (51, 1) collide with (1, 0) and (11, 0)
+        ];
+        let result = avd.batch_update(&updates);
+        assert!(result.is_ok());
+
+        // Overflow during lookup
+        let lookup_overflow_result = avd.lookup(&[51_u8; 32]);
+        assert!(lookup_overflow_result.is_err());
+
+        // Overflow during update
+        let update_overflow_result = avd.update(&[51_u8; 32], &[52_u8; 32]);
+        assert!(update_overflow_result.is_err());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_open_addressing_overflow_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
         let updates = vec![
             ([1_u8; 32], [2_u8; 32]),
             ([11_u8; 32], [12_u8; 32]),

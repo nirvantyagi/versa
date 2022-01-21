@@ -1,4 +1,6 @@
 pub mod mem_store;
+pub mod redis_store;
+
 use crate::Error;
 use crate::{
     SSAVDStorer,
@@ -26,13 +28,13 @@ where
         Result<Self, Error> where Self: Sized;
 
     // key_d
-    fn get_key_d(&self, key: &[u8; 32]) -> Option<&(u8, u64, [u8; 32])>;
+    fn get_key_d(&self, key: &[u8; 32]) -> Option<(u8, u64, [u8; 32])>;
     fn insert_key_d(&mut self, key: [u8; 32], value: (u8, u64, [u8; 32])) -> Option<(u8, u64, [u8; 32])>;
 
     // index_d
-    fn get_index_d(&self, key: MerkleIndex) -> Option<&[u8; 32]>;
+    fn get_index_d(&self, key: MerkleIndex) -> Option<[u8; 32]>;
     fn insert_index_d(&mut self, key: MerkleIndex, value: [u8; 32]) -> Option<[u8; 32]>;
-    fn entry_or_insert_with_index_d(&mut self, key: MerkleIndex, value: [u8; 32]) -> &mut [u8; 32];
+    fn entry_or_insert_with_index_d(&mut self, key: MerkleIndex, value: [u8; 32]) -> [u8; 32];
 
     // smt
     fn lookup_smt(&self, index: MerkleIndex) ->  Result<MerkleTreePath<<M as MerkleTreeAVDParameters>::MerkleTreeParameters>, Error>;

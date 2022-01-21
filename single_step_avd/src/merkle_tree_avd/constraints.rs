@@ -246,12 +246,18 @@ mod tests {
         pedersen::{constraints::CRHGadget, CRH, Window},
     };
 
-    use crate::merkle_tree_avd::store::mem_store::MTAVDMemStore;
+    use crate::merkle_tree_avd::store::{
+        mem_store::MTAVDMemStore,
+        redis_store::MTAVDRedisStore,
+    };
     use crate::SingleStepAVD;
     use crypto_primitives::{
         sparse_merkle_tree::{
             MerkleDepth,
-            store::mem_store::SMTMemStore,
+            store::{
+                mem_store::SMTMemStore,
+                redis_store::SMTRedisStore,
+            },
         },
         hash::FixedLengthCRH,
     };
@@ -285,9 +291,13 @@ mod tests {
     }
 
     type SMTStore = SMTMemStore<MerkleTreeTestParameters>;
+    type RedisSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
     type MTAVDStore = MTAVDMemStore<MerkleTreeAVDTestParameters, SMTStore>;
+    type RedisMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisSMTStore>;
     type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, SMTStore, MTAVDStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisSMTStore, RedisMTAVDStore>;
     type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, SMTStore, MTAVDStore>;
+    type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisSMTStore, RedisMTAVDStore>;
 
     #[test]
     fn update_and_verify_test() {
@@ -323,6 +333,50 @@ mod tests {
             ).unwrap();
 
         TestMerkleTreeAVDGadget::check_update_proof(
+            &crh_parameters_var,
+            &prev_digest_var,
+            &new_digest_var,
+            &proof_var,
+        ).unwrap();
+
+        assert!(cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_update_and_verify_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+        let digest_0 = avd.digest().unwrap();
+        let (digest_1, proof) = avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+
+        let cs = ConstraintSystem::<Fq>::new_ref();
+
+        // Allocate hash parameters
+        let crh_parameters_var = <HG as FixedLengthCRHGadget<H, Fq>>::ParametersVar::new_constant(
+            ark_relations::ns!(cs, "parameters"),
+            &crh_parameters,
+        )
+            .unwrap();
+
+        // Allocate digest parameters
+        let prev_digest_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "prev_digest"),
+            || Ok(digest_0.clone()),
+        ).unwrap();
+        let new_digest_var = <HG as FixedLengthCRHGadget<H, Fq>>::OutputVar::new_input(
+            ark_relations::ns!(cs, "new_digest"),
+            || Ok(digest_1.clone()),
+        ).unwrap();
+
+        // Allocate proof parameters
+        let proof_var = UpdateProofVar::new_witness(
+            ark_relations::ns!(cs, "proof"),
+            || Ok(proof.clone())
+            ).unwrap();
+
+        RedisTestMerkleTreeAVDGadget::check_update_proof(
             &crh_parameters_var,
             &prev_digest_var,
             &new_digest_var,

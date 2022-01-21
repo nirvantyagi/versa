@@ -1229,6 +1229,8 @@ dependencies = [
  "crypto_primitives",
  "rand",
  "rsa",
+ "serde",
+ "serde_json",
  "sha3",
  "tracing",
  "tracing-subscriber",
