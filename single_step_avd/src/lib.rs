@@ -19,6 +19,8 @@ pub trait SingleStepAVD: Sized {
 
     fn new<R: Rng>(rng: &mut R, crh_pp: &Self::PublicParameters) -> Result<Self, Error>;
 
+    fn make_copy(&self) -> Result<Self, Error>;
+
     fn digest(&self) -> Result<Self::Digest, Error>;
 
     fn lookup(

@@ -26,6 +26,9 @@ where
         pp: &<<<M as MerkleTreeAVDParameters>::MerkleTreeParameters as MerkleTreeParameters>::H as FixedLengthCRH>::Parameters
     ) ->
         Result<Self, Error> where Self: Sized;
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized;
+
+    fn get_id(& self) -> String;
 
     // key_d
     fn get_key_d(&self, key: &[u8; 32]) -> Option<(u8, u64, [u8; 32])>;

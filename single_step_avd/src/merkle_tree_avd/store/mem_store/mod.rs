@@ -45,6 +45,15 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        // THIS IS DUMMY FUNC
+        return Self::new(&[0u8; 16], &self.tree.store.get_hash_parameters());
+    }
+
+    fn get_id(& self) -> String {
+        return "this is dummy func".to_string();
+    }
+
     // key_d
     fn get_key_d(&self, key: &[u8; 32]) -> Option<(u8, u64, [u8; 32])> {
         match self.key_d.get(key) {

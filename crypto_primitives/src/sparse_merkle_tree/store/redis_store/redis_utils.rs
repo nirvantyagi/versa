@@ -17,13 +17,14 @@ pub fn set(key: String, val: String) -> Result<(), redis::RedisError> {
 }
 
 pub fn copy_entries_matching_prefix(old_prefix: String, new_prefix: String) {
+    // println!("HELLO: {},{}", old_prefix, new_prefix);
     let mut con: redis::Connection = get_con().unwrap();
     let iter: redis::Iter<String> = con.scan_match(old_prefix.clone()).unwrap();
     for key in iter {
         let new_key: String = format!("{}{}", new_prefix, &key[old_prefix.len()-1..]);
+        // println!("{:?}\n{:?}\n", key.clone(), new_key.clone());
         let value: String = get(key).unwrap();
         set(new_key, value).unwrap();
-        // println!("{:?}\n{:?}\n", key, new_key);
     }
 }
 

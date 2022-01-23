@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, rngs::StdRng, SeedableRng};
 use ark_ff::{
     bytes::ToBytes,
     fields::PrimeField,
@@ -159,6 +159,13 @@ where
             _c: PhantomData,
             _s: PhantomData,
         })
+    }
+
+    fn make_copy(&self) -> Result<Self, Error> {
+        // THIS IS A DUMMY FUNC FOR NOW
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let pp = Self::setup(&mut rng).unwrap();
+        return Self::new(&mut rng, &pp);
     }
 
     fn digest(&self) -> Result<Self::Digest, Error> {

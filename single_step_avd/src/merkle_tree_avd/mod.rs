@@ -126,6 +126,15 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> {
+        let store_copy = self.store.make_copy().unwrap();
+        Ok(MerkleTreeAVD {
+            store: store_copy,
+            _p: PhantomData,
+            _t: PhantomData,
+        })
+    }
+
     fn digest(&self) -> Result<Self::Digest, Error> {
         Ok(self.store.get_smt_root())
     }
@@ -754,6 +763,39 @@ mod tests {
         .unwrap());
         assert_eq!(value_2.unwrap(), (2, [3_u8; 32]));
     }
+
+
+        #[test]
+        #[ignore]
+        fn redis_make_copy_test() {
+            let mut rng = StdRng::seed_from_u64(0u64);
+            let crh_parameters = H::setup(&mut rng).unwrap();
+            let mut avd = RedisTestMerkleTreeAVD::new(&mut rng, &crh_parameters).unwrap();
+            assert!(avd.update(&[1_u8; 32], &[2_u8; 32]).is_ok());
+            // THIS IS IMPORTANT BIT
+            avd = avd.make_copy().unwrap();
+            let (value_1, digest_1, proof_1) = avd.lookup(&[1_u8; 32]).unwrap();
+            assert!(TestMerkleTreeAVD::verify_lookup(
+                &crh_parameters,
+                &[1_u8; 32],
+                &value_1,
+                &digest_1,
+                &proof_1,
+            )
+            .unwrap());
+            assert_eq!(value_1.unwrap(), (1, [2_u8; 32]));
+            assert!(avd.update(&[1_u8; 32], &[3_u8; 32]).is_ok());
+            let (value_2, digest_2, proof_2) = avd.lookup(&[1_u8; 32]).unwrap();
+            assert!(TestMerkleTreeAVD::verify_lookup(
+                &crh_parameters,
+                &[1_u8; 32],
+                &value_2,
+                &digest_2,
+                &proof_2,
+            )
+            .unwrap());
+            assert_eq!(value_2.unwrap(), (2, [3_u8; 32]));
+        }
 
     #[test]
     fn invalid_lookup_test() {

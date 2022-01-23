@@ -56,6 +56,33 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        let old_store_id = self.get_id();
+        let new_store_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+        // copy key_d
+        let old_key_d_prefix = format!("{}-key_d-*", old_store_id);
+        let new_key_d_prefix = format!("{}-key_d-", new_store_id);
+        redis_utils::copy_entries_matching_prefix(old_key_d_prefix, new_key_d_prefix);
+        // copy index_d
+        let old_index_d_prefix = format!("{}-index_d-*", old_store_id);
+        let new_index_d_prefix = format!("{}-index_d-", new_store_id);
+        redis_utils::copy_entries_matching_prefix(old_index_d_prefix, new_index_d_prefix);
+        // copy smt
+        let smt_copy = self.tree.make_copy();
+        Ok(MTAVDRedisStore {
+            id: new_store_id,
+            tree: smt_copy,
+        })
+    }
+
+    fn get_id(& self) -> String {
+        return self.id.clone();
+    }
+
     // key_d
     fn get_key_d(&self, key: &[u8; 32]) -> Option<(u8, u64, [u8; 32])> {
         let k = format!("{}-key_d-{}", self.id, serde_json::to_string(&key).unwrap());
