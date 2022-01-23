@@ -75,6 +75,14 @@ where
         }
     }
 
+    pub fn make_copy(&self) -> Self {
+        let store_copy = self.store.make_copy().unwrap();
+        SparseMerkleTree {
+            store: store_copy,
+            _p: PhantomData,
+        }
+    }
+
     pub fn update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error> {
         if index >= 1_u64 << (P::DEPTH as u64) {
             return Err(Box::new(MerkleTreeError::LeafIndex(index)));
@@ -103,11 +111,6 @@ where
                 hash_inner_node::<<P as MerkleTreeParameters>::H>(&self.store.get_hash_parameters(), &lc_hash, &rc_hash)?,
             );
         }
-        // TODO: double borrow makes it possible to create two mutable references for the same data,
-        //  which is a violation of Rust aliasing guarantees https://stackoverflow.com/questions/31281155/cannot-borrow-x-as-mutable-more-than-once-at-a-time
-        // Is this really needed?
-        // See TODO in SMTMemStore::set
-        // self.store.set_root(self.store.get(&(0, 0)).expect("root lookup failed").clone());
         Ok(())
     }
 
@@ -341,6 +344,47 @@ mod tests {
             .unwrap());
         assert!(proof_256.is_err());
         assert!(tree.update(177, &[1_u8; 16]).is_ok());
+        assert!(proof_177
+            .verify(&tree.store.get_root(), &[1u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(!proof_177
+            .verify(&tree.store.get_root(), &[0u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(!proof_177
+            .verify(&tree.store.get_root(), &[1u8; 16], 0, &crh_parameters)
+            .unwrap());
+        assert!(!proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+        let updated_proof_0 = tree.lookup(0).unwrap();
+        assert!(updated_proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+    }
+
+    #[test]
+    fn redis_make_copy_test() {
+        let mut rng = StdRng::seed_from_u64(0u64);
+        let crh_parameters = H::setup(&mut rng).unwrap();
+        let redis_store = SMTRedisStore::new(&[0u8; 16], &crh_parameters).unwrap();
+        let mut tree = RedisTestMerkleTree::new(redis_store);
+        let proof_0 = tree.lookup(0).unwrap();
+        let proof_177 = tree.lookup(177).unwrap();
+        let proof_255 = tree.lookup(255).unwrap();
+        let proof_256 = tree.lookup(256);
+        assert!(proof_0
+            .verify(&tree.store.get_root(), &[0u8; 16], 0, &crh_parameters)
+            .unwrap());
+        assert!(proof_177
+            .verify(&tree.store.get_root(), &[0u8; 16], 177, &crh_parameters)
+            .unwrap());
+        assert!(proof_255
+            .verify(&tree.store.get_root(), &[0u8; 16], 255, &crh_parameters)
+            .unwrap());
+        assert!(proof_256.is_err());
+        assert!(tree.update(177, &[1_u8; 16]).is_ok());
+        // THIS THE IMPORTANT BIT
+        tree = tree.make_copy();
         assert!(proof_177
             .verify(&tree.store.get_root(), &[1u8; 16], 177, &crh_parameters)
             .unwrap());

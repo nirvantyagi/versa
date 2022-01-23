@@ -53,6 +53,16 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        // THIS IS DUMMY, IT HAS NO PURPOSE
+        return Self::new(&[0u8; 16], &self.hash_parameters);
+    }
+
+    fn get_id(& self) -> String {
+        // THIS IS DUMMY, IT HAS NO PURPOSE
+        return "this is dummy".to_string();
+    }
+
     fn get(&self, index: &(MerkleDepth, MerkleIndex)) -> Option<<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output> {
         match self.tree.get(index) {
             Some(h) => return Some(h.clone()),

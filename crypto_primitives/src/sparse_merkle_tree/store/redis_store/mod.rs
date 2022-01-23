@@ -27,7 +27,7 @@ pub struct SMTRedisStore<P: MerkleTreeParameters> {
     pub id: String,
     // tree: HashMap<(MerkleDepth, MerkleIndex), <P::H as FixedLengthCRH>::Output>,
     pub root: <P::H as FixedLengthCRH>::Output,
-    sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
+    pub sparse_initial_hashes: Vec<<P::H as FixedLengthCRH>::Output>,
     pub hash_parameters: <P::H as FixedLengthCRH>::Parameters,
     _parameters: PhantomData<P>,
 }
@@ -71,6 +71,25 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        let old_store_id = self.get_id();
+        let new_store_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+        let old_prefix = format!("{}-*", old_store_id);
+        let new_prefix = format!("{}-", new_store_id);
+        redis_utils::copy_entries_matching_prefix(old_prefix, new_prefix);
+        Ok(SMTRedisStore {
+            id: new_store_id,
+            root: self.root.clone(),
+            sparse_initial_hashes: self.sparse_initial_hashes.clone(),
+            hash_parameters: self.hash_parameters.clone(),
+            _parameters: PhantomData,
+        })
+    }
+
     fn get(
         & self,
         index: &(MerkleDepth, MerkleIndex),
@@ -101,6 +120,10 @@ where
         if index.0 == 0 && index.1 == 0 {
             self.root = value.clone();
         }
+    }
+
+    fn get_id(& self) -> String {
+        return self.id.clone();
     }
 
     fn get_root(& self) ->

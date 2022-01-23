@@ -16,6 +16,17 @@ pub fn set(key: String, val: String) -> Result<(), redis::RedisError> {
     return con.set(key, val);
 }
 
+pub fn copy_entries_matching_prefix(old_prefix: String, new_prefix: String) {
+    let mut con: redis::Connection = get_con().unwrap();
+    let iter: redis::Iter<String> = con.scan_match(old_prefix.clone()).unwrap();
+    for key in iter {
+        let new_key: String = format!("{}{}", new_prefix, &key[old_prefix.len()-1..]);
+        let value: String = get(key).unwrap();
+        set(new_key, value).unwrap();
+        // println!("{:?}\n{:?}\n", key, new_key);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

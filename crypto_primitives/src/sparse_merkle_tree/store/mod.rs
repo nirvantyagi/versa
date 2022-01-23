@@ -19,6 +19,10 @@ where
     ) ->
         Result<Self, Error> where Self: Sized;
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized;
+
+    fn get_id(& self) -> String;
+
     fn get(&self, index: &(MerkleDepth, MerkleIndex)) ->
         Option<<<P as MerkleTreeParameters>::H as FixedLengthCRH>::Output>;
 
