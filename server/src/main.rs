@@ -1,6 +1,7 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
 #[macro_use] extern crate rocket;
+#[macro_use] extern crate lazy_static;
 use serde::{Serialize, Deserialize};
 use rocket_contrib::{
     json,
@@ -95,11 +96,17 @@ type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLength
 type RedisTestRecursionFHAVDStore = RecursionFullHistoryAVDRedisStore<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
 type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore, RedisTestRecursionFHAVDStore>;
 
-static mut current: Option<RedisTestRecursionFHAVD> = None;
+lazy_static! {
+    static ref CURRENT: Vec<RedisTestRecursionFHAVD> = {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let pp = RedisTestRecursionFHAVD::setup(&mut rng).unwrap();
+        vec![RedisTestRecursionFHAVD::new(&mut rng, &pp).unwrap()]
+    };
+}
 
 #[derive(Serialize, Deserialize)]
 struct Entry {
-    key: String,
+    key: [u8; 32],
     value: String,
 }
 
@@ -111,24 +118,20 @@ fn commit(entry: Json<Entry>) -> JsonValue {
 
 #[post("/", data = "<entry>")]
 fn prove(entry: Json<Entry>) -> JsonValue {
-    // TODO: fetch and return proof against 'current' epoch
+    let sumthin = CURRENT[0].lookup(&entry.key);
     json!({ "status": "ok" })
 }
 
 #[post("/")]
 fn epoch() -> JsonValue {
-    // TODO: let future = current.unwrap().make_copy();
-    // TODO: future.batch_update(... queue);
+    let future = CURRENT[0].make_copy().unwrap();
+    // future.batch_update(... queue);
+    CURRENT.push(future);
     // TODO: current = future;
     json!({ "status": "ok" })
 }
 
 fn main() {
-    let mut rng = StdRng::seed_from_u64(0_u64);
-    let pp = RedisTestRecursionFHAVD::setup(&mut rng).unwrap();
-    unsafe {
-        current = Some(RedisTestRecursionFHAVD::new(&mut rng, &pp).unwrap());
-    }
     rocket::ignite().mount("/commit", routes![commit]).launch();
     rocket::ignite().mount("/prove", routes![prove]).launch();
     rocket::ignite().mount("/epoch", routes![epoch]).launch();

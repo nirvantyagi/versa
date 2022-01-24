@@ -27,6 +27,7 @@ ark-ed-on-mnt4-298 = { version = "0.2", default-features = false, features = ["r
 ark-mnt4-298 = { version = "0.2", default-features = false, features = ["r1cs", "curve"] }
 ark-mnt6-298 = { version = "0.2", default-features = false, features = ["r1cs"] }
 
+lazy_static = "1.4.0"
 rocket = "0.4.10"
 rocket_codegen = "0.4.10"
 serde = { version = "1.0.135", features = ["derive"] }

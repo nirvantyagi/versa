@@ -2012,6 +2012,7 @@ dependencies = [
  "blake3",
  "crypto_primitives",
  "full_history_avd",
+ "lazy_static",
  "rocket",
  "rocket_codegen",
  "rocket_contrib",
