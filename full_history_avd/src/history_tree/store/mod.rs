@@ -21,6 +21,8 @@ where
     S: SMTStorer<P>,
 {
     fn new(initial_leaf: &[u8], hash_parameters: &<P::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized;
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized;
+    fn get_id(& self) -> String;
     fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error>;
     fn smt_update(&mut self, index: MerkleIndex, leaf_value: &[u8]) -> Result<(), Error>;
     fn smt_get_hash_parameters(&self) -> <P::H as FixedLengthCRH>::Parameters;
@@ -41,6 +43,7 @@ where
     HTStore: HTStorer<HTParams, <HTParams::H as FixedLengthCRH>::Output, SMTStore>,
 {
     fn new<R: Rng>(rng: &mut R, ssavd_pp: &SSAVD::PublicParameters, crh_pp: &<HTParams::H as FixedLengthCRH>::Parameters) -> Result<Self, Error> where Self: Sized;
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized;
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error>;
     fn ssavd_lookup(&mut self, key: &[u8; 32],) -> Result<(Option<(u64, [u8; 32])>, SSAVD::Digest, SSAVD::LookupProof), Error>;
     fn ssavd_update(&mut self, key: &[u8; 32], value: &[u8; 32]) -> Result<(SSAVD::Digest, SSAVD::UpdateProof), Error>;

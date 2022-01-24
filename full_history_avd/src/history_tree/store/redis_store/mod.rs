@@ -69,6 +69,29 @@ where
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        let old_store_id = self.get_id();
+        let new_store_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+        // copy digest_d-
+        let old_prefix = format!("{}-digest_d-*", old_store_id);
+        let new_prefix = format!("{}-digest_d-", new_store_id);
+        redis_utils::copy_entries_matching_prefix(old_prefix, new_prefix);
+        Ok(HTRedisStore {
+            id: new_store_id,
+            tree: self.tree.make_copy(),
+            epoch: self.epoch.clone(),
+            _d: PhantomData,
+        })
+    }
+
+    fn get_id(& self) -> String {
+        return self.id.clone();
+    }
+
     fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
         return self.tree.lookup(index);
     }
@@ -146,6 +169,15 @@ where
             ssavd: ssavd,
             history_tree: history_tree,
             digest: digest,
+        })
+    }
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        let ssavd_copy = self.ssavd.make_copy().unwrap();
+        let ht_copy = self.history_tree.make_copy().unwrap();
+        Ok(Self {
+            ssavd: ssavd_copy,
+            history_tree: ht_copy,
+            digest: self.digest.clone(),
         })
     }
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error> {

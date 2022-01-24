@@ -205,6 +205,25 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
         })
     }
 
+    fn make_copy(&self) -> Result<Self, Error> {
+        let store_copy = self.store.make_copy().unwrap();
+        Ok(Self {
+            store: store_copy,
+            _history_ssavd: PhantomData,
+            _inner_proof: PhantomData,
+            _ssavd_pp: PhantomData,
+            _inner_groth16_pp: PhantomData,
+            _outer_groth16_pp: PhantomData,
+            _ssavd_gadget: PhantomData,
+            _hash_gadget: PhantomData,
+            _e1_gadget: PhantomData,
+            _e2_gadget: PhantomData,
+            _s: PhantomData,
+            _t: PhantomData,
+            _u: PhantomData,
+        })
+    }
+
     fn digest(&self) -> Result<Self::Digest, Error> {
         return Ok(self.store.history_ssavd_get_digest());
     }
@@ -348,7 +367,7 @@ RecursionFullHistoryAVD<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, 
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use ark_ed_on_mnt4_298::{EdwardsProjective, Fq, constraints::EdwardsVar};
     use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
@@ -363,10 +382,10 @@ mod tests {
                 HTMemStore,
                 SingleStepAVDWithHistoryMemStore,
             },
-            // redis_store::{
-            //     HTRedisStore,
-            //     SingleStepAVDWithHistoryRedisStore,
-            // },
+            redis_store::{
+                HTRedisStore,
+                SingleStepAVDWithHistoryRedisStore,
+            },
         },
     };
     use single_step_avd::{
@@ -376,7 +395,7 @@ mod tests {
             constraints::MerkleTreeAVDGadget,
             store::{
                 mem_store::MTAVDMemStore,
-                // redis_store::MTAVDRedisStore,
+                redis_store::MTAVDRedisStore,
             }
         },
         rsa_avd::{
@@ -392,7 +411,7 @@ mod tests {
             MerkleDepth,
             store::{
                 mem_store::SMTMemStore,
-                // redis_store::SMTRedisStore,
+                redis_store::SMTRedisStore,
             },
         },
         hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
@@ -483,37 +502,14 @@ mod tests {
         TestRecursionFHAVDStore,
     >;
 
-    // type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
-    // type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
-    // type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
-    // type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
-    // type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
-    // type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
-    // type RedisTestRecursionFHAVDStore = store::redis_store::RecursionFullHistoryAVDRedisStore<
-    //     RedisTestMerkleTreeAVD,
-    //     RedisTestMerkleTreeAVDGadget,
-    //     MerkleTreeTestParameters,
-    //     HG,
-    //     MNT298Cycle,
-    //     MNT4PairingVar,
-    //     MNT6PairingVar,
-    //     RedisTestSMTStore,
-    //     RedisTestHTStore,
-    //     RedisTestAVDWHStore,
-    // >;
-    // type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<
-    //     RedisTestMerkleTreeAVD,
-    //     RedisTestMerkleTreeAVDGadget,
-    //     MerkleTreeTestParameters,
-    //     HG,
-    //     MNT298Cycle,
-    //     MNT4PairingVar,
-    //     MNT6PairingVar,
-    //     RedisTestSMTStore,
-    //     RedisTestHTStore,
-    //     RedisTestAVDWHStore,
-    //     RedisTestRecursionFHAVDStore,
-    // >;
+    type RedisTestSMTStore = SMTRedisStore<MerkleTreeTestParameters>;
+    type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTestSMTStore>;
+    type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
+    type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
+    type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
+    type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
+    type RedisTestRecursionFHAVDStore = store::redis_store::RecursionFullHistoryAVDRedisStore<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
+    pub type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore, RedisTestRecursionFHAVDStore>;
 
     // Parameters for Merkle Tree AVD with Poseidon hash
     #[derive(Clone)]

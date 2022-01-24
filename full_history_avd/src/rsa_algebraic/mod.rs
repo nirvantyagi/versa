@@ -19,7 +19,7 @@ use rsa::{
 use single_step_avd::rsa_avd::{to_bignat, from_bignat};
 
 use crate::{Error, FullHistoryAVD, get_checkpoint_epochs};
-use rand::{Rng, CryptoRng};
+use rand::{Rng, CryptoRng, rngs::StdRng, SeedableRng};
 
 pub mod store;
 
@@ -80,6 +80,13 @@ where
             _s: PhantomData,
         })
     }
+
+    fn make_copy(&self) -> Result<Self, Error> {
+        // THIS IS A DUMMY FUNC FOR NOW
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        Self::new(&mut rng, &())
+    }
+
 
     fn digest(&self) -> Result<Self::Digest, Error> {
         Ok(self.store.digest_get_last())

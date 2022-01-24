@@ -2,7 +2,7 @@ use std::{
     marker::PhantomData,
 };
 use ark_groth16::{Groth16, Proof, ProvingKey};
-use rand::{Rng, CryptoRng};
+use rand::{Rng, CryptoRng, rngs::StdRng, SeedableRng};
 use single_step_avd::{
     SingleStepAVD,
     constraints::SingleStepAVDGadget,
@@ -18,6 +18,7 @@ use crypto_primitives::{
     },
 };
 use crate::{
+    FullHistoryAVD,
     recursion::{
         AffineCurve,
         CycleEngine,
@@ -29,6 +30,7 @@ use crate::{
         InnerSingleStepProofCircuit,
         PublicParameters,
         store::RecursionFullHistoryAVDStorer,
+        RecursionFullHistoryAVD,
     },
     history_tree::{
         Digest,
@@ -120,6 +122,12 @@ where
             _e1_gadget: PhantomData,
             _e2_gadget: PhantomData,
         })
+    }
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        // THIS IS A DUMMY FUNC
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let pp = RecursionFullHistoryAVD::<SSAVD, SSAVDGadget, HTParams, HGadget, Cycle, E1Gadget, E2Gadget, S, T, U, Self>::setup(&mut rng).unwrap();
+        Self::new(&mut rng, &pp)
     }
     fn history_ssavd_get_digest(&self) -> Digest<HTParams> {
         return self.history_ssavd.digest();

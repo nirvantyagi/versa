@@ -121,6 +121,20 @@ where
             _e2_gadget: PhantomData,
         })
     }
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        let history_ssavd_copy = self.history_ssavd.make_copy().unwrap();
+        Ok(Self {
+            history_ssavd: history_ssavd_copy,
+            inner_proof: self.inner_proof.clone(),
+            ssavd_pp: self.ssavd_pp.clone(),
+            inner_groth16_pp: self.inner_groth16_pp.clone(),
+            outer_groth16_pp: self.outer_groth16_pp.clone(),
+            _ssavd_gadget: PhantomData,
+            _hash_gadget: PhantomData,
+            _e1_gadget: PhantomData,
+            _e2_gadget: PhantomData,
+        })
+    }
     fn history_ssavd_get_digest(&self) -> Digest<HTParams> {
         return self.history_ssavd.digest();
     }

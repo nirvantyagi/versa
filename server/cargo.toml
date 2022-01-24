@@ -1,0 +1,37 @@
+[package]
+name = "server"
+version = "0.1.0"
+authors = ["Nirvan Tyagi <nirvan.tyagi@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+ark-ff = { version = "0.2", default-features = false }
+ark-ec = { version = "0.2", default-features = false }
+ark-poly = { version = "0.2", default-features = false }
+ark-relations = { version = "0.2", default-features = false }
+ark-r1cs-std = { version = "0.2", default-features = false }
+ark-std = { version = "0.2", default-features = false }
+ark-crypto-primitives = { version = "0.2", default-features = false, features = ["r1cs"] }
+ark-groth16 = { version = "0.2", default-features = false, features = ["r1cs"] }
+
+ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
+ark-dh-commitments = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
+ark-inner-products = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
+
+blake2 = { version = "0.9" }
+blake3 = { version = "0.3" }
+tracing-subscriber = { version = "0.2" }
+ark-ed-on-bls12-381 = { version = "0.2", default-features = false, features = ["r1cs"] }
+ark-bls12-381 = { version = "0.2", default-features = false, features = ["curve"] }
+ark-ed-on-mnt4-298 = { version = "0.2", default-features = false, features = ["r1cs"] }
+ark-mnt4-298 = { version = "0.2", default-features = false, features = ["r1cs", "curve"] }
+ark-mnt6-298 = { version = "0.2", default-features = false, features = ["r1cs"] }
+
+rocket = "0.4.10"
+rocket_codegen = "0.4.10"
+serde = { version = "1.0.135", features = ["derive"] }
+rocket_contrib = "0.4.10"
+crypto_primitives = { path = "../crypto_primitives" }
+rsa = { path = "../rsa" }
+single_step_avd = { path = "../single_step_avd" }
+full_history_avd = { path = "../full_history_avd" }

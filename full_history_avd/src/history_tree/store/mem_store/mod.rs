@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
 };
-use rand::Rng;
+use rand::{Rng, rngs::StdRng, SeedableRng};
 use crate::Error;
 use ark_ff::bytes::ToBytes;
 use crypto_primitives::{
@@ -15,6 +15,7 @@ use crypto_primitives::{
     hash::FixedLengthCRH,
 };
 use crate::history_tree::{
+    SingleStepAVDWithHistory,
     store::{
         HTStorer,
         SingleStepAVDWithHistoryStorer,
@@ -51,7 +52,16 @@ where
             epoch: 0,
         })
     }
-
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        // THIS IS A DUMMY FUNC
+        Self::new(
+            &[0; 32],
+            &self.tree.store.get_hash_parameters()
+        )
+    }
+    fn get_id(& self) -> String {
+        return "dummy function".to_string();
+    }
     fn smt_lookup(&mut self, index: MerkleIndex) -> Result<MerkleTreePath<P>, Error> {
         return self.tree.lookup(index);
     }
@@ -118,6 +128,16 @@ where
             history_tree: history_tree,
             digest: digest,
         })
+    }
+    fn make_copy(&self) -> Result<Self, Error> where Self: Sized {
+        // THIS IS A DUMMY FUNC
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = SingleStepAVDWithHistory::<SSAVD, HTParams, SMTStore, HTStore, Self>::setup(&mut rng).unwrap();
+        Self::new(
+            &mut rng,
+            &ssavd_pp,
+            &crh_pp
+        )
     }
     fn ssavd_digest(&self) -> Result<SSAVD::Digest, Error> {
         return self.ssavd.digest();

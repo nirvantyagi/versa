@@ -57,6 +57,16 @@ where
         })
     }
 
+    pub fn make_copy(&self) -> Result<Self, Error> {
+        let store_copy = self.store.make_copy().unwrap();
+        Ok(Self {
+            store: store_copy,
+            _p: PhantomData,
+            _d: PhantomData,
+            _s: PhantomData,
+        })
+    }
+
     // TODO: Manage digest lifetimes so as not to store clones
     pub fn append_digest(&mut self, digest: &D) -> Result<(), Error> {
         self.store.smt_update(self.store.get_epoch(), &digest_to_bytes(digest)?)?;
@@ -217,6 +227,17 @@ where
         let s = SSAVDWHStore::new(rng, ssavd_pp, crh_pp).unwrap();
         Ok(SingleStepAVDWithHistory{
             store: s,
+            _ssavd: PhantomData,
+            _htparamas: PhantomData,
+            _smtstore: PhantomData,
+            _htstore: PhantomData,
+        })
+    }
+
+    pub fn make_copy(&self) -> Result<Self, Error> {
+        let store_copy = self.store.make_copy().unwrap();
+        Ok(SingleStepAVDWithHistory{
+            store: store_copy,
             _ssavd: PhantomData,
             _htparamas: PhantomData,
             _smtstore: PhantomData,
@@ -515,6 +536,29 @@ mod tests {
         let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
         let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
         avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        let digest = avd.digest();
+
+        let (value, lookup_proof) = avd.lookup(&[1_u8; 32]).unwrap();
+        let result = RedisTestAVDWithHistory::verify_lookup(
+            &ssavd_pp,
+            &crh_pp,
+            &[1_u8; 32],
+            &value,
+            &digest,
+            &lookup_proof,
+        ).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    #[ignore]
+    fn redis_make_copy_test() {
+        let mut rng = StdRng::seed_from_u64(0_u64);
+        let (ssavd_pp, crh_pp) = RedisTestAVDWithHistory::setup(&mut rng).unwrap();
+        let mut avd = RedisTestAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap();
+        avd.update(&[1_u8; 32], &[2_u8; 32]).unwrap();
+        // THIS IS THE IMPORTANT BIT
+        avd = avd.make_copy().unwrap();
         let digest = avd.digest();
 
         let (value, lookup_proof) = avd.lookup(&[1_u8; 32]).unwrap();

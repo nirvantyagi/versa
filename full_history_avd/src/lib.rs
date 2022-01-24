@@ -22,6 +22,8 @@ pub trait FullHistoryAVD: Sized {
 
     fn new<R: Rng + CryptoRng>(rng: &mut R, pp: &Self::PublicParameters) -> Result<Self, Error>;
 
+    fn make_copy(&self) -> Result<Self, Error>;
+
     fn digest(&self) -> Result<Self::Digest, Error>;
 
     fn lookup(
