@@ -6,4 +6,6 @@ members = [
   "full_history_avd",
   "rsa",
   "benches",
+  "bulletin_board",
+  "ethereum_test_utils"
 ]
