@@ -29,6 +29,7 @@ use crypto_primitives::{
     },
 };
 use single_step_avd::{
+    SingleStepAVD,
     merkle_tree_avd::{
         MerkleTreeAVDParameters,
         MerkleTreeAVD,
@@ -44,6 +45,7 @@ use full_history_avd::{
         store::redis_store::RecursionFullHistoryAVDRedisStore
     },
     history_tree::{
+        SingleStepAVDWithHistory,
         store::{
             redis_store::{
                 HTRedisStore,
@@ -95,14 +97,15 @@ type RedisTestMTAVDStore = MTAVDRedisStore<MerkleTreeAVDTestParameters, RedisTes
 type RedisTestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters, RedisTestSMTStore, RedisTestMTAVDStore>;
 type RedisTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, Fq, RedisTestSMTStore, RedisTestMTAVDStore>;
 type RedisTestAVDWHStore = SingleStepAVDWithHistoryRedisStore<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore>;
+type RedisTestSingleStepAVDWithHistory = SingleStepAVDWithHistory<RedisTestMerkleTreeAVD, MerkleTreeTestParameters, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
 type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLengthCRH>::Output, RedisTestSMTStore>;
 type RedisTestRecursionFHAVDStore = RecursionFullHistoryAVDRedisStore<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
 type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore, RedisTestRecursionFHAVDStore>;
 
-static EPOCHS: Lazy<Mutex<Vec<RedisTestRecursionFHAVD>>> = Lazy::new(|| {
+static EPOCHS: Lazy<Mutex<Vec<RedisTestSingleStepAVDWithHistory>>> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(0u64);
-    let pp = RedisTestRecursionFHAVD::setup(&mut rng).unwrap();
-    Mutex::new(vec![RedisTestRecursionFHAVD::new(&mut rng, &pp)])
+    let (ssavd_pp, crh_pp) = RedisTestSingleStepAVDWithHistory::setup(&mut rng).unwrap();
+    Mutex::new(vec![RedisTestSingleStepAVDWithHistory::new(&mut rng, &ssavd_pp, &crh_pp).unwrap()])
 });
 
 #[derive(Serialize, Deserialize)]
@@ -119,14 +122,14 @@ fn commit(entry: Json<Entry>) -> JsonValue {
 
 #[post("/", data = "<entry>")]
 fn prove(entry: Json<Entry>) -> JsonValue {
-    let sumthin = EPOCHS.unwrap()[0].lookup(&entry.key);
+    let sumthin = EPOCHS.lock().unwrap()[0].lookup(&entry.key);
     json!({ "status": "ok" })
 }
 
 #[post("/")]
 fn epoch() -> JsonValue {
 
-    let future = EPOCHS.unwrap()[0].make_copy().unwrap();
+    let future = EPOCHS.lock().unwrap()[0].make_copy().unwrap();
     // future.batch_update(... queue);
     EPOCHS.lock().unwrap().push(future);
     // TODO: current = future;
