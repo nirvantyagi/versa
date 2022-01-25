@@ -13,7 +13,6 @@ ark-relations = { version = "0.2", default-features = false }
 ark-r1cs-std = { version = "0.2", default-features = false }
 ark-crypto-primitives = { version = "0.2", default-features = false, features = ["r1cs"] }
 ark-groth16 = { version = "0.2", default-features = false, features = ["r1cs", "parallel"] }
-ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp" }
 ark-ed-on-bls12-381 = { version = "0.2", default-features = false, features = ["r1cs"] }
 ark-bls12-381 = { version = "0.2", default-features = false, features = ["curve"] }
 ark-ed-on-mnt4-753 = { version = "0.2", default-features = false, features = ["r1cs"] }
@@ -22,6 +21,7 @@ ark-mnt6-753 = { version = "0.2", default-features = false, features = ["r1cs"] 
 ark-ed-on-mnt4-298 = { version = "0.2", default-features = false, features = ["r1cs"] }
 ark-mnt4-298 = { version = "0.2", default-features = false, features = ["r1cs", "curve"] }
 ark-mnt6-298 = { version = "0.2", default-features = false, features = ["r1cs"] }
+ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp", default-features = false, rev = "d152aecd46b999e7a592e143cd2e4dd87c0d2787" }
 
 crypto_primitives = { path = "../crypto_primitives" }
 rsa = { path = "../rsa" }

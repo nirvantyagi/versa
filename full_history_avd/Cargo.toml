@@ -16,9 +16,9 @@ ark-std = { version = "0.2", default-features = false }
 ark-crypto-primitives = { version = "0.2", default-features = false, features = ["r1cs"] }
 ark-groth16 = { version = "0.2", default-features = false, features = ["r1cs"] }
 
-ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
-ark-dh-commitments = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
-ark-inner-products = { git = "https://github.com/arkworks-rs/ripp", default-features = false }
+ark-ip-proofs = { git = "https://github.com/arkworks-rs/ripp", default-features = false, rev = "d152aecd46b999e7a592e143cd2e4dd87c0d2787" }
+ark-dh-commitments = { git = "https://github.com/arkworks-rs/ripp", default-features = false, rev = "d152aecd46b999e7a592e143cd2e4dd87c0d2787" }
+ark-inner-products = { git = "https://github.com/arkworks-rs/ripp", default-features = false, rev = "d152aecd46b999e7a592e143cd2e4dd87c0d2787" }
 
 rand = { version = "0.7" }
 digest = { version = "0.9" }
