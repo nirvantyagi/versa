@@ -1,7 +1,8 @@
 #![feature(proc_macro_hygiene, decl_macro)]
 
 #[macro_use] extern crate rocket;
-#[macro_use] extern crate lazy_static;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
 use serde::{Serialize, Deserialize};
 use rocket_contrib::{
     json,
@@ -11,6 +12,7 @@ use rocket_contrib::{
 use ark_ed_on_mnt4_298::{EdwardsProjective, Fq, constraints::EdwardsVar};
 use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
 use ark_mnt6_298::{MNT6_298, constraints::PairingVar as MNT6PairingVar};
+#[allow(deprecated)]
 use ark_ec::CycleEngine;
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use ark_crypto_primitives::{
@@ -54,6 +56,7 @@ use full_history_avd::{
 
 #[derive(Clone, Copy, Debug)]
 pub struct MNT298Cycle;
+#[allow(deprecated)]
 impl CycleEngine for MNT298Cycle {
     type E1 = MNT4_298;
     type E2 = MNT6_298;
@@ -96,13 +99,11 @@ type RedisTestHTStore = HTRedisStore<MerkleTreeTestParameters, <H as FixedLength
 type RedisTestRecursionFHAVDStore = RecursionFullHistoryAVDRedisStore<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore>;
 type RedisTestRecursionFHAVD = RecursionFullHistoryAVD<RedisTestMerkleTreeAVD, RedisTestMerkleTreeAVDGadget, MerkleTreeTestParameters, HG, MNT298Cycle, MNT4PairingVar, MNT6PairingVar, RedisTestSMTStore, RedisTestHTStore, RedisTestAVDWHStore, RedisTestRecursionFHAVDStore>;
 
-lazy_static! {
-    static ref CURRENT: Vec<RedisTestRecursionFHAVD> = {
-        let mut rng = StdRng::seed_from_u64(0_u64);
-        let pp = RedisTestRecursionFHAVD::setup(&mut rng).unwrap();
-        vec![RedisTestRecursionFHAVD::new(&mut rng, &pp).unwrap()]
-    };
-}
+static EPOCHS: Lazy<Mutex<Vec<RedisTestRecursionFHAVD>>> = Lazy::new(|| {
+    let mut rng = StdRng::seed_from_u64(0u64);
+    let pp = RedisTestRecursionFHAVD::setup(&mut rng).unwrap();
+    Mutex::new(vec![RedisTestRecursionFHAVD::new(&mut rng, &pp)])
+});
 
 #[derive(Serialize, Deserialize)]
 struct Entry {
@@ -118,15 +119,16 @@ fn commit(entry: Json<Entry>) -> JsonValue {
 
 #[post("/", data = "<entry>")]
 fn prove(entry: Json<Entry>) -> JsonValue {
-    let sumthin = CURRENT[0].lookup(&entry.key);
+    let sumthin = EPOCHS.unwrap()[0].lookup(&entry.key);
     json!({ "status": "ok" })
 }
 
 #[post("/")]
 fn epoch() -> JsonValue {
-    let future = CURRENT[0].make_copy().unwrap();
+
+    let future = EPOCHS.unwrap()[0].make_copy().unwrap();
     // future.batch_update(... queue);
-    CURRENT.push(future);
+    EPOCHS.lock().unwrap().push(future);
     // TODO: current = future;
     json!({ "status": "ok" })
 }
