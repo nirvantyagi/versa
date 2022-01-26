@@ -581,6 +581,13 @@ dependencies = [
 [[package]]
 name = "bulletin_board"
 version = "0.1.0"
+dependencies = [
+ "csv",
+ "ethabi",
+ "ethereum_test_utils",
+ "primitive-types",
+ "rand 0.7.3",
+]
 
 [[package]]
 name = "byte-slice-cast"

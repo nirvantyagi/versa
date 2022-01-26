@@ -1,1 +1,0 @@
-{"language": "Solidity", "sources": { "input.sol": { "urls": ["simple_storage.sol"] } }, "settings": {"outputSelection": {"*": {"*": ["evm.bytecode.object", "abi"],"": [ "*" ] } }}}

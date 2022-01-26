@@ -26,11 +26,10 @@ impl fmt::Display for EvmTestError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
         address::Address,
         contract::Contract,
-        evm::{CallResult, CreateContractResult, Evm},
+        evm::{Evm},
     };
     use rand::{rngs::StdRng, SeedableRng};
     use ethabi::Token;
