@@ -114,7 +114,7 @@ static QUEUE: Lazy<Mutex<Vec<([u8; 32], [u8; 32])>>> = Lazy::new(|| {
     Mutex::new(vec![])
 });
 
-#[post("/", data = "<entry>")]
+#[post("/commit", data = "<entry>")]
 fn commit(entry: Json<Entry>) -> JsonValue {
     // all we do is write this entry into the list of kvs to be included
     QUEUE.lock().unwrap().push((entry.key, entry.value));
@@ -122,7 +122,7 @@ fn commit(entry: Json<Entry>) -> JsonValue {
     json!({ "status": "ok" })
 }
 
-#[post("/", data = "<entry>")]
+#[post("/prove", data = "<entry>")]
 fn prove(entry: Json<Entry>) -> JsonValue {
     // we lookup the key based on the current state
     let _lkup: (
@@ -134,13 +134,15 @@ fn prove(entry: Json<Entry>) -> JsonValue {
     json!({ "status": "ok" })
 }
 
-#[post("/")]
+#[post("/epoch")]
 fn epoch() -> JsonValue {
     // make copy of current state
     let mut future = EPOCHS.lock().unwrap()[0].make_copy().unwrap();
     // grab the list of kvs to be included in next state
-    let kvs = QUEUE.lock().unwrap().clone();
-    // Question: does it have to be the same rng instantiation? No?
+    let kvs = QUEUE.lock().unwrap().clone(); // this probably needs to happen off same lock
+    // clear the queue
+    QUEUE.lock().unwrap().clear(); // this probably needs to happen off same lock
+    // compute the new state
     future.batch_update(&mut StdRng::seed_from_u64(0u64), &kvs).unwrap();
     // push the new state into the global so reads will start occuring off of it
     EPOCHS.lock().unwrap().push(future);
@@ -154,7 +156,5 @@ fn main() {
     let fhavd = RedisTestRecursionFHAVD::new(&mut rng, &pp).unwrap();
     EPOCHS.lock().unwrap().push(fhavd);
     println!("Setup Complete");
-    rocket::ignite().mount("/commit", routes![commit]).launch();
-    rocket::ignite().mount("/prove", routes![prove]).launch();
-    rocket::ignite().mount("/epoch", routes![epoch]).launch();
+    rocket::ignite().mount("/", routes![commit, prove, epoch]).launch();
 }

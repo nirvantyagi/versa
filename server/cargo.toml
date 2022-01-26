@@ -32,6 +32,7 @@ rocket = "0.4.10"
 rocket_codegen = "0.4.10"
 serde = { version = "1.0.135", features = ["derive"] }
 rocket_contrib = "0.4.10"
+
 crypto_primitives = { path = "../crypto_primitives" }
 rsa = { path = "../rsa" }
 single_step_avd = { path = "../single_step_avd" }

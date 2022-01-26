@@ -6,5 +6,5 @@ members = [
   "full_history_avd",
   "rsa",
   "benches",
-  "server"
+  # "server",
 ]
