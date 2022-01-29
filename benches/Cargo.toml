@@ -33,6 +33,7 @@ csv = { version = "1.1.3" }
 rand = { version = "0.7" }
 digest = { version = "0.9" }
 blake3 = { version = "0.3" }
+sha3 = { version = "0.9" }
 rayon = { version = "1" }
 num_cpus = { version = "1.13.0" }
 
@@ -73,5 +74,10 @@ harness = false
 [[bench]]
 name = "verify_merkle_paths"
 path = "benches/verify_merkle_paths.rs"
+harness = false
+
+[[bench]]
+name = "update_merkle_tree"
+path = "benches/update_merkle_tree.rs"
 harness = false
 

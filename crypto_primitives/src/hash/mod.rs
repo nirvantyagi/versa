@@ -10,6 +10,7 @@ use crate::Error;
 pub mod constraints;
 pub mod pedersen;
 pub mod poseidon;
+pub mod hash_from_digest;
 
 // Wrapper around arkworks/crypto_primitives/crh to allow Poseidon without intermediate bytes
 // https://github.com/arkworks-rs/crypto-primitives/tree/main/src/crh
@@ -31,6 +32,7 @@ pub trait FixedLengthCRH {
 #[derive(Debug)]
 pub enum HashError {
     InputSizeError(usize),
+    GeneralError(String),
 }
 
 impl ErrorTrait for HashError {
@@ -43,6 +45,7 @@ impl fmt::Display for HashError {
     fn fmt(self: &Self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
             HashError::InputSizeError(inp) => format!("invalid input size: {}", inp),
+            HashError::GeneralError(inp) => format!("hash error: {}", inp),
         };
         write!(f, "{}", msg)
     }

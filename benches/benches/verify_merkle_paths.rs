@@ -1,22 +1,15 @@
-use ark_ed_on_bls12_381::{Fq as BLS381Fr, EdwardsProjective};
-use ark_crypto_primitives::{
-    crh::pedersen::{CRH, Window},
-};
+use ark_crypto_primitives::crh::pedersen::{Window, CRH};
+use ark_ed_on_bls12_381::{EdwardsProjective, Fq as BLS381Fr};
 use crypto_primitives::{
+    hash::{poseidon::PoseidonSponge, FixedLengthCRH, hash_from_digest::CRHFromDigest},
     sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters, MerkleTreePath},
-    hash::{FixedLengthCRH, poseidon::{PoseidonSponge}},
 };
 
-use rand::{rngs::StdRng, SeedableRng, Rng};
+use sha3::Sha3_256;
 use csv::Writer;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-    marker::PhantomData,
-};
-
+use std::{io::stdout, marker::PhantomData, string::String, time::Instant};
 
 #[derive(Clone)]
 pub struct Window4x256;
@@ -44,19 +37,34 @@ impl MerkleTreeParameters for PoseidonMerkleTreeTestParameters {
     type H = PoseidonSponge<BLS381Fr>;
 }
 
+#[derive(Clone)]
+pub struct Sha3MerkleTreeTestParameters;
 
-fn benchmark<P: MerkleTreeParameters>
-(
+impl MerkleTreeParameters for Sha3MerkleTreeTestParameters {
+    const DEPTH: MerkleDepth = 32;
+    type H = CRHFromDigest<Sha3_256>;
+}
+
+fn benchmark<P: MerkleTreeParameters>(
     scheme_name: String,
     range_lengths: &Vec<usize>,
     batch_sizes: &Vec<usize>,
 ) {
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
     pool.install(|| {
         let mut rng = StdRng::seed_from_u64(0_u64);
         let mut csv_writer = Writer::from_writer(stdout());
         csv_writer
-            .write_record(&["scheme", "operation", "log_range_size", "batch_size", "time"])
+            .write_record(&[
+                "scheme",
+                "operation",
+                "log_range_size",
+                "batch_size",
+                "time",
+            ])
             .unwrap();
         csv_writer.flush().unwrap();
         let start = Instant::now();
@@ -70,7 +78,8 @@ fn benchmark<P: MerkleTreeParameters>
             for j in 0..(P::DEPTH as usize) {
                 let mut b = i.to_le_bytes().to_vec();
                 b.extend_from_slice(&j.to_le_bytes());
-                hashs.push(<P::H as FixedLengthCRH>::evaluate_variable_length(&params, &b).unwrap());
+                hashs
+                    .push(<P::H as FixedLengthCRH>::evaluate_variable_length(&params, &b).unwrap());
             }
             merkle_paths.push(MerkleTreePath::<P> {
                 path: hashs,
@@ -79,32 +88,37 @@ fn benchmark<P: MerkleTreeParameters>
             indices.push(rng.gen::<u32>() as u64);
         }
         let end = start.elapsed().as_secs();
-        csv_writer.write_record(&[
-            scheme_name.clone(),
-            "setup".to_string(),
-            max_range.to_string(),
-            max_batch_size.to_string(),
-            end.to_string(),
-        ]).unwrap();
+        csv_writer
+            .write_record(&[
+                scheme_name.clone(),
+                "setup".to_string(),
+                max_range.to_string(),
+                max_batch_size.to_string(),
+                end.to_string(),
+            ])
+            .unwrap();
         csv_writer.flush().unwrap();
 
-
-        { // Verify
+        {
+            // Verify
             for log_len in range_lengths.iter() {
                 let len = 1_usize << *log_len;
                 for batch_size in batch_sizes.iter() {
                     let start = Instant::now();
                     for (path, index) in merkle_paths.iter().zip(&indices).take(batch_size * len) {
-                        path.verify(&Default::default(), &[0], *index, &params).unwrap();
+                        path.verify(&Default::default(), &[0], *index, &params)
+                            .unwrap();
                     }
                     let end = start.elapsed().as_millis();
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "verify".to_string(),
-                        log_len.to_string(),
-                        batch_size.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
+                    csv_writer
+                        .write_record(&[
+                            scheme_name.clone(),
+                            "verify".to_string(),
+                            log_len.to_string(),
+                            batch_size.to_string(),
+                            end.to_string(),
+                        ])
+                        .unwrap();
                     csv_writer.flush().unwrap();
                 }
             }
@@ -117,7 +131,8 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut range_lengths, mut batch_sizes): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut range_lengths, mut batch_sizes): (Vec<usize>, Vec<usize>) = if args.len() > 1
+        && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench verify_merkle_paths --  [--ranges <RANGE_LEN>...][--batch_size <BATCH_SIZE>...]``");
         return;
@@ -137,7 +152,7 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 "--batch_size" => {
                     next_arg = args.next();
                     'batch_size: while let Some(batch_arg) = next_arg.clone() {
@@ -147,10 +162,10 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 _ => {
                     println!("Invalid argument: {}", arg);
-                    return
+                    return;
                 }
             }
         }
@@ -163,14 +178,11 @@ fn main() {
         batch_sizes.push(10);
     }
 
-    benchmark::<MerkleTreeTestParameters>(
-        "pedersen".to_string(),
-        &range_lengths,
-        &batch_sizes,
-    );
+    benchmark::<MerkleTreeTestParameters>("pedersen".to_string(), &range_lengths, &batch_sizes);
     benchmark::<PoseidonMerkleTreeTestParameters>(
         "poseidon".to_string(),
         &range_lengths,
         &batch_sizes,
     );
+    benchmark::<Sha3MerkleTreeTestParameters>("sha3".to_string(), &range_lengths, &batch_sizes);
 }
