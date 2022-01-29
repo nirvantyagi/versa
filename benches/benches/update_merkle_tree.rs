@@ -1,6 +1,6 @@
 use crypto_primitives::{
-    sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters},
     hash::hash_from_digest::CRHFromDigest,
+    sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters},
 };
 
 use single_step_avd::{
@@ -8,9 +8,9 @@ use single_step_avd::{
     SingleStepAVD,
 };
 
-use sha3::Sha3_256;
 use csv::Writer;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use sha3::Sha3_256;
 
 use std::{io::stdout, string::String, time::Instant};
 
@@ -99,7 +99,9 @@ fn main() {
     }
     let mut batch_sizes: Vec<usize> = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
     {
-        println!("Usage: ``cargo bench --bench update_merkle_tree --  [--batch_size <BATCH_SIZE>...]``");
+        println!(
+            "Usage: ``cargo bench --bench update_merkle_tree --  [--batch_size <BATCH_SIZE>...]``"
+        );
         return;
     } else {
         let mut args = args.into_iter().skip(1);

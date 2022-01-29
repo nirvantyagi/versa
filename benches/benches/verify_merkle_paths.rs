@@ -1,13 +1,13 @@
 use ark_crypto_primitives::crh::pedersen::{Window, CRH};
 use ark_ed_on_bls12_381::{EdwardsProjective, Fq as BLS381Fr};
 use crypto_primitives::{
-    hash::{poseidon::PoseidonSponge, FixedLengthCRH, hash_from_digest::CRHFromDigest},
+    hash::{hash_from_digest::CRHFromDigest, poseidon::PoseidonSponge, FixedLengthCRH},
     sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters, MerkleTreePath},
 };
 
-use sha3::Sha3_256;
 use csv::Writer;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use sha3::Sha3_256;
 
 use std::{io::stdout, marker::PhantomData, string::String, time::Instant};
 

@@ -1,60 +1,47 @@
 #![allow(deprecated)]
 
 #[cfg(feature = "local")]
-use ark_ed_on_mnt4_298::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+use ark_ed_on_mnt4_298::{constraints::EdwardsVar, EdwardsProjective, Fq as MNT4Fr};
 #[cfg(feature = "local")]
-use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
+use ark_mnt4_298::{constraints::PairingVar as MNT4PairingVar, MNT4_298};
 #[cfg(feature = "local")]
-use ark_mnt6_298::{MNT6_298, constraints::PairingVar as MNT6PairingVar};
+use ark_mnt6_298::{constraints::PairingVar as MNT6PairingVar, MNT6_298};
 
 #[cfg(not(feature = "local"))]
-use ark_ed_on_mnt4_753::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+use ark_ed_on_mnt4_753::{constraints::EdwardsVar, EdwardsProjective, Fq as MNT4Fr};
 #[cfg(not(feature = "local"))]
-use ark_mnt4_753::{MNT4_753, constraints::PairingVar as MNT4PairingVar};
+use ark_mnt4_753::{constraints::PairingVar as MNT4PairingVar, MNT4_753};
 #[cfg(not(feature = "local"))]
-use ark_mnt6_753::{MNT6_753, constraints::PairingVar as MNT6PairingVar};
+use ark_mnt6_753::{constraints::PairingVar as MNT6PairingVar, MNT6_753};
 
-use ark_ed_on_bls12_381::{Fq as BLS381Fr};
 use ark_bls12_381::Bls12_381;
-use ark_crypto_primitives::{
-    crh::pedersen::{constraints::CRHGadget, CRH, Window},
-};
-use ark_ec::{CycleEngine};
+use ark_crypto_primitives::crh::pedersen::{constraints::CRHGadget, Window, CRH};
+use ark_ec::CycleEngine;
+use ark_ed_on_bls12_381::Fq as BLS381Fr;
 
-use single_step_avd::{
-    rsa_avd::{
-        RsaAVD, constraints::RsaAVDGadget,
-    }
-};
 use crypto_primitives::{
+    hash::poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
     sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters},
-    hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+};
+use full_history_avd::{
+    aggregation::{AggregatedFullHistoryAVD, AggregatedFullHistoryAVDParameters},
+    recursion::RecursionFullHistoryAVD,
+    rsa_algebraic::RsaFullHistoryAVD,
+    FullHistoryAVD,
 };
 use rsa::{
     bignat::constraints::BigNatCircuitParams,
+    hash::{constraints::PoseidonHasherGadget, HasherFromDigest, PoseidonHasher},
+    hog::RsaGroupParams,
     kvac::RsaKVACParams,
-    poker::{PoKERParams},
-    hog::{RsaGroupParams},
-    hash::{
-        HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
-    },
+    poker::PoKERParams,
 };
-use full_history_avd::{
-    FullHistoryAVD,
-    recursion::RecursionFullHistoryAVD,
-    aggregation::{AggregatedFullHistoryAVD, AggregatedFullHistoryAVDParameters},
-    rsa_algebraic::RsaFullHistoryAVD,
-};
+use single_step_avd::rsa_avd::{constraints::RsaAVDGadget, RsaAVD};
 
-use rand::{rngs::StdRng, SeedableRng};
 use csv::Writer;
+use rand::{rngs::StdRng, SeedableRng};
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-};
-
+use std::{io::stdout, string::String, time::Instant};
 
 #[derive(Clone, Copy, Debug)]
 pub struct MNTCycle;
@@ -135,7 +122,6 @@ impl RsaGroupParams for TestRsaParams {
                           120720357";
 }
 
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BigNatTestParams;
 
@@ -150,7 +136,6 @@ impl BigNatCircuitParams for BigNatTestParams {
     const LIMB_WIDTH: usize = 32;
     const N_LIMBS: usize = 64;
 }
-
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestPokerParams;
@@ -198,7 +183,6 @@ impl AggregatedFullHistoryAVDParameters for AggregatedFHAVDTestParameters {
 impl AggregatedFullHistoryAVDParameters for AggregatedFHAVDTestParameters {
     const MAX_EPOCH_LOG_2: u8 = 16;
 }
-
 
 pub type TestRsaAVD<F> = RsaAVD<
     TestKVACParams,
@@ -264,25 +248,32 @@ fn benchmark<AVD: FullHistoryAVD>(
     csv_writer.flush().unwrap();
 
     let mut pp = Option::None;
-    { // Setup
-        let setup_pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get_physical()).build().unwrap();
+    {
+        // Setup
+        let setup_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get_physical())
+            .build()
+            .unwrap();
         setup_pool.install(|| {
             let start = Instant::now();
             pp = Some(AVD::setup(&mut rng).unwrap());
             let end = start.elapsed().as_secs();
 
-            csv_writer.write_record(&[
-                scheme_name.clone(),
-                "setup".to_string(),
-                "0".to_string(),
-                setup_pool.current_num_threads().to_string(),
-                end.to_string(),
-            ]).unwrap();
+            csv_writer
+                .write_record(&[
+                    scheme_name.clone(),
+                    "setup".to_string(),
+                    "0".to_string(),
+                    setup_pool.current_num_threads().to_string(),
+                    end.to_string(),
+                ])
+                .unwrap();
             csv_writer.flush().unwrap();
         });
     }
 
-    { // Update
+    {
+        // Update
         for batch_size in batch_sizes.iter() {
             let mut epoch_update = vec![];
             for i in 0..*batch_size {
@@ -296,36 +287,41 @@ fn benchmark<AVD: FullHistoryAVD>(
                 if *num_cores > num_cpus::get_physical() {
                     continue;
                 }
-                let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+                let update_pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(*num_cores as usize)
+                    .build()
+                    .unwrap();
                 update_pool.install(|| {
                     let mut avd = AVD::new(&mut rng, pp.as_ref().unwrap()).unwrap();
                     let start = Instant::now();
                     let d = avd.batch_update(&mut rng, &epoch_update).unwrap();
                     let end = start.elapsed().as_secs();
 
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "update".to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
+                    csv_writer
+                        .write_record(&[
+                            scheme_name.clone(),
+                            "update".to_string(),
+                            batch_size.to_string(),
+                            num_cores.to_string(),
+                            end.to_string(),
+                        ])
+                        .unwrap();
                     csv_writer.flush().unwrap();
 
                     let (_, proof) = avd.audit(0, 1).unwrap();
                     let start = Instant::now();
-                    let b = AVD::verify_audit(
-                        pp.as_ref().unwrap(), 0, 1, &d, &proof,
-                    ).unwrap();
+                    let b = AVD::verify_audit(pp.as_ref().unwrap(), 0, 1, &d, &proof).unwrap();
                     let end = start.elapsed().as_millis();
                     assert!(b);
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "verify".to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
+                    csv_writer
+                        .write_record(&[
+                            scheme_name.clone(),
+                            "verify".to_string(),
+                            batch_size.to_string(),
+                            num_cores.to_string(),
+                            end.to_string(),
+                        ])
+                        .unwrap();
                     csv_writer.flush().unwrap();
                 });
             }
@@ -338,7 +334,8 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1
+        && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench update_epoch_0_rsa --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
@@ -347,7 +344,7 @@ fn main() {
         let mut next_arg = args.next();
         let mut batch_sizes = vec![];
         let mut num_cores = vec![];
-            while let Some(arg) = next_arg.clone() {
+        while let Some(arg) = next_arg.clone() {
             match arg.as_str() {
                 "--batch_size" => {
                     next_arg = args.next();
@@ -358,7 +355,7 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 "--num_cores" => {
                     next_arg = args.next();
                     'num_cores: while let Some(cores_arg) = next_arg.clone() {
@@ -368,13 +365,12 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 _ => {
                     println!("Invalid argument: {}", arg);
-                    return
+                    return;
                 }
             }
-
         }
         (batch_sizes, num_cores)
     };
@@ -399,14 +395,6 @@ fn main() {
         &batch_sizes,
         &num_cores,
     );
-    benchmark::<TestRsaAggregatedFHAVD>(
-        "ca_rsa_aggr".to_string(),
-        &batch_sizes,
-        &num_cores,
-    );
-    benchmark::<TestRsaFHAVD>(
-        "ca_rsa_alg".to_string(),
-        &batch_sizes,
-        &num_cores,
-    );
+    benchmark::<TestRsaAggregatedFHAVD>("ca_rsa_aggr".to_string(), &batch_sizes, &num_cores);
+    benchmark::<TestRsaFHAVD>("ca_rsa_alg".to_string(), &batch_sizes, &num_cores);
 }

@@ -1,55 +1,45 @@
 #![allow(deprecated)]
-use ark_ff::{PrimeField};
+use ark_ff::PrimeField;
 
 #[cfg(feature = "local")]
-use ark_ed_on_mnt4_298::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+use ark_ed_on_mnt4_298::{constraints::EdwardsVar, EdwardsProjective, Fq as MNT4Fr};
 #[cfg(feature = "local")]
-use ark_mnt4_298::{MNT4_298, constraints::PairingVar as MNT4PairingVar};
+use ark_mnt4_298::{constraints::PairingVar as MNT4PairingVar, MNT4_298};
 #[cfg(feature = "local")]
-use ark_mnt6_298::{MNT6_298, constraints::PairingVar as MNT6PairingVar};
+use ark_mnt6_298::{constraints::PairingVar as MNT6PairingVar, MNT6_298};
 
 #[cfg(not(feature = "local"))]
-use ark_ed_on_mnt4_753::{EdwardsProjective, Fq as MNT4Fr, constraints::EdwardsVar};
+use ark_ed_on_mnt4_753::{constraints::EdwardsVar, EdwardsProjective, Fq as MNT4Fr};
 #[cfg(not(feature = "local"))]
-use ark_mnt4_753::{MNT4_753, constraints::PairingVar as MNT4PairingVar};
+use ark_mnt4_753::{constraints::PairingVar as MNT4PairingVar, MNT4_753};
 #[cfg(not(feature = "local"))]
-use ark_mnt6_753::{MNT6_753, constraints::PairingVar as MNT6PairingVar};
+use ark_mnt6_753::{constraints::PairingVar as MNT6PairingVar, MNT6_753};
 
-use ark_ed_on_bls12_381::{Fq as BLS381Fr, EdwardsProjective as JubJub, constraints::EdwardsVar as JubJubVar};
 use ark_bls12_381::Bls12_381;
-use ark_crypto_primitives::{
-    crh::pedersen::{constraints::CRHGadget, CRH, Window},
+use ark_crypto_primitives::crh::pedersen::{constraints::CRHGadget, Window, CRH};
+use ark_ec::CycleEngine;
+use ark_ed_on_bls12_381::{
+    constraints::EdwardsVar as JubJubVar, EdwardsProjective as JubJub, Fq as BLS381Fr,
 };
-use ark_ec::{CycleEngine};
 
-use single_step_avd::{
-    merkle_tree_avd::{
-        MerkleTreeAVDParameters,
-        MerkleTreeAVD,
-        constraints::MerkleTreeAVDGadget,
-    },
-};
 use crypto_primitives::{
+    hash::poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
     sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters},
-    hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+};
+use single_step_avd::merkle_tree_avd::{
+    constraints::MerkleTreeAVDGadget, MerkleTreeAVD, MerkleTreeAVDParameters,
 };
 
 use full_history_avd::{
-    FullHistoryAVD,
-    recursion::RecursionFullHistoryAVD,
     aggregation::{AggregatedFullHistoryAVD, AggregatedFullHistoryAVDParameters},
+    recursion::RecursionFullHistoryAVD,
+    FullHistoryAVD,
 };
 
-use rand::{rngs::StdRng, SeedableRng};
 use csv::Writer;
+use rand::{rngs::StdRng, SeedableRng};
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-    marker::PhantomData,
-};
-
+use std::{io::stdout, marker::PhantomData, string::String, time::Instant};
 
 #[derive(Clone, Copy, Debug)]
 pub struct MNTCycle;
@@ -122,7 +112,6 @@ impl AggregatedFullHistoryAVDParameters for AggregatedFHAVDTestParameters {
     const MAX_EPOCH_LOG_2: u8 = 16;
 }
 
-
 macro_rules! mt_pedersen_recurse_avd_impl {
     ($avd_params:ident, $avd:ident, $avd_gadget:ident, $fhavd:ident, $batch_size:expr) => {
         #[derive(Clone)]
@@ -173,10 +162,9 @@ macro_rules! mt_pedersen_aggr_avd_impl {
     };
 }
 
-
 // Parameters for Merkle Tree AVD with Poseidon hash
 #[derive(Clone)]
-pub struct PoseidonMerkleTreeTestParameters<F: PrimeField>{
+pub struct PoseidonMerkleTreeTestParameters<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
@@ -195,7 +183,7 @@ impl<F: PrimeField> MerkleTreeParameters for PoseidonMerkleTreeTestParameters<F>
 macro_rules! mt_poseidon_avd_impl {
     ($avd_params:ident, $avd:ident, $avd_gadget:ident, $rfhavd:ident, $afhavd:ident, $batch_size:expr) => {
         #[derive(Clone)]
-        pub struct $avd_params<F: PrimeField>{
+        pub struct $avd_params<F: PrimeField> {
             _f: PhantomData<F>,
         }
 
@@ -231,43 +219,103 @@ macro_rules! mt_poseidon_avd_impl {
 // Type declarations and implementations for different batch sizes
 mt_pedersen_recurse_avd_impl!(RPed1P, RPed1AVD, RPed1AVDG, PedersenRecurseBatch1, 1);
 mt_pedersen_aggr_avd_impl!(APed1P, APed1AVD, APed1AVDG, PedersenAggrBatch1, 1);
-mt_poseidon_avd_impl!(Pos1P, Pos1AVD, Pos1AVDG, PoseidonRecurseBatch1, PoseidonAggrBatch1, 1);
+mt_poseidon_avd_impl!(
+    Pos1P,
+    Pos1AVD,
+    Pos1AVDG,
+    PoseidonRecurseBatch1,
+    PoseidonAggrBatch1,
+    1
+);
 
 mt_pedersen_recurse_avd_impl!(RPed50P, RPed50AVD, RPed50AVDG, PedersenRecurseBatch50, 50);
 mt_pedersen_aggr_avd_impl!(APed50P, APed50AVD, APed50AVDG, PedersenAggrBatch50, 50);
 //mt_poseidon_avd_impl!(Pos50P, Pos50AVD, Pos50AVDG, PoseidonRecurseBatch50, PoseidonAggrBatch50, 50);
 
-mt_pedersen_recurse_avd_impl!(RPed100P, RPed100AVD, RPed100AVDG, PedersenRecurseBatch100, 100);
+mt_pedersen_recurse_avd_impl!(
+    RPed100P,
+    RPed100AVD,
+    RPed100AVDG,
+    PedersenRecurseBatch100,
+    100
+);
 mt_pedersen_aggr_avd_impl!(APed100P, APed100AVD, APed100AVDG, PedersenAggrBatch100, 100);
 //mt_poseidon_avd_impl!(Pos100P, Pos100AVD, Pos100AVDG, PoseidonRecurseBatch100, PoseidonAggrBatch100, 100);
 
-mt_pedersen_recurse_avd_impl!(RPed150P, RPed150AVD, RPed150AVDG, PedersenRecurseBatch150, 150);
+mt_pedersen_recurse_avd_impl!(
+    RPed150P,
+    RPed150AVD,
+    RPed150AVDG,
+    PedersenRecurseBatch150,
+    150
+);
 mt_pedersen_aggr_avd_impl!(APed150P, APed150AVD, APed150AVDG, PedersenAggrBatch150, 150);
 //mt_poseidon_avd_impl!(Pos150P, Pos150AVD, Pos150AVDG, PoseidonRecurseBatch150, PoseidonAggrBatch150, 150);
 
-mt_pedersen_recurse_avd_impl!(RPed200P, RPed200AVD, RPed200AVDG, PedersenRecurseBatch200, 200);
+mt_pedersen_recurse_avd_impl!(
+    RPed200P,
+    RPed200AVD,
+    RPed200AVDG,
+    PedersenRecurseBatch200,
+    200
+);
 mt_pedersen_aggr_avd_impl!(APed200P, APed200AVD, APed200AVDG, PedersenAggrBatch200, 200);
 //mt_poseidon_avd_impl!(Pos200P, Pos200AVD, Pos200AVDG, PoseidonRecurseBatch200, PoseidonAggrBatch200, 200);
 
 //mt_pedersen_recurse_avd_impl!(RPed500P, RPed500AVD, RPed500AVDG, PedersenRecurseBatch500, 500);
 //mt_pedersen_aggr_avd_impl!(APed500P, APed500AVD, APed500AVDG, PedersenAggrBatch500, 500);
-mt_poseidon_avd_impl!(Pos500P, Pos500AVD, Pos500AVDG, PoseidonRecurseBatch500, PoseidonAggrBatch500, 500);
+mt_poseidon_avd_impl!(
+    Pos500P,
+    Pos500AVD,
+    Pos500AVDG,
+    PoseidonRecurseBatch500,
+    PoseidonAggrBatch500,
+    500
+);
 
 //mt_pedersen_recurse_avd_impl!(RPed1000P, RPed1000AVD, RPed1000AVDG, PedersenRecurseBatch1000, 1000);
 //mt_pedersen_aggr_avd_impl!(APed1000P, APed1000AVD, APed1000AVDG, PedersenAggrBatch1000, 1000);
-mt_poseidon_avd_impl!(Pos1000P, Pos1000AVD, Pos1000AVDG, PoseidonRecurseBatch1000, PoseidonAggrBatch1000, 1000);
+mt_poseidon_avd_impl!(
+    Pos1000P,
+    Pos1000AVD,
+    Pos1000AVDG,
+    PoseidonRecurseBatch1000,
+    PoseidonAggrBatch1000,
+    1000
+);
 
 //mt_pedersen_recurse_avd_impl!(RPed1500P, RPed1500AVD, RPed1500AVDG, PedersenRecurseBatch1500, 1500);
 //mt_pedersen_aggr_avd_impl!(APed1500P, APed1500AVD, APed1500AVDG, PedersenAggrBatch1500, 1500);
-mt_poseidon_avd_impl!(Pos1500P, Pos1500AVD, Pos1500AVDG, PoseidonRecurseBatch1500, PoseidonAggrBatch1500, 1500);
+mt_poseidon_avd_impl!(
+    Pos1500P,
+    Pos1500AVD,
+    Pos1500AVDG,
+    PoseidonRecurseBatch1500,
+    PoseidonAggrBatch1500,
+    1500
+);
 
 //mt_pedersen_recurse_avd_impl!(RPed2000P, RPed2000AVD, RPed2000AVDG, PedersenRecurseBatch2000, 2000);
 //mt_pedersen_aggr_avd_impl!(APed2000P, APed2000AVD, APed2000AVDG, PedersenAggrBatch2000, 2000);
-mt_poseidon_avd_impl!(Pos2000P, Pos2000AVD, Pos2000AVDG, PoseidonRecurseBatch2000, PoseidonAggrBatch2000, 2000);
+mt_poseidon_avd_impl!(
+    Pos2000P,
+    Pos2000AVD,
+    Pos2000AVDG,
+    PoseidonRecurseBatch2000,
+    PoseidonAggrBatch2000,
+    2000
+);
 
 //mt_pedersen_recurse_avd_impl!(RPed3000P, RPed3000AVD, RPed3000AVDG, PedersenRecurseBatch3000, 3000);
 //mt_pedersen_aggr_avd_impl!(APed3000P, APed3000AVD, APed3000AVDG, PedersenAggrBatch3000, 3000);
-mt_poseidon_avd_impl!(Pos3000P, Pos3000AVD, Pos3000AVDG, PoseidonRecurseBatch3000, PoseidonAggrBatch3000, 3000);
+mt_poseidon_avd_impl!(
+    Pos3000P,
+    Pos3000AVD,
+    Pos3000AVDG,
+    PoseidonRecurseBatch3000,
+    PoseidonAggrBatch3000,
+    3000
+);
 
 //mt_pedersen_recurse_avd_impl!(RPed4000P, RPed4000AVD, RPed4000AVDG, PedersenRecurseBatch4000, 4000);
 //mt_pedersen_aggr_avd_impl!(APed4000P, APed4000AVD, APed4000AVDG, PedersenAggrBatch4000, 4000);
@@ -289,25 +337,32 @@ fn benchmark<AVD: FullHistoryAVD, P: MerkleTreeAVDParameters>(
     csv_writer.flush().unwrap();
 
     let mut pp = Option::None;
-    { // Setup
-        let setup_pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get_physical()).build().unwrap();
+    {
+        // Setup
+        let setup_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get_physical())
+            .build()
+            .unwrap();
         setup_pool.install(|| {
             let start = Instant::now();
             pp = Some(AVD::setup(&mut rng).unwrap());
             let end = start.elapsed().as_secs();
 
-            csv_writer.write_record(&[
-                scheme_name.clone(),
-                "setup".to_string(),
-                "0".to_string(),
-                setup_pool.current_num_threads().to_string(),
-                end.to_string(),
-            ]).unwrap();
+            csv_writer
+                .write_record(&[
+                    scheme_name.clone(),
+                    "setup".to_string(),
+                    "0".to_string(),
+                    setup_pool.current_num_threads().to_string(),
+                    end.to_string(),
+                ])
+                .unwrap();
             csv_writer.flush().unwrap();
         });
     }
 
-    { // Update
+    {
+        // Update
         let mut epoch_update = vec![];
         for i in 0..P::MAX_UPDATE_BATCH_SIZE {
             let mut arr = [0_u8; 32];
@@ -320,36 +375,41 @@ fn benchmark<AVD: FullHistoryAVD, P: MerkleTreeAVDParameters>(
             if *num_cores > num_cpus::get_physical() {
                 continue;
             }
-            let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+            let update_pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(*num_cores as usize)
+                .build()
+                .unwrap();
             update_pool.install(|| {
                 let mut avd = AVD::new(&mut rng, &pp.clone().unwrap()).unwrap();
                 let start = Instant::now();
                 let d = avd.batch_update(&mut rng, &epoch_update).unwrap();
                 let end = start.elapsed().as_secs();
 
-                csv_writer.write_record(&[
-                    scheme_name.clone(),
-                    "update".to_string(),
-                    P::MAX_UPDATE_BATCH_SIZE.to_string(),
-                    num_cores.to_string(),
-                    end.to_string(),
-                ]).unwrap();
+                csv_writer
+                    .write_record(&[
+                        scheme_name.clone(),
+                        "update".to_string(),
+                        P::MAX_UPDATE_BATCH_SIZE.to_string(),
+                        num_cores.to_string(),
+                        end.to_string(),
+                    ])
+                    .unwrap();
                 csv_writer.flush().unwrap();
 
                 let (_, proof) = avd.audit(0, 1).unwrap();
                 let start = Instant::now();
-                let b = AVD::verify_audit(
-                    pp.as_ref().unwrap(), 0, 1, &d, &proof,
-                ).unwrap();
+                let b = AVD::verify_audit(pp.as_ref().unwrap(), 0, 1, &d, &proof).unwrap();
                 let end = start.elapsed().as_millis();
                 assert!(b);
-                csv_writer.write_record(&[
-                    scheme_name.clone(),
-                    "verify".to_string(),
-                    P::MAX_UPDATE_BATCH_SIZE.to_string(),
-                    num_cores.to_string(),
-                    end.to_string(),
-                ]).unwrap();
+                csv_writer
+                    .write_record(&[
+                        scheme_name.clone(),
+                        "verify".to_string(),
+                        P::MAX_UPDATE_BATCH_SIZE.to_string(),
+                        num_cores.to_string(),
+                        end.to_string(),
+                    ])
+                    .unwrap();
                 csv_writer.flush().unwrap();
             });
         }
@@ -361,7 +421,8 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1
+        && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench update_epoch_0_mt --  [--batch_size <batch_size1>...][--num_cores <num_cores1>...]``");
         return;
@@ -381,7 +442,7 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 "--num_cores" => {
                     next_arg = args.next();
                     'num_cores: while let Some(cores_arg) = next_arg.clone() {
@@ -391,13 +452,12 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 _ => {
                     println!("Invalid argument: {}", arg);
-                    return
+                    return;
                 }
             }
-
         }
         (batch_sizes, num_cores)
     };
@@ -431,7 +491,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             50 => {
                 benchmark::<PedersenRecurseBatch50, RPed50P>(
                     "ca_mt_pedersen_recurse".to_string(),
@@ -449,7 +509,7 @@ fn main() {
                 //    "ca_mt_poseidon_aggr".to_string(),
                 //    &num_cores,
                 //);
-            },
+            }
             100 => {
                 benchmark::<PedersenRecurseBatch100, RPed100P>(
                     "ca_mt_pedersen_recurse".to_string(),
@@ -467,7 +527,7 @@ fn main() {
                 //    "ca_mt_poseidon_aggr".to_string(),
                 //    &num_cores,
                 //);
-            },
+            }
             150 => {
                 benchmark::<PedersenRecurseBatch150, RPed150P>(
                     "ca_mt_pedersen_recurse".to_string(),
@@ -485,7 +545,7 @@ fn main() {
                 //    "ca_mt_poseidon_aggr".to_string(),
                 //    &num_cores,
                 //);
-            },
+            }
             200 => {
                 benchmark::<PedersenRecurseBatch200, RPed200P>(
                     "ca_mt_pedersen_recurse".to_string(),
@@ -503,7 +563,7 @@ fn main() {
                 //    "ca_mt_poseidon_aggr".to_string(),
                 //    &num_cores,
                 //);
-            },
+            }
             500 => {
                 //benchmark::<PedersenRecurseBatch500, RPed500P>(
                 //    "ca_mt_pedersen_recurse".to_string(),
@@ -521,7 +581,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             1000 => {
                 //benchmark::<PedersenRecurseBatch1000, RPed1000P>(
                 //    "ca_mt_pedersen_recurse".to_string(),
@@ -539,7 +599,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             1500 => {
                 //benchmark::<PedersenRecurseBatch1500, RPed1500P>(
                 //    "ca_mt_pedersen_recurse".to_string(),
@@ -557,7 +617,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             2000 => {
                 //benchmark::<PedersenRecurseBatch2000, RPed2000P>(
                 //    "ca_mt_pedersen_recurse".to_string(),
@@ -575,7 +635,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             3000 => {
                 //benchmark::<PedersenRecurseBatch3000, RPed3000P>(
                 //    "ca_mt_pedersen_recurse".to_string(),
@@ -593,7 +653,7 @@ fn main() {
                     "ca_mt_poseidon_aggr".to_string(),
                     &num_cores,
                 );
-            },
+            }
             //4000 => {
             //    benchmark::<PedersenRecurseBatch4000, RPed4000P>(
             //        "ca_mt_pedersen_recurse".to_string(),
@@ -634,4 +694,3 @@ fn main() {
         }
     }
 }
-

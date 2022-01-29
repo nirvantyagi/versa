@@ -1,24 +1,16 @@
-use ark_ed_on_bls12_381::{Fq as BLS381Fr};
+use ark_ed_on_bls12_381::Fq as BLS381Fr;
 
 use rsa::{
     bignat::constraints::BigNatCircuitParams,
-    kvac::{RsaKVACParams, RsaKVAC},
-    poker::{
-        PoKERParams,
-    },
+    hash::{hash_to_integer::hash_to_integer, HasherFromDigest},
     hog::{RsaGroupParams, RsaHiddenOrderGroup},
-    hash::{
-        HasherFromDigest, hash_to_integer::hash_to_integer,
-    },
+    kvac::{RsaKVAC, RsaKVACParams},
+    poker::PoKERParams,
 };
 
 use csv::Writer;
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-};
+use std::{io::stdout, string::String, time::Instant};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestRsaParams;
@@ -43,7 +35,6 @@ impl RsaGroupParams for TestRsaParams {
                           120720357";
 }
 
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BigNatTestParams;
 
@@ -58,7 +49,6 @@ impl BigNatCircuitParams for BigNatTestParams {
     const LIMB_WIDTH: usize = 32;
     const N_LIMBS: usize = 64;
 }
-
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestPokerParams;
@@ -99,12 +89,10 @@ pub type PoKParams<P> = <P as RsaKVACParams>::PoKERParams;
 pub type Hog<P> = RsaHiddenOrderGroup<RsaParams<P>>;
 pub type H = HasherFromDigest<BLS381Fr, blake3::Hasher>;
 
-fn benchmark<P: RsaKVACParams>
-(
-    scheme_name: String,
-    range_lengths: &Vec<usize>,
-    cores: &Vec<usize>,
-) where <P as RsaKVACParams>::RsaGroupParams: Sync {
+fn benchmark<P: RsaKVACParams>(scheme_name: String, range_lengths: &Vec<usize>, cores: &Vec<usize>)
+where
+    <P as RsaKVACParams>::RsaGroupParams: Sync,
+{
     let mut csv_writer = Writer::from_writer(stdout());
     csv_writer
         .write_record(&["scheme", "operation", "log_range_size", "num_cores", "time"])
@@ -117,19 +105,22 @@ fn benchmark<P: RsaKVACParams>
     let start = Instant::now();
     let mut kvs = vec![];
     for i in 0..len {
-        kvs.push((hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::KEY_LEN),
-                  hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::VALUE_LEN),
-                  1,
+        kvs.push((
+            hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::KEY_LEN),
+            hash_to_integer::<H>(&[BLS381Fr::from(i as u32)], P::VALUE_LEN),
+            1,
         ))
     }
     let end = start.elapsed().as_secs();
-    csv_writer.write_record(&[
-        scheme_name.clone(),
-        "setup".to_string(),
-        max_range.to_string(),
-        "0".to_string(),
-        end.to_string(),
-    ]).unwrap();
+    csv_writer
+        .write_record(&[
+            scheme_name.clone(),
+            "setup".to_string(),
+            max_range.to_string(),
+            "0".to_string(),
+            end.to_string(),
+        ])
+        .unwrap();
     csv_writer.flush().unwrap();
 
     for log_len in range_lengths.iter() {
@@ -138,18 +129,27 @@ fn benchmark<P: RsaKVACParams>
             if *num_cores > num_cpus::get_physical() {
                 continue;
             }
-            let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+            let update_pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(*num_cores as usize)
+                .build()
+                .unwrap();
             update_pool.install(|| {
                 let start = Instant::now();
-                let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(kvs.iter().cloned().take(len), None).unwrap();
+                let _ = RsaKVAC::<P, H, H, BigNatTestParams>::_batch_update_membership_witnesses(
+                    kvs.iter().cloned().take(len),
+                    None,
+                )
+                .unwrap();
                 let end = start.elapsed().as_millis();
-                csv_writer.write_record(&[
-                    scheme_name.clone(),
-                    "witness_compute".to_string(),
-                    log_len.to_string(),
-                    num_cores.to_string(),
-                    end.to_string(),
-                ]).unwrap();
+                csv_writer
+                    .write_record(&[
+                        scheme_name.clone(),
+                        "witness_compute".to_string(),
+                        log_len.to_string(),
+                        num_cores.to_string(),
+                        end.to_string(),
+                    ])
+                    .unwrap();
                 csv_writer.flush().unwrap();
             });
         }
@@ -161,7 +161,8 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut range_lengths, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut range_lengths, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1
+        && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench compute_witnesses_rsa --  [--ranges <RANGE_LEN>...][--num_cores <NUM_CORES>...]``");
         return;
@@ -181,7 +182,7 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 "--num_cores" => {
                     next_arg = args.next();
                     'num_cores: while let Some(cores_arg) = next_arg.clone() {
@@ -191,10 +192,10 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 _ => {
                     println!("Invalid argument: {}", arg);
-                    return
+                    return;
                 }
             }
         }
@@ -207,9 +208,5 @@ fn main() {
         num_cores.push(num_cpus::get_physical());
     }
 
-    benchmark::<TestKVACParams>(
-        "ca_rsa_alg".to_string(),
-        &range_lengths,
-        &num_cores,
-    );
+    benchmark::<TestKVACParams>("ca_rsa_alg".to_string(), &range_lengths, &num_cores);
 }

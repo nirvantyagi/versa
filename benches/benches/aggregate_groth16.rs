@@ -1,56 +1,43 @@
-use ark_ed_on_bls12_381::{Fq as BLS381Fr, EdwardsProjective, constraints::EdwardsVar};
 use ark_bls12_381::Bls12_381;
-use ark_ff::{PrimeField, ToConstraintField};
-use ark_ec::{PairingEngine};
 use ark_crypto_primitives::{
-    crh::pedersen::{constraints::CRHGadget, CRH, Window},
-    snark::{SNARK},
+    crh::pedersen::{constraints::CRHGadget, Window, CRH},
+    snark::SNARK,
 };
-use ark_r1cs_std::{prelude::*};
-use ark_relations::r1cs::{
-    ConstraintSynthesizer, ConstraintSystemRef, SynthesisError,
-};
-use ark_groth16::{Groth16};
-use ark_ip_proofs::{tipa::{SRS}};
+use ark_ec::PairingEngine;
+use ark_ed_on_bls12_381::{constraints::EdwardsVar, EdwardsProjective, Fq as BLS381Fr};
+use ark_ff::{PrimeField, ToConstraintField};
+use ark_groth16::Groth16;
+use ark_ip_proofs::tipa::SRS;
+use ark_r1cs_std::prelude::*;
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 
-use single_step_avd::{
-    SingleStepAVD, constraints::SingleStepAVDGadget,
-    merkle_tree_avd::{
-        MerkleTreeAVD, MerkleTreeAVDParameters, constraints::MerkleTreeAVDGadget,
-    },
-    rsa_avd::{
-        RsaAVD, constraints::RsaAVDGadget,
-    }
-};
 use crypto_primitives::{
+    hash::poseidon::{constraints::PoseidonSpongeVar, PoseidonSponge},
     sparse_merkle_tree::{MerkleDepth, MerkleTreeParameters},
-    hash::poseidon::{PoseidonSponge, constraints::PoseidonSpongeVar},
+};
+use full_history_avd::{
+    aggregation::{AggregatedFullHistoryAVD, AggregatedFullHistoryAVDParameters},
+    FullHistoryAVD,
 };
 use rsa::{
     bignat::constraints::BigNatCircuitParams,
+    hash::{constraints::PoseidonHasherGadget, HasherFromDigest, PoseidonHasher},
+    hog::RsaGroupParams,
     kvac::RsaKVACParams,
-    poker::{PoKERParams},
-    hog::{RsaGroupParams},
-    hash::{
-        HasherFromDigest, PoseidonHasher, constraints::PoseidonHasherGadget,
-    },
+    poker::PoKERParams,
 };
-use full_history_avd::{
-    FullHistoryAVD,
-    aggregation::{AggregatedFullHistoryAVD, AggregatedFullHistoryAVDParameters},
+use single_step_avd::{
+    constraints::SingleStepAVDGadget,
+    merkle_tree_avd::{constraints::MerkleTreeAVDGadget, MerkleTreeAVD, MerkleTreeAVDParameters},
+    rsa_avd::{constraints::RsaAVDGadget, RsaAVD},
+    SingleStepAVD,
 };
 
-use rand::{rngs::StdRng, SeedableRng};
-use digest::Digest as HashDigest;
 use csv::Writer;
+use digest::Digest as HashDigest;
+use rand::{rngs::StdRng, SeedableRng};
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-    marker::PhantomData,
-};
-
+use std::{io::stdout, marker::PhantomData, string::String, time::Instant};
 
 #[derive(Clone)]
 pub struct Window4x256;
@@ -83,7 +70,6 @@ impl MerkleTreeAVDParameters for MerkleTreeAVDTestParameters {
 type TestMerkleTreeAVD = MerkleTreeAVD<MerkleTreeAVDTestParameters>;
 type TestMerkleTreeAVDGadget = MerkleTreeAVDGadget<MerkleTreeAVDTestParameters, HG, BLS381Fr>;
 
-
 #[derive(Clone)]
 pub struct PoseidonMerkleTreeTestParameters;
 
@@ -101,7 +87,8 @@ impl MerkleTreeAVDParameters for PoseidonMerkleTreeAVDTestParameters {
     type MerkleTreeParameters = PoseidonMerkleTreeTestParameters;
 }
 type PoseidonTestMerkleTreeAVD = MerkleTreeAVD<PoseidonMerkleTreeAVDTestParameters>;
-type PoseidonTestMerkleTreeAVDGadget = MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<BLS381Fr>, BLS381Fr>;
+type PoseidonTestMerkleTreeAVDGadget =
+    MerkleTreeAVDGadget<PoseidonMerkleTreeAVDTestParameters, PoseidonSpongeVar<BLS381Fr>, BLS381Fr>;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestRsaParams;
@@ -168,12 +155,11 @@ pub type TestRsaAVDGadget<F> = RsaAVDGadget<
     BigNatTestParams,
 >;
 
-
 pub struct DummyCircuit<SSAVD, SSAVDGadget, ConstraintF>
-    where
-        SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-        ConstraintF: PrimeField,
+where
+    SSAVD: SingleStepAVD,
+    SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
+    ConstraintF: PrimeField,
 {
     _ssavd: PhantomData<SSAVD>,
     _ssavd_gadget: PhantomData<SSAVDGadget>,
@@ -184,11 +170,12 @@ pub struct VerifierInput<SSAVD: SingleStepAVD> {
     _ssavd: PhantomData<SSAVD>,
 }
 
-impl<SSAVD, SSAVDGadget, ConstraintF> ConstraintSynthesizer<ConstraintF> for DummyCircuit<SSAVD, SSAVDGadget, ConstraintF>
-    where
-        SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-        ConstraintF: PrimeField,
+impl<SSAVD, SSAVDGadget, ConstraintF> ConstraintSynthesizer<ConstraintF>
+    for DummyCircuit<SSAVD, SSAVDGadget, ConstraintF>
+where
+    SSAVD: SingleStepAVD,
+    SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
+    ConstraintF: PrimeField,
 {
     fn generate_constraints(
         self,
@@ -196,71 +183,79 @@ impl<SSAVD, SSAVDGadget, ConstraintF> ConstraintSynthesizer<ConstraintF> for Dum
     ) -> Result<(), SynthesisError> {
         // Allocate public inputs
         let d = SSAVD::Digest::default();
-        let d1 = SSAVDGadget::DigestVar::new_input(
-            ark_relations::ns!(cs, "prev_digest"),
-            || Ok(&d),
-        )?;
-        let d2 = SSAVDGadget::DigestVar::new_input(
-            ark_relations::ns!(cs, "new_digest"),
-            || Ok(&d),
-        )?;
+        let d1 =
+            SSAVDGadget::DigestVar::new_input(ark_relations::ns!(cs, "prev_digest"), || Ok(&d))?;
+        let d2 =
+            SSAVDGadget::DigestVar::new_input(ark_relations::ns!(cs, "new_digest"), || Ok(&d))?;
         d1.enforce_equal(&d2)?;
         Ok(())
     }
 }
 
 impl<SSAVD, SSAVDGadget, ConstraintF> Default for DummyCircuit<SSAVD, SSAVDGadget, ConstraintF>
-    where
-        SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
-        ConstraintF: PrimeField,
+where
+    SSAVD: SingleStepAVD,
+    SSAVDGadget: SingleStepAVDGadget<SSAVD, ConstraintF>,
+    ConstraintF: PrimeField,
 {
     fn default() -> Self {
-        Self { _ssavd: PhantomData, _ssavd_gadget: PhantomData, _field: PhantomData }
+        Self {
+            _ssavd: PhantomData,
+            _ssavd_gadget: PhantomData,
+            _field: PhantomData,
+        }
     }
 }
 
-
-impl <SSAVD, ConstraintF> ToConstraintField<ConstraintF> for VerifierInput<SSAVD>
-    where
-        SSAVD: SingleStepAVD,
-        ConstraintF: PrimeField,
-        SSAVD::Digest: ToConstraintField<ConstraintF>,
+impl<SSAVD, ConstraintF> ToConstraintField<ConstraintF> for VerifierInput<SSAVD>
+where
+    SSAVD: SingleStepAVD,
+    ConstraintF: PrimeField,
+    SSAVD::Digest: ToConstraintField<ConstraintF>,
 {
     fn to_field_elements(&self) -> Option<Vec<ConstraintF>> {
         let mut v = Vec::new();
-        v.extend_from_slice(&SSAVD::Digest::default().to_field_elements().unwrap_or_default());
-        v.extend_from_slice(&SSAVD::Digest::default().to_field_elements().unwrap_or_default());
+        v.extend_from_slice(
+            &SSAVD::Digest::default()
+                .to_field_elements()
+                .unwrap_or_default(),
+        );
+        v.extend_from_slice(
+            &SSAVD::Digest::default()
+                .to_field_elements()
+                .unwrap_or_default(),
+        );
         Some(v)
     }
 }
 
-impl <SSAVD: SingleStepAVD> Clone for VerifierInput<SSAVD> {
+impl<SSAVD: SingleStepAVD> Clone for VerifierInput<SSAVD> {
     fn clone(&self) -> Self {
-        Self { _ssavd: PhantomData }
+        Self {
+            _ssavd: PhantomData,
+        }
     }
 }
 
-impl <SSAVD: SingleStepAVD> Default for VerifierInput<SSAVD> {
+impl<SSAVD: SingleStepAVD> Default for VerifierInput<SSAVD> {
     fn default() -> Self {
-        Self { _ssavd: PhantomData }
+        Self {
+            _ssavd: PhantomData,
+        }
     }
 }
 
-
-fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>
-(
+fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>(
     scheme_name: String,
     range_lengths: &Vec<usize>,
     cores: &Vec<usize>,
-)
-    where
-        Params: AggregatedFullHistoryAVDParameters,
-        SSAVD: SingleStepAVD,
-        SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
-        Pairing: PairingEngine,
-        FastH: HashDigest,
-        SSAVD::Digest: ToConstraintField<Pairing::Fr>,
+) where
+    Params: AggregatedFullHistoryAVDParameters,
+    SSAVD: SingleStepAVD,
+    SSAVDGadget: SingleStepAVDGadget<SSAVD, Pairing::Fr>,
+    Pairing: PairingEngine,
+    FastH: HashDigest,
+    SSAVD::Digest: ToConstraintField<Pairing::Fr>,
 {
     let mut rng = StdRng::seed_from_u64(0_u64);
     let mut csv_writer = Writer::from_writer(stdout());
@@ -272,8 +267,12 @@ fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>
     let max_range = range_lengths.iter().max().cloned().unwrap();
 
     let mut pp = Option::None;
-    { // Setup
-        let setup_pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get_physical()).build().unwrap();
+    {
+        // Setup
+        let setup_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get_physical())
+            .build()
+            .unwrap();
         setup_pool.install(|| {
             let ip_pp = AggregatedFullHistoryAVD::<Params, SSAVD, SSAVDGadget, Pairing, FastH>::setup_inner_product(&mut rng, (1_u64 << (max_range as u64)) as usize).unwrap();
             let (groth16_pp, groth16_vk) = Groth16::<Pairing>::circuit_specific_setup::<DummyCircuit<SSAVD, SSAVDGadget, Pairing::Fr>, _>(Default::default(), &mut rng).unwrap();
@@ -287,15 +286,16 @@ fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>
         });
     }
 
-    { // Update
+    {
+        // Update
         let (ip_pp, _groth16_pp, groth16_vk, groth16_proof) = pp.unwrap();
 
         for log_len in range_lengths.iter() {
             let len = 1_usize << *log_len;
             let proofs = vec![groth16_proof.clone(); len];
-            let ip_srs = SRS{
-                g_alpha_powers: ip_pp.g_alpha_powers[0..(2*len - 1)].to_vec(),
-                h_beta_powers: ip_pp.h_beta_powers[0..(2*len - 1)].to_vec(),
+            let ip_srs = SRS {
+                g_alpha_powers: ip_pp.g_alpha_powers[0..(2 * len - 1)].to_vec(),
+                h_beta_powers: ip_pp.h_beta_powers[0..(2 * len - 1)].to_vec(),
                 g_beta: ip_pp.g_beta.clone(),
                 h_alpha: ip_pp.h_alpha.clone(),
             };
@@ -309,7 +309,10 @@ fn benchmark<Params, SSAVD, SSAVDGadget, Pairing, FastH>
                 if *num_cores > num_cpus::get_physical() {
                     continue;
                 }
-                let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+                let update_pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(*num_cores as usize)
+                    .build()
+                    .unwrap();
                 update_pool.install(|| {
                     let digests = vec![<AggregatedFullHistoryAVD::<Params, SSAVD, SSAVDGadget, Pairing, FastH> as FullHistoryAVD>::Digest::default(); len];
                     let start = Instant::now();
@@ -348,7 +351,8 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut range_lengths, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
+    let (mut range_lengths, mut num_cores): (Vec<usize>, Vec<usize>) = if args.len() > 1
+        && (args[1] == "-h" || args[1] == "--help")
     {
         println!("Usage: ``cargo bench --bench aggregate_groth16 --  [--ranges <RANGE_LEN>...][--num_cores <NUM_CORES>...]``");
         return;
@@ -368,7 +372,7 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 "--num_cores" => {
                     next_arg = args.next();
                     'num_cores: while let Some(cores_arg) = next_arg.clone() {
@@ -378,10 +382,10 @@ fn main() {
                         }
                         next_arg = args.next();
                     }
-                },
+                }
                 _ => {
                     println!("Invalid argument: {}", arg);
-                    return
+                    return;
                 }
             }
         }
@@ -422,9 +426,5 @@ fn main() {
         TestRsaAVDGadget<BLS381Fr>,
         Bls12_381,
         blake3::Hasher,
-    >(
-        "ca_rsa_aggr".to_string(),
-        &range_lengths,
-        &num_cores,
-    );
+    >("ca_rsa_aggr".to_string(), &range_lengths, &num_cores);
 }

@@ -1,27 +1,16 @@
-use ark_ed_on_bls12_381::{Fq as BLS381Fr};
+use ark_ed_on_bls12_381::Fq as BLS381Fr;
 
 use rsa::{
     bignat::constraints::BigNatCircuitParams,
-    kvac::RsaKVACParams,
-    poker::{
-        PoKERParams,
-        PoKER,
-        Statement as PoKERStatement,
-        Witness as PoKERWitness,
-    },
+    hash::{hash_to_integer::hash_to_integer, HasherFromDigest},
     hog::{RsaGroupParams, RsaHiddenOrderGroup},
-    hash::{
-        HasherFromDigest, hash_to_integer::hash_to_integer,
-    },
+    kvac::RsaKVACParams,
+    poker::{PoKER, PoKERParams, Statement as PoKERStatement, Witness as PoKERWitness},
 };
 
 use csv::Writer;
 
-use std::{
-    string::String,
-    io::stdout,
-    time::{Instant},
-};
+use std::{io::stdout, string::String, time::Instant};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestRsaParams;
@@ -46,7 +35,6 @@ impl RsaGroupParams for TestRsaParams {
                           120720357";
 }
 
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BigNatTestParams;
 
@@ -61,7 +49,6 @@ impl BigNatCircuitParams for BigNatTestParams {
     const LIMB_WIDTH: usize = 254;
     const N_LIMBS: usize = 9;
 }
-
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TestPokerParams;
@@ -102,16 +89,24 @@ pub type PoKParams<P> = <P as RsaKVACParams>::PoKERParams;
 pub type Hog<P> = RsaHiddenOrderGroup<RsaParams<P>>;
 pub type H = HasherFromDigest<BLS381Fr, blake3::Hasher>;
 
-fn benchmark<P: RsaKVACParams>
-(
+fn benchmark<P: RsaKVACParams>(
     scheme_name: String,
     range_lengths: &Vec<usize>,
     batch_sizes: &Vec<usize>,
     cores: &Vec<usize>,
-) where <P as RsaKVACParams>::RsaGroupParams: Sync {
+) where
+    <P as RsaKVACParams>::RsaGroupParams: Sync,
+{
     let mut csv_writer = Writer::from_writer(stdout());
     csv_writer
-        .write_record(&["scheme", "operation", "log_range_size", "batch_size", "num_cores", "time"])
+        .write_record(&[
+            "scheme",
+            "operation",
+            "log_range_size",
+            "batch_size",
+            "num_cores",
+            "time",
+        ])
         .unwrap();
     csv_writer.flush().unwrap();
 
@@ -130,8 +125,10 @@ fn benchmark<P: RsaKVACParams>
             let delta1 = hash_to_integer::<H>(&[BLS381Fr::from(3 as u8)], int_len);
             let delta2 = hash_to_integer::<H>(&[BLS381Fr::from(4 as u8)], int_len);
 
-            let c1_new = c1.power(&z1).power(&z2)
-                .op(&c2.power(&z1).power(&delta2).op(&c2.power(&z2).power(&delta1)));
+            let c1_new = c1.power(&z1).power(&z2).op(&c2
+                .power(&z1)
+                .power(&delta2)
+                .op(&c2.power(&z2).power(&delta1)));
             let c2_new = c2.power(&z1).power(&z2);
             let statement = PoKERStatement {
                 u1: c1.clone(),
@@ -140,51 +137,69 @@ fn benchmark<P: RsaKVACParams>
                 w2: c2_new,
             };
             let end = start.elapsed().as_secs();
-            csv_writer.write_record(&[
-                scheme_name.clone(),
-                "setup".to_string(),
-                log_len.to_string(),
-                batch_size.to_string(),
-                "0".to_string(),
-                end.to_string(),
-            ]).unwrap();
+            csv_writer
+                .write_record(&[
+                    scheme_name.clone(),
+                    "setup".to_string(),
+                    log_len.to_string(),
+                    batch_size.to_string(),
+                    "0".to_string(),
+                    end.to_string(),
+                ])
+                .unwrap();
             csv_writer.flush().unwrap();
 
             for num_cores in cores.iter() {
                 if *num_cores > num_cpus::get_physical() {
                     continue;
                 }
-                let update_pool = rayon::ThreadPoolBuilder::new().num_threads(*num_cores as usize).build().unwrap();
+                let update_pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(*num_cores as usize)
+                    .build()
+                    .unwrap();
                 update_pool.install(|| {
                     let start = Instant::now();
                     let witness = PoKERWitness {
                         a: z1.clone() * z2.clone(),
                         b: z1.clone() * delta2.clone() + z2.clone() * delta1.clone(),
                     };
-                    let proof = PoKER::<PoKParams<P>, RsaParams<P>, H, BigNatTestParams>::prove(&statement, &witness).unwrap();
+                    let proof = PoKER::<PoKParams<P>, RsaParams<P>, H, BigNatTestParams>::prove(
+                        &statement, &witness,
+                    )
+                    .unwrap();
                     let end = start.elapsed().as_millis();
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "aggregate".to_string(),
-                        log_len.to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
+                    csv_writer
+                        .write_record(&[
+                            scheme_name.clone(),
+                            "aggregate".to_string(),
+                            log_len.to_string(),
+                            batch_size.to_string(),
+                            num_cores.to_string(),
+                            end.to_string(),
+                        ])
+                        .unwrap();
                     csv_writer.flush().unwrap();
 
                     let start = Instant::now();
-                    let b = PoKER::<PoKParams<P>, RsaParams<P>, HasherFromDigest<BLS381Fr, blake3::Hasher>, BigNatTestParams>::verify(&statement, &proof).unwrap();
+                    let b = PoKER::<
+                        PoKParams<P>,
+                        RsaParams<P>,
+                        HasherFromDigest<BLS381Fr, blake3::Hasher>,
+                        BigNatTestParams,
+                    >::verify(&statement, &proof)
+                    .unwrap();
                     let end = start.elapsed().as_millis();
                     assert!(b);
-                    csv_writer.write_record(&[
-                        scheme_name.clone(),
-                        "verify".to_string(),
-                        log_len.to_string(),
-                        batch_size.to_string(),
-                        num_cores.to_string(),
-                        end.to_string(),
-                    ]).unwrap();
+                    csv_writer
+                        .write_record(&[
+                            scheme_name.clone(),
+                            "verify".to_string(),
+                            log_len.to_string(),
+                            batch_size.to_string(),
+                            num_cores.to_string(),
+                            end.to_string(),
+                        ])
+                        .unwrap();
                     csv_writer.flush().unwrap();
                 });
             }
@@ -197,56 +212,56 @@ fn main() {
     if args.last().unwrap() == "--bench" {
         args.pop();
     }
-    let (mut range_lengths, mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>, Vec<usize>) = if args.len() > 1 && (args[1] == "-h" || args[1] == "--help")
-    {
-        println!("Usage: ``cargo bench --bench aggregate_rsa --  [--ranges <RANGE_LEN>...][--batch_sizes <SIZE>...][--num_cores <NUM_CORES>...]``");
-        return;
-    } else {
-        let mut args = args.into_iter().skip(1);
-        let mut next_arg = args.next();
-        let mut range_lengths = vec![];
-        let mut batch_sizes = vec![];
-        let mut num_cores = vec![];
-        while let Some(arg) = next_arg.clone() {
-            match arg.as_str() {
-                "--ranges" => {
-                    next_arg = args.next();
-                    'subargs: while let Some(subarg) = next_arg.clone() {
-                        match subarg.parse::<usize>() {
-                            Ok(range) => range_lengths.push(range),
-                            Err(_) => break 'subargs,
-                        }
+    let (mut range_lengths, mut batch_sizes, mut num_cores): (Vec<usize>, Vec<usize>, Vec<usize>) =
+        if args.len() > 1 && (args[1] == "-h" || args[1] == "--help") {
+            println!("Usage: ``cargo bench --bench aggregate_rsa --  [--ranges <RANGE_LEN>...][--batch_sizes <SIZE>...][--num_cores <NUM_CORES>...]``");
+            return;
+        } else {
+            let mut args = args.into_iter().skip(1);
+            let mut next_arg = args.next();
+            let mut range_lengths = vec![];
+            let mut batch_sizes = vec![];
+            let mut num_cores = vec![];
+            while let Some(arg) = next_arg.clone() {
+                match arg.as_str() {
+                    "--ranges" => {
                         next_arg = args.next();
-                    }
-                },
-                "--batch_size" => {
-                    next_arg = args.next();
-                    'batch_size: while let Some(batch_arg) = next_arg.clone() {
-                        match batch_arg.parse::<usize>() {
-                            Ok(batch_size) => batch_sizes.push(batch_size),
-                            Err(_) => break 'batch_size,
+                        'subargs: while let Some(subarg) = next_arg.clone() {
+                            match subarg.parse::<usize>() {
+                                Ok(range) => range_lengths.push(range),
+                                Err(_) => break 'subargs,
+                            }
+                            next_arg = args.next();
                         }
-                        next_arg = args.next();
                     }
-                },
-                "--num_cores" => {
-                    next_arg = args.next();
-                    'num_cores: while let Some(cores_arg) = next_arg.clone() {
-                        match cores_arg.parse::<usize>() {
-                            Ok(cores) => num_cores.push(cores),
-                            Err(_) => break 'num_cores,
+                    "--batch_size" => {
+                        next_arg = args.next();
+                        'batch_size: while let Some(batch_arg) = next_arg.clone() {
+                            match batch_arg.parse::<usize>() {
+                                Ok(batch_size) => batch_sizes.push(batch_size),
+                                Err(_) => break 'batch_size,
+                            }
+                            next_arg = args.next();
                         }
-                        next_arg = args.next();
                     }
-                },
-                _ => {
-                    println!("Invalid argument: {}", arg);
-                    return
+                    "--num_cores" => {
+                        next_arg = args.next();
+                        'num_cores: while let Some(cores_arg) = next_arg.clone() {
+                            match cores_arg.parse::<usize>() {
+                                Ok(cores) => num_cores.push(cores),
+                                Err(_) => break 'num_cores,
+                            }
+                            next_arg = args.next();
+                        }
+                    }
+                    _ => {
+                        println!("Invalid argument: {}", arg);
+                        return;
+                    }
                 }
             }
-        }
-        (range_lengths, batch_sizes, num_cores)
-    };
+            (range_lengths, batch_sizes, num_cores)
+        };
     if range_lengths.len() == 0 {
         range_lengths.push(5);
     }
