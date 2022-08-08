@@ -187,8 +187,9 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
             //TODO: Optimization tradeoff: Can track optional "pi_2" from KVAC paper so don't need to do z^{u-1}
             let z_u1 = z.clone().pow(witness.u as u32 - 1);
             let z_u = BigNat::from(&z_u1 * &z);
-            let b_1 = witness.pi_1.power(&z_u).op(&witness.pi_3.power(&BigNat::from(v.as_ref().unwrap() * &z_u1))) == c1.clone();
-            let b_2 = witness.pi_3.power(&z_u) == c2.clone();
+            let pi_3_z_u1 = witness.pi_3.power(&z_u1);
+            let b_1 = witness.pi_1.power(&z_u).op(&pi_3_z_u1.power(&BigNat::from(v.as_ref().unwrap()))) == c1.clone();
+            let b_2 = pi_3_z_u1.power(&z) == c2.clone();
             let b_3 = witness.pi_3.power(&witness.a).op(&witness.b.power(&z)) == Hog::<P>::generator();
             Ok(b_1 && b_2 && b_3)
         }
@@ -219,6 +220,27 @@ impl<P: RsaKVACParams, H: Hasher, CircuitH: Hasher, C: BigNatCircuitParams> RsaK
         Ok((self.commitment.clone(), update_proof, (z, v_delta)))
     }
 
+    // TODO: Find cleaner benchmarking solution
+    // Only used in benchmark ``verify_witnesses_rsa``
+    pub fn _update_without_proof(
+        &mut self, k: BigNat,
+        v: BigNat,
+    ) -> Result<(), Error> {
+        // Update value
+        let v_delta = self._update_value(k.clone(), v.clone())?;
+
+        // Update commitment
+        let (z, _) = hash_to_prime::<H>(&fit_nat_to_limb_capacity(&k)?, P::PRIME_LEN)?;
+        let (c1, c2) = (self.commitment.c1.clone(), self.commitment.c2.clone());
+        let c1_new = c1.power(&z).op(&c2.power(&v_delta));
+        let c2_new = c2.power(&z);
+        self.commitment = Commitment { c1: c1_new, c2: c2_new, _params: PhantomData };
+        self.deferred_counter_dict_exp_updates.push(z.clone());
+        self.epoch += 1;
+        self.epoch_updates.push(vec![(k.clone(), v_delta.clone())]);
+
+        Ok(())
+    }
 
     pub fn _batch_update(
         &mut self,
