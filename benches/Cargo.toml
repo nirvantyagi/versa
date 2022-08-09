@@ -81,3 +81,8 @@ name = "update_merkle_tree"
 path = "benches/update_merkle_tree.rs"
 harness = false
 
+[[bench]]
+name = "verify_witnesses_rsa"
+path = "benches/verify_witnesses_rsa.rs"
+harness = false
+
