@@ -42,7 +42,7 @@ We implement a storage interface allowing for the data structures to store state
 
 ## Installation/Build
 
-The packages and benchmarks are easy to compile from source. The following sequence of commands may be helpful especially if on a fresh machine.
+The packages and benchmarks are easy to compile from source. The following sequence of commands may be helpful especially if on a fresh machine. A `Dockerfile` has also been provided which will run the equivalent of these commands and spin up an instance of Ubuntu. 
 
 Install basic prerequisites and dependencies:
 ```
