@@ -24,8 +24,8 @@ It is possible to consume routes 1 & 2 while an epoch update is underway because
 
 ## Installation/Build
 
-Like in the main branch, the provided Dockerfile will install all needed dependencies and pull and compile code.
+Like in the main branch, the same [installation sequence](https://github.com/nirvantyagi/versa/blob/master/README.md#installationbuild) is required.
 
-To run the server a Redis instance must be accessible at `redis://127.0.0.1/`.
+In addition, a Redis instance must be accessible at the canonical port:address `redis://127.0.0.1/`
 
-Finally `cd` into the server directory and run `cargo run`
+Finally, `cd` into the server directory and run `cargo run`
