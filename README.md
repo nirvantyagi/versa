@@ -42,8 +42,18 @@ We implement a storage interface allowing for the data structures to store state
 
 ## Installation/Build
 
-The packages and benchmarks are easy to compile from source using the stable toolchain of the Rust compiler.
-Install the Rust toolchain manager `rustup` by following the instructions [here](https://rustup.rs/).
+The packages and benchmarks are easy to compile from source. The following sequence of commands may be helpful especially if on a fresh machine. A `Dockerfile` has also been provided which will run the equivalent of these commands and spin up an instance of Ubuntu. 
+
+Install basic prerequisites and dependencies:
+```
+apt update && apt install -y curl
+apt install git m4 z3 cmake libboost-all-dev build-essential
+```
+Install rust using any method ([Rust offical installation site](https://www.rust-lang.org/tools/install)):
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+```
 
 Clone the repository:
 ```bash
@@ -51,20 +61,9 @@ git clone https://github.com/nirvantyagi/versa.git
 cd versa/
 ```
 
-Install prerequisites for [`rug`](https://docs.rs/gmp-mpfr-sys/1.4.4/gmp_mpfr_sys/index.html):
-```bash
-sudo apt-get update
-sudo apt install diffutils gcc m4 make
-```
-
 Build using `cargo`:
 ```bash
 cargo build
-```
-
-If running on a fresh Ubuntu machine, you may need to install additional dependencies for `libc`:
-```bash
-sudo apt install build-essential
 ```
 
 ## Tests and Benchmarks
